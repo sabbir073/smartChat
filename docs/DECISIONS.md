@@ -363,3 +363,44 @@ until the agent selects something else.
 **Tradeoffs** Two places hold a conversation, so every mutation updates both. Contained to one
 helper.
 **Date** 2026-08-25
+
+---
+## ADR-027 — A visitor can end their own chat, and ending is a message
+**Context** Only agents could close a conversation. A visitor who was finished had no way to say
+so, and the panel's only closed-state affordance was a banner reading "This conversation was closed.
+Send a message to reopen it." next to a composer that was disabled — an instruction the product
+could not carry out.
+**Chosen** The panel offers "End chat" in the header, behind an inline confirmation. Ending is
+recorded as a **system message** in the transcript rather than only flipping a flag.
+**Reason** A status change is something both sides need to see now and still see tomorrow. As a
+message it gets a sequence number, rides the same broadcast as everything else, survives a reload,
+and replays correctly through `sync:since` — none of which a boolean on the conversation row gives
+you. It also means the transcript is honest about what happened and when, which matters as soon as
+anybody reads one back.
+**Wording** The row stores a machine-readable `metadata` bag (`kind`, `by`, `actorName`) and an
+English `body` as an export fallback. Each client writes its own copy from the metadata, so the
+visitor reads "You ended this chat" where the agent reads "The visitor ended this chat" — the same
+event told from each side, and no stored English to re-translate later.
+**Counters** System messages touch no unread counter. An unread badge means "somebody said
+something you have not read"; a chat ending is not that.
+**No visitor-facing reopen** A visitor who wants to talk again presses "Start a new chat", and
+`startOrContinue` gives them a fresh conversation because the last one is closed. Reopening is an
+agent's decision about their own queue.
+**Tradeoffs** One extra row per status change. Worth it for a transcript that explains itself.
+**Date** 2026-08-25
+
+---
+## ADR-028 — Agent names are resolved from the record, not only from the sender's context
+**Context** `senderName` was populated from the sending agent's own request context. That worked
+for live delivery and for nothing else: reload the widget and every agent reply became anonymous.
+Worse, the context never carried a name at all, because the membership lookup behind it did not
+load the user — so in practice visitors never saw who they were talking to.
+**Chosen** The membership query selects the user's name, and message history joins the sender
+(display name, falling back to the user's name). The live sender's context still wins when present;
+the relation is the fallback that makes a replayed transcript read like the live one.
+**Reason** "Who am I talking to" is not a rendering detail. A support conversation where the other
+party is nameless reads as automated, and a transcript that loses the name on reload is worse than
+one that never had it.
+**Tradeoffs** One join on the message list query, selecting two columns. Only the name is selected:
+a message payload has no business carrying the rest of a user row.
+**Date** 2026-08-25

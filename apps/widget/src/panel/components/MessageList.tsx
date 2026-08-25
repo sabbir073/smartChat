@@ -1,6 +1,23 @@
 import { useEffect, useRef } from 'react';
 import type { PanelMessage } from '../lib/types.js';
 
+/**
+ * The visitor-facing wording for a system message.
+ *
+ * Written here rather than read from `body` so the panel controls its own voice: the visitor is
+ * "you", and an agent is named or called by the business's own label. `body` is the server's
+ * English fallback and is used only if a future event kind reaches an older panel.
+ */
+function systemText(message: PanelMessage): string {
+  const event = message.event;
+  if (!event) return message.body;
+
+  const actor = event.by === 'visitor' ? 'You' : (event.actorName ?? 'The support team');
+  return event.kind === 'conversation.closed'
+    ? `${actor} ended this chat`
+    : `${actor} reopened this chat`;
+}
+
 function timeOf(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -46,6 +63,18 @@ export function MessageList({
       {welcome && <div className="bubble bubble-agent">{welcome}</div>}
 
       {messages.map((message) => {
+        if (message.type === 'system') {
+          return (
+            <div className="system-row" key={message.id} role="status">
+              <span className="system-line" aria-hidden="true" />
+              <span className="system-text">
+                {systemText(message)} · {timeOf(message.createdAt)}
+              </span>
+              <span className="system-line" aria-hidden="true" />
+            </div>
+          );
+        }
+
         const fromVisitor = message.senderType === 'visitor';
         return (
           <div

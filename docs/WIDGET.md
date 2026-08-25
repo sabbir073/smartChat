@@ -104,3 +104,34 @@ working widget in 2030.
 Keyboard-operable launcher and panel, focus trapped inside the open panel and restored on close,
 `aria-live` on the message list, labelled controls, visible focus rings, and contrast checked
 against the customer's chosen colours with a warning in the builder when it fails AA.
+
+## Ending a chat
+
+The visitor can end their own chat from "End chat" in the panel header, behind an inline
+confirmation (never `confirm()` — a browser dialog inside a cross-origin iframe blocks the host
+page). The panel does not mark itself closed optimistically: it waits for the server, so the
+agent's screen and the visitor's always agree about whether the conversation is live.
+
+Whoever ends it — visitor or agent — the ending is written into the transcript as a system message
+and pushed to both sides live. See ADR-027. What each side sees:
+
+| | Visitor's panel | Agent's inbox |
+| --- | --- | --- |
+| Visitor ends it | "You ended this chat" | "The visitor ended this chat" |
+| Agent ends it | "<agent name> ended this chat" | "<agent name> ended this chat" |
+| Agent reopens it | "<agent name> reopened this chat" | "<agent name> reopened this chat" |
+
+Once ended, the panel keeps the transcript on screen — somebody who has just been helped often
+wants to re-read it — and replaces the composer with "This chat has ended" and a **Start a new
+chat** button. The composer is replaced rather than disabled, because a disabled text box invites
+people to type into it and wonder why nothing happens.
+
+"Start a new chat" clears the panel and forgets the conversation id, so the next message creates a
+new conversation. Pre-chat is not asked again: the visitor has already said who they are, and
+asking twice in one session is a tax on somebody who has just been through a support conversation.
+
+If an agent reopens a conversation the visitor had ended, the panel un-ends itself live and the
+composer returns.
+
+The header's × is **minimise**, not end. It was labelled "Close chat" when there was nothing to
+end, which made it look like it threw the conversation away.

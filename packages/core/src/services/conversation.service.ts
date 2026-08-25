@@ -397,6 +397,100 @@ export class ConversationService {
     return { message: dto, conversation: persisted.conversation, created: persisted.created };
   }
 
+  /**
+   * Write a status change into the transcript.
+   *
+   * A conversation ending is something both sides need to see and still see tomorrow, so it is a
+   * message rather than a flag: it gets a sequence number, it is broadcast down the same channel
+   * as everything else, and it survives a reload and a `sync:since` replay without any special
+   * handling. `body` is an English fallback for exports; clients render from `metadata` so the
+   * wording is theirs, not whatever was written into the row when it was created.
+   */
+  private async recordStatusChange(
+    conversation: Conversation,
+    change: {
+      kind: 'conversation.closed' | 'conversation.reopened';
+      by: 'visitor' | 'agent';
+      actorName?: string | undefined;
+    },
+    now: Date,
+  ): Promise<MessageDto> {
+    const who = change.by === 'visitor' ? 'The visitor' : (change.actorName ?? 'An agent');
+    const what = change.kind === 'conversation.closed' ? 'ended this chat' : 'reopened this chat';
+
+    const persisted = await this.options.db.$transaction((tx) =>
+      new ConversationRepository(tx).insertMessage({
+        accountId: conversation.accountId,
+        propertyId: conversation.propertyId,
+        conversationId: conversation.id,
+        senderType: 'system',
+        type: 'system',
+        body: `${who} ${what}.`,
+        metadata: {
+          kind: change.kind,
+          by: change.by,
+          ...(change.actorName ? { actorName: change.actorName } : {}),
+        },
+        now,
+      }),
+    );
+
+    const dto = toMessageDto(persisted.message);
+    await this.options.events.publish({
+      type: ServerEvent.MESSAGE_NEW,
+      accountId: conversation.accountId,
+      propertyId: conversation.propertyId,
+      conversationId: conversation.id,
+      visitorId: conversation.visitorId,
+      payload: { message: dto, room: room.conversation(conversation.id) },
+    });
+    return dto;
+  }
+
+  /**
+   * The visitor ends their own chat.
+   *
+   * A visitor may only ever end a conversation that is theirs, and may only end it - there is no
+   * visitor-facing reopen, because a visitor who wants to talk again simply starts a new chat and
+   * `startOrContinue` gives them a fresh conversation once the last one is closed.
+   */
+  async closeByVisitor(
+    identity: VisitorIdentity,
+    conversationId: string,
+  ): Promise<{ conversation: Conversation; alreadyClosed: boolean }> {
+    const conversation = await this.repo.findForVisitor(
+      identity.accountId,
+      identity.visitorId,
+      conversationId,
+    );
+    // Same answer for someone else's conversation as for one that does not exist.
+    if (!conversation) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+    // Ending an already-ended chat is a no-op, not an error: a double tap must not fail.
+    if (conversation.status === 'closed') return { conversation, alreadyClosed: true };
+
+    const now = this.clock.now();
+    const updated = await this.repo.updateForVisitor(identity.accountId, conversationId, {
+      status: 'closed',
+      closedAt: now,
+      // Deliberately null. This column means "which member closed it", and no member did.
+      closedByMemberId: null,
+    });
+    if (!updated) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+
+    await this.recordStatusChange(updated, { kind: 'conversation.closed', by: 'visitor' }, now);
+
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_CLOSED,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId,
+      visitorId: identity.visitorId,
+      payload: { conversationId, status: 'closed', closedBy: 'visitor' },
+    });
+
+    return { conversation: updated, alreadyClosed: false };
+  }
+
   async update(
     context: TenantContext,
     conversationId: string,
@@ -425,6 +519,22 @@ export class ConversationService {
 
     const updated = await this.repo.update(context, conversationId, data);
     if (!updated) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+
+    // Only a real transition is worth recording. Re-closing an already-closed conversation, or
+    // saving a tag change, must not litter the transcript.
+    if (input.status !== undefined && input.status !== conversation.status) {
+      if (input.status === 'closed' || conversation.status === 'closed') {
+        await this.recordStatusChange(
+          updated,
+          {
+            kind: input.status === 'closed' ? 'conversation.closed' : 'conversation.reopened',
+            by: 'agent',
+            actorName: context.actorName,
+          },
+          now,
+        );
+      }
+    }
 
     await this.options.events.publish({
       type:

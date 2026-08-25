@@ -9,6 +9,22 @@ interface ThreadMessage extends AgentMessage {
   delivery: 'pending' | 'sent' | 'failed';
 }
 
+/**
+ * The agent-facing wording for a system message.
+ *
+ * The dashboard says "the visitor" where the panel says "you", and names the colleague who acted
+ * rather than calling them "the support team" - the same event, told from this side of it.
+ */
+function systemText(message: ThreadMessage): string {
+  const event = message.event;
+  if (!event) return message.body;
+
+  const actor = event.by === 'visitor' ? 'The visitor' : (event.actorName ?? 'An agent');
+  return event.kind === 'conversation.closed'
+    ? `${actor} ended this chat`
+    : `${actor} reopened this chat`;
+}
+
 function time(iso: string): string {
   try {
     return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -49,6 +65,18 @@ export function MessageThread({
       aria-label="Conversation"
     >
       {messages.map((message) => {
+        if (message.type === 'system') {
+          return (
+            <div key={message.id} className="flex items-center gap-3 py-1" role="status">
+              <span className="h-px flex-1 bg-border" aria-hidden="true" />
+              <span className="whitespace-nowrap text-[11.5px] text-ink-subtle">
+                {systemText(message)} · {time(message.createdAt)}
+              </span>
+              <span className="h-px flex-1 bg-border" aria-hidden="true" />
+            </div>
+          );
+        }
+
         const isNote = message.type === 'note';
         const fromAgent = message.senderType === 'agent';
 

@@ -275,8 +275,23 @@ export default function InboxPage() {
         setVisitorUrls((current) => ({ ...current, ...urls }));
       },
 
-      onConversationEvent: () => {
+      onConversationEvent: (_type, payload) => {
         void loadRef.current();
+
+        // The list reload will not touch the open conversation once a filter has excluded it, so
+        // a visitor ending the chat has to reach the thread directly - otherwise the agent keeps
+        // a live-looking composer over a conversation that has already closed.
+        const conversationId = payload?.['conversationId'];
+        const status = payload?.['status'];
+        if (typeof conversationId !== 'string') return;
+        if (status !== 'open' && status !== 'pending' && status !== 'closed') return;
+
+        setConversations((current) =>
+          current.map((row) => (row.id === conversationId ? { ...row, status } : row)),
+        );
+        setSelectedConversation((current) =>
+          current && current.id === conversationId ? { ...current, status } : current,
+        );
       },
     });
 

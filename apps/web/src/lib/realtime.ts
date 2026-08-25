@@ -15,6 +15,13 @@ import { api } from './api-client';
 
 export type AgentConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting';
 
+/** Structured detail on a system message, so the dashboard writes its own wording. */
+export interface SystemMessageEvent {
+  kind: 'conversation.closed' | 'conversation.reopened';
+  by: 'visitor' | 'agent';
+  actorName?: string;
+}
+
 export interface AgentMessage {
   id: string;
   conversationId: string;
@@ -27,6 +34,8 @@ export interface AgentMessage {
   body: string;
   createdAt: string;
   readAt: string | null;
+  /** Present only on `type: 'system'`. */
+  event?: SystemMessageEvent;
 }
 
 /** One property's live visitors, as the gateway knows them at the moment of subscribing. */

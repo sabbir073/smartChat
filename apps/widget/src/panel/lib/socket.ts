@@ -242,6 +242,41 @@ export class ChatClient {
     });
   }
 
+  /**
+   * End the chat.
+   *
+   * Resolves only once the server has committed the change, so the panel never shows "ended" for
+   * a chat that is still open on the agent's screen.
+   */
+  async endChat(): Promise<void> {
+    const socket = this.socket;
+    if (!socket?.connected || !this.conversationId) throw new Error('not connected');
+    const conversationId = this.conversationId;
+
+    await new Promise<void>((resolve, reject) => {
+      socket
+        .timeout(10_000)
+        .emit(
+          VisitorClientEvent.CONVERSATION_CLOSE,
+          { conversationId },
+          (
+            transportError: Error | null,
+            ack: { success: boolean; error?: { message: string } },
+          ) => {
+            if (transportError) return reject(transportError);
+            if (!ack?.success)
+              return reject(new Error(ack?.error?.message ?? 'Could not end the chat'));
+            return resolve();
+          },
+        );
+    });
+  }
+
+  /** Forget the conversation so the next message starts a new one rather than resuming this. */
+  forgetConversation(): void {
+    this.conversationId = null;
+  }
+
   markRead(): void {
     if (!this.socket?.connected || !this.conversationId) return;
     this.socket.emit(VisitorClientEvent.MESSAGE_READ, { conversationId: this.conversationId });

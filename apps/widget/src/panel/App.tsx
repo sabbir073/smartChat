@@ -10,6 +10,7 @@ import { PanelHeader } from './components/PanelHeader.js';
 import { PreChatForm } from './components/PreChatForm.js';
 import { MessageList } from './components/MessageList.js';
 import { Composer } from './components/Composer.js';
+import { ChatEnded, EndChatConfirm } from './components/ChatEnded.js';
 
 type View = 'loading' | 'unavailable' | 'prechat' | 'chat';
 
@@ -62,6 +63,11 @@ export function App() {
   const [agentTyping, setAgentTyping] = useState(false);
   const [online, setOnline] = useState(false);
   const [closed, setClosed] = useState(false);
+  /** Who ended it, so the wording is right. Null until something actually ends. */
+  const [endedBy, setEndedBy] = useState<'visitor' | 'agent' | null>(null);
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const [ending, setEnding] = useState(false);
+  const [endError, setEndError] = useState<string | null>(null);
 
   const bridge = useMemo(() => (params ? new PanelBridge(params.nonce) : null), [params]);
   const hostPage = useRef<HostPage | null>(null);
@@ -127,8 +133,15 @@ export function App() {
           }
         },
         onConversation: (payload) => {
-          if (payload.status === 'closed') setClosed(true);
-          if (payload.status === 'open') setClosed(false);
+          if (payload.status === 'closed') {
+            setClosed(true);
+            // A close the panel did not initiate came from the other side.
+            setEndedBy((current) => current ?? 'agent');
+          }
+          if (payload.status === 'open') {
+            setClosed(false);
+            setEndedBy(null);
+          }
         },
       });
 
@@ -335,8 +348,58 @@ export function App() {
       });
   }
 
+  /**
+   * End the chat.
+   *
+   * The panel does not mark itself closed optimistically: it waits for the server, because the
+   * agent's screen and this one must agree about whether the conversation is still live. A
+   * failure leaves the chat exactly as it was and says so.
+   */
+  async function handleEndChat() {
+    if (resolved.preview) {
+      setConfirmingEnd(false);
+      setClosed(true);
+      setEndedBy('visitor');
+      return;
+    }
+
+    setEnding(true);
+    setEndError(null);
+    try {
+      await client.current?.endChat();
+      setEndedBy('visitor');
+      setClosed(true);
+      setConfirmingEnd(false);
+    } catch {
+      setEndError('That did not go through. Please try again.');
+    } finally {
+      setEnding(false);
+    }
+  }
+
+  /**
+   * Start again after a chat has ended.
+   *
+   * The transcript is cleared and the client forgets the old conversation, so the next message
+   * creates a fresh one rather than resuming a closed one. Pre-chat is not asked again: this
+   * visitor already told us who they are, and asking twice in one session is a tax on someone who
+   * has just been through a support conversation.
+   */
+  function handleStartNew() {
+    client.current?.forgetConversation();
+    setMessages([]);
+    setClosed(false);
+    setEndedBy(null);
+    setEndError(null);
+    setConfirmingEnd(false);
+    setAgentTyping(false);
+    setView('chat');
+  }
+
   const composerDisabled =
     resolved.preview || connection !== 'connected' || closed || view !== 'chat';
+  /** Only offer to end something that exists and is still live. */
+  const canEndChat = view === 'chat' && !closed && !resolved.preview && messages.length > 0;
 
   return (
     <div className="panel">
@@ -345,7 +408,12 @@ export function App() {
         subtitle={subtitle}
         online={online}
         avatarUrl={config.appearance.avatarUrl}
-        onClose={() => bridge?.requestClose()}
+        canEnd={canEndChat}
+        onEnd={() => {
+          setEndError(null);
+          setConfirmingEnd(true);
+        }}
+        onMinimise={() => bridge?.requestClose()}
       />
 
       {view === 'chat' && connection === 'reconnecting' && (
@@ -356,11 +424,6 @@ export function App() {
       {view === 'chat' && connection === 'failed' && (
         <div className="banner" data-tone="error" role="alert">
           We cannot reach the chat service right now.
-        </div>
-      )}
-      {closed && (
-        <div className="banner" role="status">
-          This conversation was closed. Send a message to reopen it.
         </div>
       )}
 
@@ -397,12 +460,31 @@ export function App() {
             welcome={config.content.welcomeMessage}
             agentTyping={agentTyping && config.behaviour.showAgentTyping}
           />
-          <Composer
-            placeholder={config.content.inputPlaceholder}
-            disabled={composerDisabled}
-            onSend={handleSend}
-            onTyping={(typing) => client.current?.typing(typing)}
-          />
+
+          {closed ? (
+            <ChatEnded
+              endedByVisitor={endedBy === 'visitor'}
+              busy={connection !== 'connected'}
+              onStartNew={handleStartNew}
+            />
+          ) : confirmingEnd ? (
+            <EndChatConfirm
+              busy={ending}
+              error={endError}
+              onCancel={() => {
+                setConfirmingEnd(false);
+                setEndError(null);
+              }}
+              onConfirm={() => void handleEndChat()}
+            />
+          ) : (
+            <Composer
+              placeholder={config.content.inputPlaceholder}
+              disabled={composerDisabled}
+              onSend={handleSend}
+              onTyping={(typing) => client.current?.typing(typing)}
+            />
+          )}
         </>
       )}
 

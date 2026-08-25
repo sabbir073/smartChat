@@ -2,6 +2,8 @@
 
 export const VisitorClientEvent = {
   CONVERSATION_START: 'conversation:start',
+  /** The visitor ends their own chat. There is no visitor-facing reopen; see ADR-027. */
+  CONVERSATION_CLOSE: 'conversation:close',
   MESSAGE_SEND: 'message:send',
   MESSAGE_READ: 'message:read',
   TYPING_START: 'typing:start',

@@ -140,6 +140,24 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       },
     );
 
+    // --- end the chat -------------------------------------------------------
+    socket.on(
+      VisitorClientEvent.CONVERSATION_CLOSE,
+      async (payload: unknown, callback: AckCallback<unknown>) => {
+        try {
+          const input = parsePayload(z.object({ conversationId: z.string().uuid() }), payload);
+          const result = await conversations.closeByVisitor(identity, input.conversationId);
+          respond(
+            callback,
+            ackOk({ conversationId: input.conversationId, alreadyClosed: result.alreadyClosed }),
+          );
+        } catch (error) {
+          handleFailure(socket, guard, logger, error);
+          respond(callback, ackError(error));
+        }
+      },
+    );
+
     // --- history and resync -------------------------------------------------
     socket.on(
       VisitorClientEvent.SYNC_SINCE,

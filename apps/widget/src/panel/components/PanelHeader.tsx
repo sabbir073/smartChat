@@ -3,13 +3,18 @@ export function PanelHeader({
   subtitle,
   online,
   avatarUrl,
-  onClose,
+  canEnd,
+  onEnd,
+  onMinimise,
 }: {
   title: string;
   subtitle: string;
   online: boolean;
   avatarUrl: string | null;
-  onClose: () => void;
+  /** Only offered while there is a live chat to end. */
+  canEnd: boolean;
+  onEnd: () => void;
+  onMinimise: () => void;
 }) {
   const initials = title
     .split(' ')
@@ -31,7 +36,21 @@ export function PanelHeader({
         </p>
       </div>
 
-      <button type="button" className="header-close" onClick={onClose} aria-label="Close chat">
+      {canEnd && (
+        <button type="button" className="header-end" onClick={onEnd}>
+          End chat
+        </button>
+      )}
+
+      {/* Minimise, not end. The two were the same button before there was anything to end, and
+          labelling this one "Close" made it look like it threw the conversation away. */}
+      <button
+        type="button"
+        className="header-close"
+        onClick={onMinimise}
+        aria-label="Minimise chat"
+        title="Minimise"
+      >
         <svg
           viewBox="0 0 24 24"
           width="18"

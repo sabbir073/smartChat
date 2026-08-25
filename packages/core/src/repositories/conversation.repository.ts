@@ -35,6 +35,11 @@ export interface PersistedMessage {
 
 export type ConversationWithVisitor = Conversation & { visitor: Visitor };
 
+/** A message with just enough of its sender to attribute it. */
+export type MessageWithSender = Message & {
+  sender: { displayName: string | null; user: { name: string } | null } | null;
+};
+
 export class ConversationRepository {
   constructor(private readonly db: DatabaseOrTransaction) {}
 
@@ -114,7 +119,14 @@ export class ConversationRepository {
    */
   async insertMessage(input: InsertMessageInput): Promise<PersistedMessage> {
     const isFromVisitor = input.senderType === 'visitor';
-    const isNote = input.type === 'note';
+    /**
+     * Messages that must not disturb either side's unread count.
+     *
+     * An internal note is invisible to the visitor. A system message ("this chat was ended") is
+     * a record of something both sides just did, not a message anyone needs to catch up on -
+     * counting it would put an unread badge on a conversation nobody has said anything new in.
+     */
+    const isSilent = input.type === 'note' || input.senderType === 'system';
 
     // Reserve the next sequence number by incrementing the counter and reading it back. The row
     // lock this takes is also what serialises concurrent sends within one conversation.
@@ -123,9 +135,9 @@ export class ConversationRepository {
       data: {
         messageSeq: { increment: 1 },
         lastMessageAt: input.now,
-        // Internal notes are invisible to the visitor, so they must not touch anything the
-        // visitor can observe - not their unread count, and not "last agent replied".
-        ...(isNote
+        // Neither notes nor system messages touch anything either side observes as "new" -
+        // not an unread count, and not "last agent replied".
+        ...(isSilent
           ? {}
           : isFromVisitor
             ? {
@@ -169,7 +181,7 @@ export class ConversationRepository {
   listMessages(
     conversationId: string,
     options: { beforeSeq?: number | undefined; limit: number; includeNotes: boolean },
-  ): Promise<Message[]> {
+  ): Promise<MessageWithSender[]> {
     return this.db.message.findMany({
       where: {
         conversationId,
@@ -178,6 +190,17 @@ export class ConversationRepository {
         // than filtered afterwards.
         ...(options.includeNotes ? {} : { type: { not: 'note' } }),
         ...(options.beforeSeq !== undefined ? { seq: { lt: BigInt(options.beforeSeq) } } : {}),
+      },
+      /**
+       * The sender's name, so replayed history reads the same as live delivery.
+       *
+       * Without this a reload turns every agent reply anonymous: `senderName` is only known at
+       * send time, from the sender's own request context, and history has no such context. Only
+       * the display name and the user's name are selected - nothing else about the member or the
+       * user belongs in a message payload.
+       */
+      include: {
+        sender: { select: { displayName: true, user: { select: { name: true } } } },
       },
       orderBy: { seq: 'desc' },
       take: clampLimit(options.limit),
@@ -190,13 +213,24 @@ export class ConversationRepository {
     lastSeq: number,
     includeNotes: boolean,
     limit = 200,
-  ): Promise<Message[]> {
+  ): Promise<MessageWithSender[]> {
     return this.db.message.findMany({
       where: {
         conversationId,
         deletedAt: null,
         seq: { gt: BigInt(lastSeq) },
         ...(includeNotes ? {} : { type: { not: 'note' } }),
+      },
+      /**
+       * The sender's name, so replayed history reads the same as live delivery.
+       *
+       * Without this a reload turns every agent reply anonymous: `senderName` is only known at
+       * send time, from the sender's own request context, and history has no such context. Only
+       * the display name and the user's name are selected - nothing else about the member or the
+       * user belongs in a message payload.
+       */
+      include: {
+        sender: { select: { displayName: true, user: { select: { name: true } } } },
       },
       orderBy: { seq: 'asc' },
       take: limit,
@@ -286,6 +320,25 @@ export class ConversationRepository {
     return this.db.conversation.findFirst({
       where: { id: conversationId, ...tenantScope(context) },
     });
+  }
+
+  /**
+   * Update a conversation on the visitor's behalf.
+   *
+   * Scoped by `visitorId` rather than by a TenantContext, because a visitor has no membership and
+   * therefore no context. The visitor id comes from the signed token, never from the payload.
+   */
+  async updateForVisitor(
+    accountId: string,
+    conversationId: string,
+    data: Record<string, unknown>,
+  ): Promise<Conversation | null> {
+    const result = await this.db.conversation.updateMany({
+      where: { id: conversationId, accountId, deletedAt: null },
+      data,
+    });
+    if (result.count === 0) return null;
+    return this.db.conversation.findFirst({ where: { id: conversationId, accountId } });
   }
 
   /** Clear the visitor's unread counter. Called when the panel is open and caught up. */

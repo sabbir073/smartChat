@@ -1,3 +1,10 @@
+/** Structured detail on a system message, so the panel writes its own wording. */
+export interface SystemMessageEvent {
+  kind: 'conversation.closed' | 'conversation.reopened';
+  by: 'visitor' | 'agent';
+  actorName?: string;
+}
+
 export interface MessageDto {
   id: string;
   conversationId: string;
@@ -10,6 +17,8 @@ export interface MessageDto {
   body: string;
   createdAt: string;
   readAt: string | null;
+  /** Present only on `type: 'system'`. */
+  event?: SystemMessageEvent;
 }
 
 /**

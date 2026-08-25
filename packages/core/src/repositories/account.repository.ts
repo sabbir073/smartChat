@@ -8,6 +8,14 @@ export type MembershipWithRole = AccountMember & {
   role: Role | null;
   properties: { propertyId: string }[];
   account: Account;
+  /**
+   * Loaded so the tenant context can carry a display name.
+   *
+   * Without it every agent action is attributed to nobody: the name a visitor sees above a reply,
+   * and the name in "X ended this chat", both come from here. Only the name is selected - the rest
+   * of the user row, password hash included, has no business being attached to a request context.
+   */
+  user: { name: string } | null;
 };
 
 export class AccountRepository {
@@ -75,14 +83,24 @@ export class AccountRepository {
   findMembership(userId: string, accountId: string): Promise<MembershipWithRole | null> {
     return this.db.accountMember.findFirst({
       where: { userId, accountId, deletedAt: null, account: { deletedAt: null } },
-      include: { role: true, properties: { select: { propertyId: true } }, account: true },
+      include: {
+        role: true,
+        properties: { select: { propertyId: true } },
+        account: true,
+        user: { select: { name: true } },
+      },
     });
   }
 
   listMembershipsForUser(userId: string): Promise<MembershipWithRole[]> {
     return this.db.accountMember.findMany({
       where: { userId, deletedAt: null, account: { deletedAt: null } },
-      include: { role: true, properties: { select: { propertyId: true } }, account: true },
+      include: {
+        role: true,
+        properties: { select: { propertyId: true } },
+        account: true,
+        user: { select: { name: true } },
+      },
       orderBy: { createdAt: 'asc' },
     });
   }

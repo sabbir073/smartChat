@@ -301,6 +301,11 @@ async function main() {
 
   const delivered = await visitorSawReply;
   check('the visitor received the reply live', delivered.message.body === reply.message.body);
+  check(
+    'and knows who they are talking to',
+    delivered.message.senderName === 'E2E Agent',
+    `got ${JSON.stringify(delivered.message.senderName)}`,
+  );
 
   section('Internal notes stay internal');
   const noteBody = 'Internal: refund pre-approved by finance.';
@@ -320,6 +325,12 @@ async function main() {
   check('the visitor history has both real messages', visitorBodies.length === 2, `got ${visitorBodies.length}`);
 
   const agentHistory = await agent.call('GET', `/conversations/${conversationId}/messages?limit=50`);
+  const replayedReply = agentHistory.body.data.find((entry) => entry.senderType === 'agent');
+  check(
+    'replayed history attributes the agent, exactly as live delivery did',
+    replayedReply?.senderName === 'E2E Agent',
+    `got ${JSON.stringify(replayedReply?.senderName)}`,
+  );
   check('the agent history includes the note', agentHistory.body.data.some((entry) => entry.body === noteBody));
   check('the agent history is gapless', agentHistory.body.data.map((entry) => Number(entry.seq)).join(',') === '1,2,3');
 
@@ -448,6 +459,17 @@ async function main() {
   const reopened = await agent.call('PATCH', `/conversations/${conversationId}`, { status: 'open' });
   check('the conversation can be reopened', reopened.body.data.status === 'open');
 
+  const reopenTranscript = await agent.call('GET', `/conversations/${conversationId}/messages?limit=50`);
+  const reopenEntry = reopenTranscript.body.data.find(
+    (entry) => entry.event?.kind === 'conversation.reopened',
+  );
+  check('reopening is recorded in the transcript', Boolean(reopenEntry));
+  check(
+    'and names the agent who did it, not a faceless "support team"',
+    reopenEntry?.event?.actorName === 'E2E Agent',
+    JSON.stringify(reopenEntry?.event),
+  );
+
   const afterReopen = await agent.call('POST', `/conversations/${conversationId}/messages`, {
     clientMessageId: ulid(),
     body: 'Reopened - anything else I can help with?',
@@ -455,6 +477,90 @@ async function main() {
   });
   check('replying works again after reopening', afterReopen.status === 201, `got ${afterReopen.status}`);
 
+  section('The visitor ends their own chat');
+
+  // A second, independent visitor, so ending a chat here cannot disturb the assertions above.
+  const otherSession = await widgetCall('POST', '/widget/session', {
+    p: property.publicId,
+    page: { url: `${ORIGIN}/pricing`, title: 'Pricing' },
+    language: 'en-GB',
+    timezone: 'UTC',
+  });
+  const otherToken = otherSession.body.data.token;
+  const otherTicket = await widgetCall('POST', '/widget/realtime-ticket', {}, otherToken);
+  const other = await connect('/visitor', otherTicket.body.data.ticket);
+
+  const agentSeesOther = waitFor(inbox, 'message:new', (p) => p?.message?.senderType === 'visitor');
+  const otherStart = await emit(other, 'conversation:start', {
+    clientMessageId: ulid(),
+    body: 'Quick question about pricing.',
+  });
+  await agentSeesOther;
+  const otherId = otherStart.conversationId;
+
+  // The unread badge before ending: one, from the visitor's own message above.
+  const beforeClose = await agent.call('GET', `/conversations/${otherId}`);
+  const unreadBefore = beforeClose.body.data.agentUnreadCount;
+
+  // The agent must learn about this without polling.
+  const agentSeesClose = waitFor(inbox, 'conversation:closed', (p) => p?.conversationId === otherId);
+  const systemToAgent = waitFor(
+    inbox,
+    'message:new',
+    (p) => p?.message?.type === 'system' && p?.message?.conversationId === otherId,
+  );
+
+  const ended = await emit(other, 'conversation:close', { conversationId: otherId });
+  check('the visitor can end their own chat', ended.alreadyClosed === false);
+
+  const closeEvent = await agentSeesClose;
+  check('the agent is told live', closeEvent.status === 'closed');
+  check('and told it was the visitor who ended it', closeEvent.closedBy === 'visitor');
+
+  const systemMessage = (await systemToAgent).message;
+  check('the ending is written into the transcript as a system message', systemMessage.type === 'system');
+  check('the system message says who ended it', systemMessage.event?.by === 'visitor');
+  check(
+    'and what happened',
+    systemMessage.event?.kind === 'conversation.closed',
+    JSON.stringify(systemMessage.event),
+  );
+
+  const afterClose = await agent.call('GET', `/conversations/${otherId}`);
+  check('the conversation is closed', afterClose.body.data.status === 'closed');
+  check(
+    'no member is recorded as having closed it, because none did',
+    afterClose.body.data.assignedMemberId === null,
+  );
+
+  const unreadAfter = afterClose.body.data.agentUnreadCount;
+  check(
+    'a system message does not raise the unread badge - nobody said anything new',
+    unreadAfter === unreadBefore,
+    `was ${unreadBefore}, now ${unreadAfter}`,
+  );
+
+  const endAgain = await emit(other, 'conversation:close', { conversationId: otherId });
+  check('ending an already-ended chat is a no-op, not an error', endAgain.alreadyClosed === true);
+
+  const notMine = await emit(other, 'conversation:close', { conversationId }).then(
+    () => false,
+    () => true,
+  );
+  check('a visitor cannot end somebody else\'s chat', notMine);
+
+  // Starting again gives a brand new conversation rather than resuming the closed one.
+  const fresh = await emit(other, 'conversation:start', {
+    clientMessageId: ulid(),
+    body: 'Actually, one more thing.',
+  });
+  check('a new message after ending starts a new conversation', fresh.conversationId !== otherId);
+  check('and that conversation starts at seq 1', Number(fresh.message.seq) === 1);
+
+  const stillClosed = await agent.call('GET', `/conversations/${otherId}`);
+  check('the ended conversation stays closed', stillClosed.body.data.status === 'closed');
+
+  other.close();
   visitor.close();
   resumed.close();
   inbox.close();
