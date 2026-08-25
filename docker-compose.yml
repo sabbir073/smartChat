@@ -17,6 +17,54 @@ x-logging: &default-logging
     max-size: '10m'
     max-file: '3'
 
+# Configuration shared by every Node service. Values come from .env; nothing is hardcoded here,
+# so the same file works in development and production.
+x-app-env: &app-env
+  NODE_ENV: ${NODE_ENV:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-info}
+  DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+  REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+  APP_URL: ${APP_URL:-http://localhost:3000}
+  API_URL: ${API_URL:-http://localhost:3001}
+  REALTIME_URL: ${REALTIME_URL:-http://localhost:3002}
+  WIDGET_URL: ${WIDGET_URL:-http://localhost:3003}
+  SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET is required}
+  JWT_SECRET: ${JWT_SECRET:?JWT_SECRET is required}
+  VISITOR_TOKEN_SECRET: ${VISITOR_TOKEN_SECRET:?VISITOR_TOKEN_SECRET is required}
+  ENCRYPTION_KEY: ${ENCRYPTION_KEY:?ENCRYPTION_KEY is required}
+  SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+  S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+  S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9100}
+  S3_REGION: ${S3_REGION:-us-east-1}
+  S3_BUCKET: ${S3_BUCKET:-smartchat}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-smartchat}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY is required}
+  S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+  UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-26214400}
+  MAIL_DRIVER: ${MAIL_DRIVER:-smtp}
+  MAIL_FROM_ADDRESS: ${MAIL_FROM_ADDRESS:-no-reply@smartchat.local}
+  MAIL_FROM_NAME: ${MAIL_FROM_NAME:-SmartChat}
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_SECURE: ${SMTP_SECURE:-false}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  TRUST_PROXY: ${TRUST_PROXY:-false}
+  RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
+  CORS_DASHBOARD_ORIGINS: ${CORS_DASHBOARD_ORIGINS:-http://localhost:3000}
+  COOKIE_DOMAIN: ${COOKIE_DOMAIN:-}
+  COOKIE_SECURE: ${COOKIE_SECURE:-false}
+  AUTO_VERIFY_EMAIL: ${AUTO_VERIFY_EMAIL:-false}
+  ALLOW_LOCALHOST_ORIGINS: ${ALLOW_LOCALHOST_ORIGINS:-true}
+
+x-infra-ready: &infra-ready
+  postgres:
+    condition: service_healthy
+  redis:
+    condition: service_healthy
+  minio:
+    condition: service_healthy
+
 services:
   # ---------------------------------------------------------------------------
   # PostgreSQL — durable source of truth
@@ -114,6 +162,108 @@ services:
         mc mb --ignore-existing "local/$$S3_BUCKET-public"
         mc anonymous set download "local/$$S3_BUCKET-public"
         echo "minio-init: buckets ready"
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # Database migrations. A one-shot service, run explicitly before the apps start.
+  # Application containers never mutate the schema on boot: a rolling deploy would
+  # otherwise have several replicas racing to migrate the same database.
+  # ---------------------------------------------------------------------------
+  migrate:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node.Dockerfile
+      args:
+        APP: api
+    image: smartchat/api:${IMAGE_TAG:-local}
+    restart: 'no'
+    logging: *default-logging
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: *app-env
+    working_dir: /app/packages/database
+    command: ['./node_modules/.bin/prisma', 'migrate', 'deploy']
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # HTTP API - the only writer of business data.
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node.Dockerfile
+      args:
+        APP: api
+    image: smartchat/api:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on: *infra-ready
+    environment:
+      <<: *app-env
+      SERVICE_NAME: api
+      PORT: 3001
+      HOST: 0.0.0.0
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3001/ready >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # Background jobs: email, webhooks, triggers, analytics rollups, retention.
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/node.Dockerfile
+      args:
+        APP: worker
+    image: smartchat/worker:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on: *infra-ready
+    environment:
+      <<: *app-env
+      SERVICE_NAME: worker
+      WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
+      WORKER_HEALTH_PORT: 3005
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3005/ready >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # Dashboard: agent workspace, account settings, and later the super-admin console.
+  # ---------------------------------------------------------------------------
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    image: smartchat/web:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      # Browser-facing URLs. Rendered into the page at request time, so one image works in
+      # every environment without a rebuild.
+      API_URL: ${API_URL:-http://localhost:3001}
+      REALTIME_URL: ${REALTIME_URL:-http://localhost:3002}
+      WIDGET_URL: ${WIDGET_URL:-http://localhost:3003}
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     networks: [smartchat]
 
 volumes:

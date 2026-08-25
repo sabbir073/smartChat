@@ -6,8 +6,8 @@ previous one is green.
 
 | Phase | Scope | Exit criteria |
 | --- | --- | --- |
-| **0 — Foundation** | Architecture, docs, monorepo, Docker infra, CI skeleton | `docker compose up -d` → postgres, redis, minio, mailpit all healthy; docs written |
-| **1 — Auth & tenancy** | Prisma schema + migrations, Argon2id auth, email verification, sessions, RBAC, accounts, properties, dashboard shell, rate limiting, audit log | Register → verify → log in → create property, in a browser. Isolation suite green |
+| **0 — Foundation** ✅ | Architecture, docs, monorepo, Docker infra, CI skeleton | `docker compose up -d` → postgres, redis, minio, mailpit all healthy; docs written |
+| **1 — Auth & tenancy** ✅ | Prisma schema + migrations, Argon2id auth, email verification, sessions, RBAC, accounts, properties, dashboard shell, rate limiting, audit log | Register → verify → log in → create property, in a browser. Isolation suite green |
 | **2 — Widget** | loader.js, Shadow DOM launcher, panel iframe, widget config API, installation snippet, domain allowlist, visitor identity, test site | Widget appears on the test site via the real snippet and identifies the visitor |
 | **3 — Realtime** | Socket.IO gateway, Redis adapter, tickets, presence, typing, idempotent persistence, delivery/read receipts | Visitor ↔ agent messages both directions, live, surviving a server restart |
 | **4 — Inbox** | Conversation list, filters, search, assignment, transfer, close/reopen, tags, priority, notes, visitor panel | An agent can work a full conversation end to end |

@@ -1,0 +1,133 @@
+import fp from 'fastify-plugin';
+import type { FastifyRequest } from 'fastify';
+import { AppError, ErrorCode, type TenantContext } from '@smartchat/types';
+import { buildTenantContext, safeEqual } from '@smartchat/core';
+import type { Session, User } from '@smartchat/database';
+import type { Container } from '../container.js';
+import { ACCOUNT_COOKIE, CSRF_COOKIE, SESSION_COOKIE } from '../lib/cookies.js';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    session: Session | null;
+    currentUser: User | null;
+    tenant: TenantContext | null;
+  }
+  interface FastifyInstance {
+    /** Requires a live session. Populates `request.session` and `request.currentUser`. */
+    authenticate(request: FastifyRequest): Promise<void>;
+    /** Requires a session **and** a resolved account membership. Populates `request.tenant`. */
+    authenticateTenant(request: FastifyRequest): Promise<void>;
+    /** Requires a session with a verified email address. */
+    requireVerifiedEmail(request: FastifyRequest): Promise<void>;
+  }
+}
+
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/**
+ * Double-submit CSRF check.
+ *
+ * The session cookie is `SameSite=Lax`, which already blocks cross-site form posts. This is the
+ * second layer: the caller must echo a value that only same-origin script can read, so a request
+ * forged from another site fails even if the browser's SameSite handling is bypassed.
+ */
+function assertCsrf(request: FastifyRequest, session: Session): void {
+  if (SAFE_METHODS.has(request.method)) return;
+
+  const header = request.headers['x-csrf-token'];
+  const provided = typeof header === 'string' ? header : '';
+  const cookie = request.cookies[CSRF_COOKIE] ?? '';
+
+  if (
+    !provided ||
+    !cookie ||
+    !safeEqual(provided, cookie) ||
+    !safeEqual(provided, session.csrfSecret)
+  ) {
+    throw new AppError(ErrorCode.CSRF_TOKEN_INVALID);
+  }
+}
+
+export const authPlugin = fp<{ container: Container }>(
+  async (app, options) => {
+    const { container } = options;
+
+    app.decorateRequest('session', null);
+    app.decorateRequest('currentUser', null);
+    app.decorateRequest('tenant', null);
+
+    async function loadSession(request: FastifyRequest): Promise<void> {
+      const token = request.cookies[SESSION_COOKIE];
+      if (!token) throw new AppError(ErrorCode.UNAUTHENTICATED);
+
+      const session = await container.auth.resolveSession(token);
+      if (!session) throw new AppError(ErrorCode.SESSION_EXPIRED);
+
+      assertCsrf(request, session);
+
+      request.session = session;
+      request.currentUser = session.user;
+    }
+
+    app.decorate('authenticate', async (request: FastifyRequest) => {
+      await loadSession(request);
+    });
+
+    app.decorate('requireVerifiedEmail', async (request: FastifyRequest) => {
+      if (!request.currentUser) await loadSession(request);
+      if (!request.currentUser?.emailVerifiedAt) {
+        throw new AppError(ErrorCode.EMAIL_NOT_VERIFIED);
+      }
+    });
+
+    /**
+     * Resolve which account this request acts on, then build the TenantContext.
+     *
+     * The account is *never* taken on trust: whichever id arrives, membership is re-checked
+     * against the database on every request, so a forged cookie or header resolves to nothing.
+     */
+    app.decorate('authenticateTenant', async (request: FastifyRequest) => {
+      if (!request.currentUser) await loadSession(request);
+      const user = request.currentUser;
+      if (!user) throw new AppError(ErrorCode.UNAUTHENTICATED);
+
+      const headerAccount = request.headers['x-account-id'];
+      const requested =
+        (typeof headerAccount === 'string' ? headerAccount : undefined) ??
+        request.cookies[ACCOUNT_COOKIE];
+
+      let accountId = requested;
+      if (!accountId) {
+        const memberships = await container.accounts.listForUser(user.id);
+        accountId = memberships[0]?.id;
+      }
+      if (!accountId) throw new AppError(ErrorCode.ACCOUNT_NOT_FOUND);
+
+      const membership = await container.accounts.requireMembership(user.id, accountId);
+
+      request.tenant = buildTenantContext({
+        membership,
+        requestId: request.requestId,
+        ip: request.clientIp,
+        userAgent: request.headers['user-agent'],
+      });
+    });
+  },
+  { name: 'auth', dependencies: ['request-context'] },
+);
+
+/** Narrowing helpers so handlers never repeat a null check the preHandler already guaranteed. */
+export function requireUser(request: FastifyRequest): User {
+  if (!request.currentUser) throw new AppError(ErrorCode.UNAUTHENTICATED);
+  return request.currentUser;
+}
+
+export function requireTenant(request: FastifyRequest): TenantContext {
+  if (!request.tenant) throw new AppError(ErrorCode.UNAUTHENTICATED);
+  return request.tenant;
+}
+
+export function requireSession(request: FastifyRequest): Session {
+  if (!request.session) throw new AppError(ErrorCode.UNAUTHENTICATED);
+  return request.session;
+}

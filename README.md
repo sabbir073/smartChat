@@ -47,6 +47,16 @@ Full instructions: [`docs/LOCAL_SETUP.md`](docs/LOCAL_SETUP.md)
 [Roadmap](docs/ROADMAP.md) ·
 [Decisions](docs/DECISIONS.md)
 
+## Verifying a running stack
+
+```bash
+pnpm verify        # format, lint, typecheck, build, unit tests
+pnpm smoke         # 45 end-to-end HTTP checks against the running API,
+                   # including the full tenant-isolation suite
+```
+
 ## Status
 
-Phase 0 (foundation) complete. See [`docs/ROADMAP.md`](docs/ROADMAP.md) for the current phase.
+Phases 0 and 1 complete: the platform runs in Docker, accounts can register and sign in, and
+websites can be created with a real installation snippet. Phase 2 (the embeddable widget) is next.
+See [`docs/ROADMAP.md`](docs/ROADMAP.md).

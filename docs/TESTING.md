@@ -54,9 +54,32 @@ New tenant-owned models must add a case here. A model without an isolation test 
 ## 5. Commands
 
 ```
-pnpm test               # everything through turbo
+pnpm verify             # format, lint, typecheck, build, unit tests - what CI runs
 pnpm test:unit
+pnpm smoke              # end-to-end HTTP checks against a running stack, including the
+                        # tenant-isolation suite. Requires `docker compose up -d`.
 pnpm test:integration   # requires docker compose up -d
 pnpm test:e2e           # playwright, requires the full stack
-pnpm test:isolation     # the security gate
 ```
+
+## 6. `pnpm smoke`
+
+`scripts/smoke.mjs` drives the real HTTP surface with a cookie jar, so it exercises exactly what a
+browser does: session cookies and their attributes, the CSRF double-submit, the active-account
+header, cursor pagination and every cross-tenant path. It is deliberately dependency-free and runs
+against any environment, which makes it usable as a post-deploy check as well as a local one.
+
+It clears rate-limit keys before running (the registration limiter is real, and the test registers
+several accounts). `SMOKE_RESET_LIMITS=0` keeps them, for when the limiter is what you are
+investigating.
+
+As of Phase 1 it asserts 45 checks, including:
+
+- an unknown email and a wrong password return **identical** status and error code
+- the session cookie is httpOnly and SameSite=Lax; the CSRF cookie deliberately is not httpOnly
+- a mutation without, or with a wrong, CSRF token is rejected
+- the installation snippet contains no secret, key or internal id
+- account B receives **404, not 403**, for every one of account A's resources - read, update,
+  delete, installation snippet and domain creation - and cannot borrow A's account through either
+  the switch endpoint or the `x-account-id` header
+- repeated registration attempts for one address are rate limited

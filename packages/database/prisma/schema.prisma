@@ -1,0 +1,464 @@
+// =============================================================================
+// SmartChat — database schema
+//
+// Conventions (see docs/DATABASE.md):
+//   • UUIDv7 primary keys, generated in the application (see src/client.ts). The
+//     gen_random_uuid() column default exists so `id` is OPTIONAL in the generated types and
+//     as a last-resort safety net; the client extension always supplies a v7 value first.
+//   • Every tenant-owned table carries account_id.
+//   • Child tables reference their parent with a COMPOSITE key that includes
+//     account_id, so a cross-tenant reference is impossible at the DB level.
+//   • timestamptz everywhere, UTC. created_at / updated_at on every table.
+//   • Soft delete (deleted_at) on tenant-visible content.
+// =============================================================================
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Enums
+// -----------------------------------------------------------------------------
+
+enum AccountStatus {
+  active
+  suspended
+  pending_deletion
+
+  @@map("account_status")
+}
+
+enum MemberRole {
+  owner
+  admin
+  manager
+  agent
+
+  @@map("member_role")
+}
+
+enum MemberStatus {
+  invited
+  active
+  disabled
+
+  @@map("member_status")
+}
+
+enum AgentAvailability {
+  online
+  away
+  offline
+
+  @@map("agent_availability")
+}
+
+enum PropertyStatus {
+  active
+  paused
+
+  @@map("property_status")
+}
+
+enum TokenPurpose {
+  email_verification
+  password_reset
+  member_invitation
+  email_change
+
+  @@map("token_purpose")
+}
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+
+  @@map("subscription_status")
+}
+
+enum ActorType {
+  user
+  api_key
+  visitor
+  system
+  platform_admin
+
+  @@map("actor_type")
+}
+
+// -----------------------------------------------------------------------------
+// Platform-level tables (NOT tenant-scoped)
+// -----------------------------------------------------------------------------
+
+model Plan {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code              String   @unique @db.Citext
+  name              String
+  description       String?
+  isPublic          Boolean  @default(true) @map("is_public")
+  priceMonthlyCents Int      @default(0) @map("price_monthly_cents")
+  currency          String   @default("USD") @db.Char(3)
+  sortOrder         Int      @default(0) @map("sort_order")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  features      PlanFeature[]
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+/// One entitlement. `limitValue = null` means unlimited; `boolValue` gates a feature on/off.
+/// Plan limits are never hardcoded in application code — they are always read from here.
+model PlanFeature {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  planId     String   @map("plan_id") @db.Uuid
+  key        String
+  limitValue BigInt?  @map("limit_value")
+  boolValue  Boolean? @map("bool_value")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plan Plan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@unique([planId, key])
+  @@map("plan_features")
+}
+
+/// Platform administrators are a completely separate identity space from tenant users:
+/// separate table, separate credentials, separate sessions. A tenant user can never
+/// escalate into this space, because there is no path between the two.
+model PlatformAdmin {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String    @unique @db.Citext
+  passwordHash     String    @map("password_hash")
+  name             String
+  permissions      String[]  @default([])
+  isActive         Boolean   @default(true) @map("is_active")
+  lastLoginAt      DateTime? @map("last_login_at") @db.Timestamptz(6)
+  failedLoginCount Int       @default(0) @map("failed_login_count")
+  lockedUntil      DateTime? @map("locked_until") @db.Timestamptz(6)
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  sessions PlatformSession[]
+
+  @@map("platform_admins")
+}
+
+model PlatformSession {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId    String    @map("admin_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  ip         String?
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  admin PlatformAdmin @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId, expiresAt])
+  @@map("platform_sessions")
+}
+
+// -----------------------------------------------------------------------------
+// Identity
+// -----------------------------------------------------------------------------
+
+model User {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email              String    @unique @db.Citext
+  passwordHash       String    @map("password_hash")
+  name               String
+  avatarUrl          String?   @map("avatar_url")
+  locale             String    @default("en")
+  timezone           String    @default("UTC")
+  emailVerifiedAt    DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  lastLoginAt        DateTime? @map("last_login_at") @db.Timestamptz(6)
+  failedLoginCount   Int       @default(0) @map("failed_login_count")
+  lockedUntil        DateTime? @map("locked_until") @db.Timestamptz(6)
+  /// 2FA-ready: populated only once a user enrols. Encrypted at rest.
+  twoFactorSecret    String?   @map("two_factor_secret")
+  twoFactorEnabledAt DateTime? @map("two_factor_enabled_at") @db.Timestamptz(6)
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt          DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  sessions       Session[]
+  memberships    AccountMember[]
+  tokens         VerificationToken[]
+  ownedAccounts  Account[]           @relation("AccountOwner")
+  invitationsWon AccountMember[]     @relation("MemberInviter")
+
+  @@index([deletedAt])
+  @@map("users")
+}
+
+/// Opaque server-side session. `tokenHash` is sha256(token); the raw token exists only in
+/// the user's cookie, so a database leak does not hand an attacker live sessions.
+model Session {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  csrfSecret String    @map("csrf_secret")
+  ip         String?
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Single-use, hashed, expiring tokens for email verification, password reset and invitations.
+model VerificationToken {
+  id         String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  purpose    TokenPurpose
+  tokenHash  String       @unique @map("token_hash")
+  email      String       @db.Citext
+  userId     String?      @map("user_id") @db.Uuid
+  accountId  String?      @map("account_id") @db.Uuid
+  metadata   Json         @default("{}")
+  expiresAt  DateTime     @map("expires_at") @db.Timestamptz(6)
+  consumedAt DateTime?    @map("consumed_at") @db.Timestamptz(6)
+  createdAt  DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user    User?    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([email, purpose])
+  @@index([expiresAt])
+  @@map("verification_tokens")
+}
+
+// -----------------------------------------------------------------------------
+// Tenancy
+// -----------------------------------------------------------------------------
+
+model Account {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name              String
+  slug              String        @unique @db.Citext
+  status            AccountStatus @default(active)
+  timezone          String        @default("UTC")
+  locale            String        @default("en")
+  ownerUserId       String?       @map("owner_user_id") @db.Uuid
+  suspendedAt       DateTime?     @map("suspended_at") @db.Timestamptz(6)
+  suspendedReason   String?       @map("suspended_reason")
+  /// null = keep forever. Drives the retention cleanup job.
+  dataRetentionDays Int?          @map("data_retention_days")
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
+
+  owner        User?               @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  members      AccountMember[]
+  roles        Role[]
+  properties   Property[]
+  auditLogs    AuditLog[]
+  tokens       VerificationToken[]
+  subscription Subscription?
+  usage        UsageRecord[]
+
+  @@index([status, deletedAt])
+  @@map("accounts")
+}
+
+model AccountMember {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId       String            @map("account_id") @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  roleId          String?           @map("role_id") @db.Uuid
+  baseRole        MemberRole        @default(agent) @map("base_role")
+  status          MemberStatus      @default(active)
+  availability    AgentAvailability @default(offline)
+  displayName     String?           @map("display_name")
+  title           String?
+  /// When true this member only sees the properties listed in property_members.
+  restrictedToProperties Boolean    @default(false) @map("restricted_to_properties")
+  invitedByUserId String?           @map("invited_by_user_id") @db.Uuid
+  invitedAt       DateTime?         @map("invited_at") @db.Timestamptz(6)
+  joinedAt        DateTime?         @map("joined_at") @db.Timestamptz(6)
+  lastActiveAt    DateTime?         @map("last_active_at") @db.Timestamptz(6)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?         @map("deleted_at") @db.Timestamptz(6)
+
+  account    Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role       Role?            @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  invitedBy  User?            @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  properties PropertyMember[]
+
+  @@unique([accountId, userId])
+  @@unique([accountId, id])
+  @@index([accountId, status, deletedAt])
+  @@index([userId])
+  @@map("account_members")
+}
+
+/// A role is a named, editable set of permission strings. Permissions live in a text[] rather
+/// than a join table: the set is small, always read whole, and never queried by permission.
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId   String   @map("account_id") @db.Uuid
+  key         String   @db.Citext
+  name        String
+  description String?
+  permissions String[] @default([])
+  /// System roles are created with the account and cannot be deleted, only edited.
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members AccountMember[]
+
+  @@unique([accountId, key])
+  @@unique([accountId, id])
+  @@map("roles")
+}
+
+// -----------------------------------------------------------------------------
+// Properties (websites)
+// -----------------------------------------------------------------------------
+
+model Property {
+  id                  String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId           String         @map("account_id") @db.Uuid
+  /// Safe to expose in the customer's page source. Identifies, authorises nothing.
+  publicId            String         @unique @map("public_id")
+  name                String
+  websiteUrl          String         @map("website_url")
+  status              PropertyStatus @default(active)
+  timezone            String         @default("UTC")
+  locale              String         @default("en")
+  /// When false, unknown origins are recorded instead of blocked, so a misconfigured
+  /// install surfaces in the dashboard rather than silently failing.
+  enforceDomains      Boolean        @default(false) @map("enforce_domains")
+  installedAt         DateTime?      @map("installed_at") @db.Timestamptz(6)
+  lastWidgetRequestAt DateTime?      @map("last_widget_request_at") @db.Timestamptz(6)
+  createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz(6)
+
+  account Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  domains PropertyDomain[]
+  members PropertyMember[]
+
+  @@unique([accountId, id])
+  @@index([accountId, deletedAt])
+  @@map("properties")
+}
+
+model PropertyDomain {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String   @map("account_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  /// Stored normalised and lowercased: "example.com" or "*.example.com".
+  pattern    String   @db.Citext
+  isWildcard Boolean  @default(false) @map("is_wildcard")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  property Property @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([propertyId, pattern])
+  @@index([accountId])
+  @@map("property_domains")
+}
+
+/// Scopes a restricted member to specific properties.
+model PropertyMember {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String   @map("account_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  memberId   String   @map("member_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  property Property      @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  member   AccountMember @relation(fields: [accountId, memberId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([propertyId, memberId])
+  @@index([accountId, memberId])
+  @@map("property_members")
+}
+
+// -----------------------------------------------------------------------------
+// Billing / entitlements
+// -----------------------------------------------------------------------------
+
+model Subscription {
+  id                 String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId          String             @unique @map("account_id") @db.Uuid
+  planId             String             @map("plan_id") @db.Uuid
+  status             SubscriptionStatus @default(trialing)
+  currentPeriodStart DateTime           @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd   DateTime           @map("current_period_end") @db.Timestamptz(6)
+  trialEndsAt        DateTime?          @map("trial_ends_at") @db.Timestamptz(6)
+  cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
+  canceledAt         DateTime?          @map("canceled_at") @db.Timestamptz(6)
+  createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id])
+
+  @@map("subscriptions")
+}
+
+model UsageRecord {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId   String   @map("account_id") @db.Uuid
+  metric      String
+  periodStart DateTime @map("period_start") @db.Date
+  value       BigInt   @default(0)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, metric, periodStart])
+  @@index([metric, periodStart])
+  @@map("usage_records")
+}
+
+// -----------------------------------------------------------------------------
+// Audit
+// -----------------------------------------------------------------------------
+
+/// Append-only. Nothing in the application updates or deletes these rows.
+model AuditLog {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId    String?   @map("account_id") @db.Uuid
+  actorType    ActorType @map("actor_type")
+  actorId      String?   @map("actor_id") @db.Uuid
+  actorLabel   String?   @map("actor_label")
+  action       String
+  resourceType String    @map("resource_type")
+  resourceId   String?   @map("resource_id")
+  ip           String?
+  userAgent    String?   @map("user_agent")
+  metadata     Json      @default("{}")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt(sort: Desc)])
+  @@index([actorId, createdAt(sort: Desc)])
+  @@index([resourceType, resourceId])
+  @@map("audit_logs")
+}

@@ -1,0 +1,150 @@
+import { createServer } from 'node:http';
+import { Worker, type Job } from 'bullmq';
+import {
+  LogMailProvider,
+  QueueName,
+  QueueProducer,
+  SmtpMailProvider,
+  createRedisClient,
+  type MailProvider,
+  type SendEmailPayload,
+} from '@smartchat/core';
+import { MaintenanceJob } from '@smartchat/core';
+import { createPrismaClient } from '@smartchat/database';
+import { createLogger, withLogContext } from '@smartchat/logger';
+import { loadWorkerConfig } from './config.js';
+import { processEmailJob } from './processors/email.js';
+import { processMaintenanceJob } from './processors/maintenance.js';
+
+const config = loadWorkerConfig();
+
+const logger = createLogger({
+  service: config.SERVICE_NAME,
+  level: config.LOG_LEVEL,
+  pretty: config.NODE_ENV === 'development',
+});
+
+async function main(): Promise<void> {
+  const db = createPrismaClient({
+    databaseUrl: config.DATABASE_URL,
+    onWarning: (message) => logger.warn({ message }, 'database warning'),
+  });
+
+  // BullMQ uses blocking reads, so it needs its own connection with retries disabled.
+  const connection = createRedisClient({
+    url: config.REDIS_URL,
+    maxRetriesPerRequest: null,
+    onError: (error) => logger.error({ err: error }, 'redis error'),
+  });
+
+  const mailer: MailProvider =
+    config.MAIL_DRIVER === 'smtp' && config.SMTP_HOST
+      ? new SmtpMailProvider({
+          host: config.SMTP_HOST,
+          port: config.SMTP_PORT ?? 1025,
+          secure: config.SMTP_SECURE,
+          user: config.SMTP_USER,
+          password: config.SMTP_PASSWORD,
+          from: { email: config.MAIL_FROM_ADDRESS, name: config.MAIL_FROM_NAME },
+        })
+      : new LogMailProvider((message) =>
+          logger.info({ to: message.to.email, subject: message.subject }, 'email (log driver)'),
+        );
+
+  const workers: Worker[] = [
+    new Worker(
+      QueueName.EMAIL,
+      (job: Job<SendEmailPayload>) =>
+        withLogContext({ jobId: job.id ?? undefined, requestId: job.data.requestId }, () =>
+          processEmailJob(job, mailer, logger),
+        ),
+      { connection, concurrency: config.WORKER_CONCURRENCY },
+    ),
+
+    new Worker(
+      QueueName.MAINTENANCE,
+      (job: Job) =>
+        withLogContext({ jobId: job.id ?? undefined }, () =>
+          processMaintenanceJob(job, db, logger),
+        ),
+      { connection, concurrency: 1 },
+    ),
+  ];
+
+  for (const worker of workers) {
+    worker.on('failed', (job, error) => {
+      const willRetry = (job?.attemptsMade ?? 0) < (job?.opts.attempts ?? 1);
+      logger.error(
+        { jobId: job?.id, name: job?.name, attempt: job?.attemptsMade, willRetry, err: error },
+        willRetry ? 'job failed - will retry' : 'job failed permanently',
+      );
+    });
+    worker.on('error', (error) => logger.error({ err: error }, 'worker error'));
+  }
+
+  // Repeatable schedules use a stable job id, so restarting the worker cannot accumulate
+  // duplicate schedules for the same task.
+  const scheduler = new QueueProducer(connection);
+  await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_SESSIONS, {}, '0 3 * * *');
+  await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_TOKENS, {}, '30 3 * * *');
+  await scheduler.schedule(MaintenanceJob.APPLY_RETENTION, {}, '0 4 * * *');
+
+  /**
+   * A minimal health server.
+   *
+   * The worker has no HTTP surface of its own, but Docker needs something to probe — and "the
+   * process is up" is a genuinely different question from "the queue is draining", so /ready
+   * checks the dependencies the worker actually needs.
+   */
+  const health = createServer((request, response) => {
+    if (request.url === '/health') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ status: 'ok', service: config.SERVICE_NAME }));
+      return;
+    }
+    if (request.url === '/ready') {
+      Promise.allSettled([db.$queryRaw`SELECT 1`, connection.ping()])
+        .then((results) => {
+          const healthy = results.every((result) => result.status === 'fulfilled');
+          response.writeHead(healthy ? 200 : 503, { 'content-type': 'application/json' });
+          response.end(JSON.stringify({ status: healthy ? 'ready' : 'degraded' }));
+        })
+        .catch(() => {
+          response.writeHead(503).end();
+        });
+      return;
+    }
+    response.writeHead(404).end();
+  });
+  health.listen(config.WORKER_HEALTH_PORT);
+
+  logger.info({ queues: workers.length, concurrency: config.WORKER_CONCURRENCY }, 'worker started');
+
+  const shutdown = async (signal: string): Promise<void> => {
+    logger.info({ signal }, 'shutting down');
+    const timeout = setTimeout(() => {
+      logger.error('graceful shutdown timed out - exiting');
+      process.exit(1);
+    }, 20_000);
+    timeout.unref();
+
+    health.close();
+    // close() waits for in-flight jobs, so a deploy never abandons a half-processed job.
+    await Promise.all(workers.map((worker) => worker.close()));
+    await scheduler.close();
+    await db.$disconnect();
+    connection.disconnect();
+    process.exit(0);
+  };
+
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('unhandledRejection', (reason) =>
+    logger.error({ err: reason }, 'unhandled rejection'),
+  );
+}
+
+main().catch((error: unknown) => {
+  logger.fatal({ err: error }, 'worker failed to start');
+  process.exit(1);
+});

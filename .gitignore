@@ -30,3 +30,6 @@ backups/
 verify.log
 install.log
 install.err.log
+
+# prisma CLI host connection
+packages/database/.env

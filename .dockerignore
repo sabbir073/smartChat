@@ -6,9 +6,11 @@
 **/*.tsbuildinfo
 .git
 .github
-.env
-.env.*
-!.env.example
+# Every .env at any depth: a stray packages/database/.env inside an image would silently
+# override the container's DATABASE_URL with a localhost value.
+**/.env
+**/.env.*
+!**/.env.example
 docs
 test-results
 playwright-report

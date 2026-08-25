@@ -1,0 +1,147 @@
+'use client';
+
+import Link from 'next/link';
+import { api } from '@/lib/api-client';
+import { useAuth } from '@/lib/auth-context';
+import { useResource } from '@/lib/use-resource';
+import { PageHeader } from '@/components/layout/page-header';
+import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/components/ui';
+import type { PropertyDto } from '@/lib/types';
+
+interface AccountResponse {
+  account: { id: string; name: string; slug: string; timezone: string };
+  plan: { code: string; name: string };
+  limits: Record<string, number | null>;
+  permissions: string[];
+  role: string;
+}
+
+function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
+  return (
+    <Card>
+      <CardBody>
+        <p className="text-[13px] font-medium text-ink-muted">{label}</p>
+        <p className="mt-1 text-2xl font-semibold tracking-tight text-ink tabular-nums">{value}</p>
+        {hint && <p className="mt-1 text-[12px] text-ink-subtle">{hint}</p>}
+      </CardBody>
+    </Card>
+  );
+}
+
+export default function OverviewPage() {
+  const { user, activeAccount } = useAuth();
+
+  const account = useResource<AccountResponse>(
+    (signal) => api.get<AccountResponse>('/account', { signal }).then((result) => result.data),
+    [activeAccount?.id],
+  );
+
+  const properties = useResource<PropertyDto[]>(
+    (signal) =>
+      api.get<PropertyDto[]>('/properties', { signal, query: { limit: 5 } }).then((r) => r.data),
+    [activeAccount?.id],
+  );
+
+  const propertyLimit = account.data?.limits['max_properties'] ?? null;
+  const count = properties.data?.length ?? 0;
+  const installed = properties.data?.filter((property) => property.installed).length ?? 0;
+
+  return (
+    <>
+      <PageHeader
+        title={`Welcome back, ${user?.name?.split(' ')[0] ?? 'there'}`}
+        description={
+          activeAccount ? `${activeAccount.name} · ${account.data?.plan.name ?? ''}` : undefined
+        }
+      />
+
+      {user && !user.emailVerified && (
+        <div className="mb-6">
+          <Alert tone="warning" title="Confirm your email address">
+            Some actions stay locked until your address is verified.{' '}
+            <Link href="/verify-email" className="font-medium text-brand hover:underline">
+              Resend the link
+            </Link>
+            .
+          </Alert>
+        </div>
+      )}
+
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <Stat
+          label="Websites"
+          value={properties.loading ? '—' : count}
+          hint={propertyLimit === null ? 'Unlimited on your plan' : `${propertyLimit} on your plan`}
+        />
+        <Stat
+          label="Widgets installed"
+          value={properties.loading ? '—' : installed}
+          hint={installed < count ? `${count - installed} waiting for the snippet` : 'All verified'}
+        />
+        <Stat label="Team members" value="—" hint="Team management arrives in Phase 5" />
+      </div>
+
+      <Card>
+        <CardHeader
+          title="Your websites"
+          description="Each website gets its own widget, agents and conversations."
+          action={
+            <Link href="/properties">
+              <Button variant="secondary" size="sm">
+                View all
+              </Button>
+            </Link>
+          }
+        />
+
+        {properties.loading ? (
+          <CardBody className="space-y-3">
+            <div className="skeleton h-5 w-1/3" />
+            <div className="skeleton h-5 w-1/2" />
+          </CardBody>
+        ) : properties.error ? (
+          <CardBody>
+            <Alert tone="danger" title="Could not load your websites">
+              {properties.error.message}
+            </Alert>
+          </CardBody>
+        ) : count === 0 ? (
+          <EmptyState
+            title="No websites yet"
+            description="Add your first website to generate a chat widget and its installation snippet."
+            action={
+              <Link href="/properties">
+                <Button>Add a website</Button>
+              </Link>
+            }
+          />
+        ) : (
+          <ul className="divide-y divide-border">
+            {properties.data?.map((property) => (
+              <li key={property.id}>
+                <Link
+                  href={`/properties/${property.id}`}
+                  className="flex items-center justify-between gap-4 px-5 py-3.5 hover:bg-surface-raised"
+                >
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">{property.name}</p>
+                    <p className="truncate text-[13px] text-ink-subtle">{property.websiteUrl}</p>
+                  </div>
+                  {property.installed ? (
+                    <Badge tone="success" dot>
+                      Installed
+                    </Badge>
+                  ) : (
+                    <Badge tone="warning" dot>
+                      Not installed
+                    </Badge>
+                  )}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </>
+  );
+}

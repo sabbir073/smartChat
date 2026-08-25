@@ -73,8 +73,9 @@ docs/           this documentation set
 | Phase | Status |
 | --- | --- |
 | 0 — Foundation | ✅ complete |
-| 1 — Auth, accounts, properties | ⏳ in progress |
-| 2 → 14 | ☐ planned (see `ROADMAP.md`) |
+| 1 — Auth, accounts, properties | ✅ complete |
+| 2 — Widget | ⏳ next |
+| 3 → 14 | ☐ planned (see `ROADMAP.md`) |
 
 ## 7. Definition of done for the product
 

@@ -25,7 +25,15 @@
     "db:deploy": "pnpm --filter @smartchat/database migrate:deploy",
     "db:seed": "pnpm --filter @smartchat/database seed",
     "db:reset": "pnpm --filter @smartchat/database reset",
-    "db:studio": "pnpm --filter @smartchat/database studio"
+    "db:studio": "pnpm --filter @smartchat/database studio",
+    "smoke": "node scripts/smoke.mjs",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f --tail=100",
+    "docker:rebuild": "docker compose build && docker compose up -d",
+    "docker:migrate": "docker compose run --rm migrate",
+    "docker:seed": "docker compose exec -w /app/packages/database api ./node_modules/.bin/tsx prisma/seed.ts",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",
