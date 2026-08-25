@@ -1,0 +1,43 @@
+{
+  "name": "smartchat",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "SmartChat — multi-tenant live chat SaaS platform",
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint -- --fix",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:unit": "turbo run test:unit",
+    "test:integration": "turbo run test:integration",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
+    "clean": "turbo run clean && rimraf node_modules",
+    "db:generate": "pnpm --filter @smartchat/database generate",
+    "db:migrate": "pnpm --filter @smartchat/database migrate:dev",
+    "db:deploy": "pnpm --filter @smartchat/database migrate:deploy",
+    "db:seed": "pnpm --filter @smartchat/database seed",
+    "db:reset": "pnpm --filter @smartchat/database reset",
+    "db:studio": "pnpm --filter @smartchat/database studio"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.18.0",
+    "@types/node": "^22.10.7",
+    "eslint": "^9.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "prettier": "^3.4.2",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "turbo": "^2.3.4",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.21.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,62 @@
+# SmartChat — Testing Strategy
+
+## 1. Layers
+
+| Layer | Tool | Scope | Runs on |
+| --- | --- | --- | --- |
+| Unit | Vitest | pure domain logic in `@smartchat/core`, validation schemas, the rule engine, pagination cursors, sanitisers | every commit, no I/O |
+| Integration | Vitest + Testcontainers-style ephemeral Postgres/Redis | repositories, API routes, transactions, migrations | every commit |
+| Component | Vitest + Testing Library | dashboard and widget components with real state, no network mocks in the assertion path | every commit |
+| Realtime | Vitest + socket.io-client | connect, auth failure, reconnect, resync, idempotent resend, presence expiry | every commit |
+| Widget | Playwright | loader on a real page, Shadow DOM isolation, iframe bridge, CSP compliance, host-page-unaffected assertions | every commit |
+| End-to-end | Playwright | the acceptance flow below, against the real Docker stack | every commit |
+| Isolation (security) | Vitest | cross-tenant access per resource | **blocking**, every commit |
+| Load | k6 | concurrent sockets, message throughput, inbox queries | before release |
+
+## 2. The end-to-end acceptance flow
+
+This single test is the definition of "the product works". It runs against `docker compose up`, not
+against mocks.
+
+1. Register an account → verify email (read from Mailpit's API) → log in.
+2. Create a property; configure the widget; read the generated installation snippet.
+3. Open the test website (`apps/test-site`) which has that snippet installed.
+4. The launcher appears; open it; complete the pre-chat form; send a message.
+5. In a second browser context, the agent's inbox shows the conversation live.
+6. The agent replies; the visitor receives it over the socket without reloading.
+7. The visitor replies; the agent sees it.
+8. The agent uploads a file, adds an internal note (invisible to the visitor), assigns, then closes.
+9. The conversation appears in history with the full transcript in the right order.
+
+## 3. Tenant isolation suite
+
+For every tenant-owned resource — properties, widgets, visitors, conversations, messages,
+attachments, contacts, shortcuts, triggers, tickets, knowledge base articles, webhooks, API keys,
+reports — the suite asserts, using account A's credential against account B's object id:
+
+- read → 404
+- update → 404
+- delete → 404
+- list → the object never appears
+- and the same for the realtime surface: joining B's conversation room fails
+
+New tenant-owned models must add a case here. A model without an isolation test is not done.
+
+## 4. Rules
+
+- No test asserts against a mock of our own code where the real thing can run. Integration tests use
+  a real database.
+- Tests own their data: unique per-test tenants, no shared mutable fixtures, no ordering dependence.
+- Time is injected. Nothing sleeps to wait for a state change; tests await conditions.
+- A flaky test is a bug. It gets fixed or deleted, never retried into green.
+- Coverage is a diagnostic, not a target. The isolation and E2E suites are the real gate.
+
+## 5. Commands
+
+```
+pnpm test               # everything through turbo
+pnpm test:unit
+pnpm test:integration   # requires docker compose up -d
+pnpm test:e2e           # playwright, requires the full stack
+pnpm test:isolation     # the security gate
+```

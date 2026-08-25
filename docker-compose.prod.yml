@@ -1,0 +1,32 @@
+# =============================================================================
+# SmartChat — production overlay (single Linux VPS, Docker Compose)
+#
+# Usage on the server:
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml docker compose up -d
+#
+# Infrastructure ports are deliberately NOT published to the host: only the
+# reverse proxy is reachable from the internet. See docs/PRODUCTION_DEPLOYMENT.md
+# =============================================================================
+
+services:
+  postgres:
+    command:
+      - postgres
+      - -c
+      - max_connections=300
+      - -c
+      - shared_buffers=512MB
+      - -c
+      - effective_cache_size=1536MB
+      - -c
+      - log_min_duration_statement=1000
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 768m

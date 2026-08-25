@@ -1,0 +1,44 @@
+# =============================================================================
+# SmartChat — development overlay (Docker Desktop / localhost)
+#
+# Adds: host port publishing, Mailpit, source bind-mounts and hot reload.
+# Combine with the base file (COMPOSE_FILE in .env does this for you).
+# =============================================================================
+
+services:
+  postgres:
+    ports:
+      - '${POSTGRES_PORT:-55432}:5432'
+    command:
+      - postgres
+      - -c
+      - log_statement=none
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - max_connections=200
+
+  redis:
+    ports:
+      - '${REDIS_PORT:-56379}:6379'
+
+  minio:
+    ports:
+      - '${MINIO_API_PORT:-9100}:9000'
+      - '${MINIO_CONSOLE_PORT:-9101}:9001'
+
+  # ---------------------------------------------------------------------------
+  # Mailpit — captures every outbound email in development.
+  # UI: http://localhost:8025
+  # ---------------------------------------------------------------------------
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: '5000'
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+    ports:
+      - '${MAILPIT_SMTP_PORT:-1025}:1025'
+      - '${MAILPIT_UI_PORT:-8025}:8025'
+    networks: [smartchat]
