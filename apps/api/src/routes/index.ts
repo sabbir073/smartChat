@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Container } from '../container.js';
 import { accountRoutes } from './account.routes.js';
 import { authRoutes } from './auth.routes.js';
+import { conversationRoutes } from './conversation.routes.js';
 import { propertyRoutes } from './property.routes.js';
 import { widgetRoutes } from './widget.routes.js';
 
@@ -19,6 +20,7 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       // authenticateTenant hook, because visitors have no session and no account membership.
       await v1.register(async (scoped) => widgetRoutes(scoped, container));
       await v1.register(async (scoped) => propertyRoutes(scoped, container));
+      await v1.register(async (scoped) => conversationRoutes(scoped, container));
     },
     { prefix: '/api/v1' },
   );

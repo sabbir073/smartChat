@@ -28,6 +28,23 @@ against mocks.
 8. The agent uploads a file, adds an internal note (invisible to the visitor), assigns, then closes.
 9. The conversation appears in history with the full transcript in the right order.
 
+## 2a. Scripted checks that run against the live stack
+
+Two scripts exist so that "it works" is a command rather than an opinion. Both need
+`docker compose up -d` and both create their own throwaway account, so they can be run repeatedly.
+
+| Command | What it proves |
+| --- | --- |
+| `pnpm smoke` | The HTTP surface: registration, sessions, CSRF, rate limits, property CRUD, the public widget surface, and tenant isolation returning 404 rather than 403. |
+| `pnpm e2e:realtime` | The Phase 3 guarantees over real sockets: single-use tickets, the presence snapshot on subscribe, live delivery in both directions, gapless sequence numbers, idempotent resend, internal notes never reaching the visitor, and `sync:since` replaying exactly what a reconnecting visitor missed. |
+
+`pnpm e2e:realtime` is the script that caught ADR-021: a retry with a repeated `clientMessageId`
+returned a 500 because the recovery read ran inside an already-aborted transaction. Unit tests had
+not caught it and could not have, since a database double that does not model transaction poisoning
+passes either implementation. The regression is now pinned by
+`packages/core/src/services/conversation.idempotency.test.ts`, whose fake behaves the way Postgres
+actually behaves.
+
 ## 3. Tenant isolation suite
 
 For every tenant-owned resource — properties, widgets, visitors, conversations, messages,

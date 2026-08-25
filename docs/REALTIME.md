@@ -59,15 +59,32 @@ malformed payloads produce an `error` event and count toward the socket's abuse 
 
 1. Client generates a ULID `clientMessageId` and renders the bubble as **pending**.
 2. `message:send` is emitted with an acknowledgement callback.
-3. Gateway authorises, then in **one Postgres transaction** inserts the message and increments
-   `conversations.message_seq`.
-4. Unique violation on `(conversation_id, client_message_id)` → the existing row is returned. A
-   retry after a lost ack is therefore safe and never duplicates.
-5. Ack returns `{ id, seq, createdAt }`; the client promotes the bubble from pending to **sent**.
-6. The message is published to Redis and broadcast to `conv:<id>` and `prop:<id>`.
+3. The service looks the `clientMessageId` up first. If it already exists this is a retry after a
+   lost ack: the stored message is returned and nothing else happens — no insert, no sequence
+   number consumed.
+4. Otherwise, in **one Postgres transaction**, the message is inserted and
+   `conversations.message_seq` is incremented.
+5. If the unique index on `(conversation_id, client_message_id)` rejects the insert — two retries
+   racing — the violation is allowed to escape the transaction, and the existing row is read
+   **after** the rollback. It has to be after: Postgres aborts a transaction on any constraint
+   violation, so a read on the same connection would fail with `25P02`. The rollback also returns
+   the reserved sequence number, so the counter self-repairs. See ADR-021.
+6. Ack returns `{ id, seq, createdAt }`; the client promotes the bubble from pending to **sent**.
+7. The message is published to Redis and broadcast to `conv:<id>` and `prop:<id>`.
+
+Only a genuinely new message is broadcast; re-broadcasting a deduplicated retry would show it twice
+in every open inbox.
 
 The client only ever removes a pending bubble when it has an ack. If the socket drops before the
 ack, the message stays pending and is resent on reconnect — idempotency makes that correct.
+
+## 5a. Presence
+
+Visitor presence lives in Redis with a TTL and a heartbeat, and changes are pushed to agents as
+`presence:visitor`. Events alone are not enough: an agent who opens the inbox after a visitor has
+already connected would never receive one. So `inbox:subscribe` answers with the gateway's current
+view of every subscribed property, and the dashboard treats that answer as the complete truth for
+those properties. See ADR-022.
 
 ## 6. Reconnect and resync
 

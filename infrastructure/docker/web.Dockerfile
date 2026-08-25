@@ -32,6 +32,7 @@ COPY packages/ui/package.json          packages/ui/
 COPY packages/validation/package.json  packages/validation/
 COPY apps/api/package.json             apps/api/
 COPY apps/worker/package.json          apps/worker/
+COPY apps/realtime/package.json        apps/realtime/
 COPY apps/web/package.json             apps/web/
 COPY apps/widget/package.json          apps/widget/
 COPY apps/test-site/package.json       apps/test-site/

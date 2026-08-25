@@ -42,6 +42,8 @@ export interface BootstrapResult {
   sessionId: string;
   property: { publicId: string; name: string };
   widget: { version: number; config: WidgetConfig };
+  /** Drives the widget's online/offline copy before the socket has connected. */
+  agentsAvailable: boolean;
 }
 
 export interface VisitorServiceOptions {
@@ -49,6 +51,13 @@ export interface VisitorServiceOptions {
   visitorTokenSecret: string;
   /** Development convenience: accept localhost origins whatever the allowed-domain list says. */
   allowLocalhostOrigins: boolean;
+  /**
+   * Whether any agent is available right now.
+   *
+   * Injected rather than depended on, so the visitor service does not need Redis: presence is the
+   * realtime layer's concern, and this keeps the two testable apart.
+   */
+  isAgentAvailable?: (accountId: string) => Promise<boolean>;
   clock?: Clock;
 }
 
@@ -168,9 +177,14 @@ export class VisitorService {
       this.options.visitorTokenSecret,
     );
 
+    const agentsAvailable = this.options.isAgentAvailable
+      ? await this.options.isAgentAvailable(property.accountId).catch(() => false)
+      : false;
+
     return {
       token,
       expiresInSeconds: VISITOR_TOKEN_TTL_SECONDS,
+      agentsAvailable,
       visitor: {
         id: visitor.id,
         name: visitor.name,

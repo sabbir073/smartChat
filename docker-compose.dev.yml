@@ -62,6 +62,17 @@ services:
       - ./apps/api/src:/app/apps/api/src:ro
     command: ['./node_modules/.bin/tsx', 'watch', '--clear-screen=false', 'src/index.ts']
 
+  realtime:
+    ports:
+      - '${REALTIME_PORT:-3002}:3002'
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: ${LOG_LEVEL:-debug}
+      CHOKIDAR_USEPOLLING: '1'
+    volumes:
+      - ./apps/realtime/src:/app/apps/realtime/src:ro
+    command: ['./node_modules/.bin/tsx', 'watch', '--clear-screen=false', 'src/index.ts']
+
   worker:
     environment:
       NODE_ENV: development

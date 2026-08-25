@@ -2,13 +2,17 @@ import { createPrismaClient, type Database } from '@smartchat/database';
 import {
   AccountService,
   AuthService,
+  ConversationService,
   EntitlementService,
   LogMailProvider,
   LoginThrottle,
   PropertyService,
   QueueProducer,
   RateLimiter,
+  PresenceService,
+  RedisEventPublisher,
   SmtpMailProvider,
+  TicketService,
   VisitorService,
   WidgetService,
   createRedisClient,
@@ -36,6 +40,9 @@ export interface Container {
   properties: PropertyService;
   widgets: WidgetService;
   visitors: VisitorService;
+  conversations: ConversationService;
+  presence: PresenceService;
+  tickets: TicketService;
   entitlements: EntitlementService;
   shutdown(): Promise<void>;
 }
@@ -107,10 +114,27 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
 
   const accounts = new AccountService(db, entitlements);
   const widgets = new WidgetService(db, clock);
+  const presence = new PresenceService(redis);
+  const tickets = new TicketService(redis);
+
   const visitors = new VisitorService({
     db,
     visitorTokenSecret: config.VISITOR_TOKEN_SECRET,
     allowLocalhostOrigins: config.ALLOW_LOCALHOST_ORIGINS,
+    isAgentAvailable: (accountId) => presence.hasAvailableAgent(accountId),
+    clock,
+  });
+
+  /**
+   * The API publishes domain events to the same Redis channel the gateway fans out from, rather
+   * than calling the gateway directly. A message sent over HTTP therefore reaches connected
+   * clients by exactly the same route as one sent over a socket.
+   */
+  const conversations = new ConversationService({
+    db,
+    events: new RedisEventPublisher(redis, (error) =>
+      logger.error({ err: error }, 'failed to publish domain event'),
+    ),
     clock,
   });
   const properties = new PropertyService({
@@ -135,6 +159,9 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     properties,
     widgets,
     visitors,
+    conversations,
+    presence,
+    tickets,
     entitlements,
     async shutdown() {
       await queue.close().catch(() => {});

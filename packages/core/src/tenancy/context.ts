@@ -9,8 +9,12 @@ import {
 } from '@smartchat/types';
 
 export interface MembershipLike {
+  /** The membership's own id - what conversations, messages and reads reference. */
+  id: string;
   accountId: string;
   userId: string;
+  displayName?: string | null;
+  user?: { name?: string | null } | null;
   baseRole: MemberRole;
   status: string;
   restrictedToProperties: boolean;
@@ -64,11 +68,15 @@ export function buildTenantContext(input: BuildTenantContextInput): TenantContex
   const context: TenantContext = {
     accountId: membership.accountId,
     userId: membership.userId,
+    memberId: membership.id,
     actorType: ActorType.USER,
     role: membership.baseRole,
     permissions: resolvePermissions(membership),
     requestId: input.requestId,
   };
+
+  const name = membership.displayName ?? membership.user?.name;
+  if (name) (context as { actorName?: string }).actorName = name;
 
   if (membership.restrictedToProperties) {
     // An empty set is meaningful: a restricted member with no assignments sees nothing.

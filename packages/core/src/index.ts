@@ -21,3 +21,6 @@ export * from './services/visitor.service.js';
 export * from './services/widget.service.js';
 export * from './repositories/visitor.repository.js';
 export * from './repositories/widget.repository.js';
+export * from './realtime/index.js';
+export * from './repositories/conversation.repository.js';
+export * from './services/conversation.service.js';

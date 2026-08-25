@@ -37,6 +37,14 @@ const NAV: NavItem[] = [
     icon: icon('M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z'),
   },
   {
+    href: '/inbox',
+    label: 'Inbox',
+    available: true,
+    icon: icon(
+      'M3 8.5 12 3l9 5.5M3 8.5V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5M3 8.5l8 5a2 2 0 0 0 2 0l8-5',
+    ),
+  },
+  {
     href: '/properties',
     label: 'Websites',
     available: true,
@@ -93,7 +101,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       })}
 
       <div className="mt-auto rounded-[var(--radius-control)] bg-surface-raised p-3 text-[12px] leading-relaxed text-ink-subtle">
-        Live chat, the inbox and automations arrive in the next phases. Nothing is listed here
+        Automations, the knowledge base and reporting arrive in later phases. Nothing is listed here
         before it works.
       </div>
     </nav>

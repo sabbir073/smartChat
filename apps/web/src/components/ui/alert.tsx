@@ -22,10 +22,12 @@ export function Alert({
   tone = 'info',
   title,
   children,
+  className,
 }: {
   tone?: Tone;
   title?: ReactNode;
   children?: ReactNode;
+  className?: string;
 }) {
   return (
     <div
@@ -34,6 +36,7 @@ export function Alert({
       className={cn(
         'flex gap-3 rounded-[var(--radius-control)] border px-4 py-3 text-sm',
         TONES[tone],
+        className,
       )}
     >
       <svg

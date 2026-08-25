@@ -3,8 +3,13 @@ import { DEFAULT_WIDGET_CONFIG, parseWidgetConfig, type WidgetConfig } from '@sm
 import { PanelBridge, type HostPage } from './lib/bridge.js';
 import { WidgetApiError, widgetApi, type BootstrapResponse } from './lib/api.js';
 import { clearToken, readToken, writeToken } from './lib/storage.js';
+import { ChatClient, type ConnectionState } from './lib/socket.js';
+import { ulid } from './lib/ulid.js';
+import type { MessageDto, PanelMessage } from './lib/types.js';
 import { PanelHeader } from './components/PanelHeader.js';
 import { PreChatForm } from './components/PreChatForm.js';
+import { MessageList } from './components/MessageList.js';
+import { Composer } from './components/Composer.js';
 
 type View = 'loading' | 'unavailable' | 'prechat' | 'chat';
 
@@ -52,9 +57,86 @@ export function App() {
   const [failure, setFailure] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [messages, setMessages] = useState<PanelMessage[]>([]);
+  const [connection, setConnection] = useState<ConnectionState>('idle');
+  const [agentTyping, setAgentTyping] = useState(false);
+  const [online, setOnline] = useState(false);
+  const [closed, setClosed] = useState(false);
+
   const bridge = useMemo(() => (params ? new PanelBridge(params.nonce) : null), [params]);
   const hostPage = useRef<HostPage | null>(null);
   const started = useRef(false);
+  const client = useRef<ChatClient | null>(null);
+  const typingTimer = useRef<number | null>(null);
+  const isOpen = useRef(false);
+
+  /**
+   * Merge a message into the list.
+   *
+   * Keyed on `clientMessageId` first so a server echo replaces the optimistic bubble rather than
+   * appearing beside it, then on `id` so a replay after reconnect cannot duplicate anything.
+   */
+  const upsertMessage = useCallback((incoming: MessageDto, delivery: PanelMessage['delivery']) => {
+    setMessages((current) => {
+      const index = current.findIndex(
+        (message) =>
+          (incoming.clientMessageId && message.clientMessageId === incoming.clientMessageId) ||
+          message.id === incoming.id,
+      );
+      const next: PanelMessage = { ...incoming, delivery };
+      if (index === -1) {
+        return [...current, next].sort((a, b) => (a.seq || 0) - (b.seq || 0));
+      }
+      const copy = [...current];
+      copy[index] = next;
+      return copy;
+    });
+  }, []);
+
+  const connectSocket = useCallback(
+    (token: string) => {
+      if (client.current) return;
+      const chat = new ChatClient(token, {
+        onState: (state) => {
+          setConnection(state);
+          setOnline(state === 'connected');
+        },
+        onMessage: (message) => {
+          upsertMessage(message, 'sent');
+          if (message.senderType !== 'visitor') {
+            setAgentTyping(false);
+            // The badge only counts what the visitor has not seen.
+            if (!isOpen.current) {
+              setMessages((current) => {
+                const unread = current.filter((entry) => entry.senderType !== 'visitor').length;
+                bridge?.setUnread(unread);
+                return current;
+              });
+            } else {
+              chat.markRead();
+            }
+          }
+        },
+        onTyping: (payload) => {
+          setAgentTyping(payload.typing);
+          if (typingTimer.current) window.clearTimeout(typingTimer.current);
+          if (payload.typing) {
+            // A safety net: the server's typing key expires, but if its "stopped" event is lost
+            // the indicator must not stay on forever.
+            typingTimer.current = window.setTimeout(() => setAgentTyping(false), 7000);
+          }
+        },
+        onConversation: (payload) => {
+          if (payload.status === 'closed') setClosed(true);
+          if (payload.status === 'open') setClosed(false);
+        },
+      });
+
+      client.current = chat;
+      void chat.connect();
+    },
+    [bridge, upsertMessage],
+  );
 
   const bootstrap = useCallback(
     async (page: HostPage | null) => {
@@ -74,15 +156,15 @@ export function App() {
         setSession(result);
         setConfig(result.widget.config);
         applyTheme(result.widget.config);
+        setOnline(result.agentsAvailable);
 
-        // A returning visitor who already told us who they are should not be asked again.
         const knowsVisitor = Boolean(result.visitor.name || result.visitor.email);
         const needsPreChat = result.widget.config.behaviour.preChatEnabled && !knowsVisitor;
         setView(needsPreChat ? 'prechat' : 'chat');
+
+        connectSocket(result.token);
       } catch (error) {
         if (error instanceof WidgetApiError && error.code === 'INVALID_TOKEN') {
-          // The stored token is no longer usable - expired, or its visitor was erased. Drop it and
-          // start over as a new visitor rather than leaving the widget permanently broken.
           clearToken(params.publicId);
           if (!started.current) {
             started.current = true;
@@ -98,7 +180,7 @@ export function App() {
         setView('unavailable');
       }
     },
-    [params],
+    [params, connectSocket],
   );
 
   // --- bridge ---------------------------------------------------------------
@@ -125,17 +207,18 @@ export function App() {
         setView(parsed.behaviour.preChatEnabled ? 'prechat' : 'chat');
       },
       onOpen() {
+        isOpen.current = true;
         bridge.setUnread(0);
+        client.current?.markRead();
       },
       onClose() {
-        /* the loader has already hidden the frame; nothing to tear down */
+        isOpen.current = false;
       },
       onPage(page) {
         hostPage.current = hostPage.current
           ? { ...hostPage.current, url: page.url, title: page.title }
           : { url: page.url, title: page.title, referrer: '' };
-        const token = readToken(params.publicId);
-        if (token) void widgetApi.pageView(token, page).catch(() => undefined);
+        client.current?.reportPage(page.url, page.title);
       },
       onIdentify(traits) {
         const token = readToken(params.publicId);
@@ -150,14 +233,12 @@ export function App() {
           .catch(() => undefined);
       },
       onVisibility() {
-        /* used by the realtime layer to pace reconnects */
+        /* the socket manages its own liveness */
       },
     });
 
     bridge.ready();
 
-    // If the loader never answers (a stale frame, a blocked bridge), start anyway after a moment
-    // so the visitor is not left staring at a spinner.
     const fallback = window.setTimeout(() => {
       if (!started.current && !params.preview) {
         started.current = true;
@@ -168,6 +249,8 @@ export function App() {
     return () => {
       window.clearTimeout(fallback);
       stop();
+      client.current?.close();
+      client.current = null;
     };
   }, [bridge, bootstrap, params]);
 
@@ -182,14 +265,10 @@ export function App() {
     );
   }
 
-  // Narrowed here so the handlers below do not each have to re-prove it; the early return above
-  // has already established that params is present.
   const resolved = params;
-  const online = false; // Agent presence arrives with the realtime layer in Phase 3.
   const subtitle = online ? config.content.subtitleOnline : config.content.subtitleOffline;
 
   async function handlePreChat(values: Record<string, string>) {
-    // In preview mode there is no visitor to identify; the form is there to be looked at.
     if (resolved.preview) {
       setView('chat');
       return;
@@ -202,15 +281,62 @@ export function App() {
         email: values['email'],
         phone: values['phone'],
       });
-      setView('chat');
     } catch {
-      // Identification is best-effort context, not a gate. Failing to record it must never stop
-      // somebody from asking for help.
-      setView('chat');
+      // Identification is context, not a gate. Failing to record it must never stop somebody
+      // asking for help.
     } finally {
       setSubmitting(false);
+      setView('chat');
     }
   }
+
+  /**
+   * Send optimistically, then reconcile.
+   *
+   * The bubble appears immediately as `pending` and is promoted to `sent` only when the server
+   * acknowledges - which it does only after the message is committed. If the send fails the bubble
+   * stays visible and marked, rather than vanishing with the visitor's words in it.
+   */
+  function handleSend(body: string) {
+    const chat = client.current;
+    if (!chat) return;
+
+    const clientMessageId = ulid();
+    const optimistic: PanelMessage = {
+      id: clientMessageId,
+      conversationId: chat.conversationId ?? '',
+      seq: Number.MAX_SAFE_INTEGER,
+      clientMessageId,
+      senderType: 'visitor',
+      senderId: null,
+      senderName: null,
+      type: 'text',
+      body,
+      createdAt: new Date().toISOString(),
+      readAt: null,
+      delivery: 'pending',
+    };
+    setMessages((current) => [...current, optimistic]);
+
+    const promise = chat.conversationId
+      ? chat.send(clientMessageId, body)
+      : chat.start(clientMessageId, body);
+
+    promise
+      .then((message) => upsertMessage(message, 'sent'))
+      .catch(() => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.clientMessageId === clientMessageId
+              ? { ...message, delivery: 'failed' }
+              : message,
+          ),
+        );
+      });
+  }
+
+  const composerDisabled =
+    resolved.preview || connection !== 'connected' || closed || view !== 'chat';
 
   return (
     <div className="panel">
@@ -221,6 +347,22 @@ export function App() {
         avatarUrl={config.appearance.avatarUrl}
         onClose={() => bridge?.requestClose()}
       />
+
+      {view === 'chat' && connection === 'reconnecting' && (
+        <div className="banner" role="status">
+          Reconnecting…
+        </div>
+      )}
+      {view === 'chat' && connection === 'failed' && (
+        <div className="banner" data-tone="error" role="alert">
+          We cannot reach the chat service right now.
+        </div>
+      )}
+      {closed && (
+        <div className="banner" role="status">
+          This conversation was closed. Send a message to reopen it.
+        </div>
+      )}
 
       {view === 'loading' && (
         <div className="centered">
@@ -249,16 +391,22 @@ export function App() {
       )}
 
       {view === 'chat' && (
-        <div className="body">
-          <div className="bubble bubble-agent">{config.content.welcomeMessage}</div>
-          <div className="centered">
-            <div className="spinner" aria-hidden="true" />
-            <p>Connecting you to the team…</p>
-          </div>
-        </div>
+        <>
+          <MessageList
+            messages={messages}
+            welcome={config.content.welcomeMessage}
+            agentTyping={agentTyping && config.behaviour.showAgentTyping}
+          />
+          <Composer
+            placeholder={config.content.inputPlaceholder}
+            disabled={composerDisabled}
+            onSend={handleSend}
+            onTyping={(typing) => client.current?.typing(typing)}
+          />
+        </>
       )}
 
-      <p className="footer">Powered by SmartChat</p>
+      {view !== 'chat' && <p className="footer">Powered by SmartChat</p>}
     </div>
   );
 }

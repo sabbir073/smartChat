@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "SmartChat — multi-tenant live chat SaaS platform",
+  "description": "SmartChat \u2014 multi-tenant live chat SaaS platform",
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20.11.0"
@@ -33,7 +33,8 @@
     "docker:rebuild": "docker compose build && docker compose up -d",
     "docker:migrate": "docker compose run --rm migrate",
     "docker:seed": "docker compose exec -w /app/packages/database api ./node_modules/.bin/tsx prisma/seed.ts",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit"
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit",
+    "e2e:realtime": "node scripts/e2e-realtime.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

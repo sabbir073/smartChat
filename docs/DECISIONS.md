@@ -265,3 +265,53 @@ test asserting the payload contains no `alg` field at all.
 **Tradeoffs** Not interoperable with JWT tooling. We do not need it to be. Rotation is handled by
 the `v` field, and expiry by `exp`.
 **Date** 2026-08-25
+
+---
+## ADR-021 — Retry-safety is handled outside the transaction, not inside it
+**Context** A message carries a client-generated `clientMessageId`, and a unique index on
+`(conversation_id, client_message_id)` is what makes "resend after a lost acknowledgement" safe.
+The first implementation caught the unique violation *inside* the transaction that had just
+reserved the sequence number, read the existing row, and returned it.
+**Problem** That can never work on Postgres. A constraint violation aborts the entire transaction,
+and every subsequent statement on that connection fails with `25P02 current transaction is aborted,
+commands ignored until end of transaction block`. The recovery read was itself the second statement,
+so every retry returned a 500 instead of the stored message. The realtime E2E script caught it; no
+unit test could have, because a mock that does not model transaction poisoning happily passes.
+**Chosen** The repository does the happy path only and lets the violation escape. The service wraps
+it: a pre-check read before the transaction (the ordinary case — a client resending after a lost
+ack, which now never touches the sequence counter at all), and a recovery read after the
+transaction has rolled back (the race — two retries in flight, where the pre-check found nothing).
+**Reason** The rollback also returns the reserved sequence number, so the counter needs no repair;
+the old code's manual `decrement` was both unreachable and wrong.
+**Tradeoffs** One extra indexed read per message that carries a client id. That index exists
+anyway, and correctness on retry is the entire point of the field.
+**Date** 2026-08-25
+
+---
+## ADR-022 — The inbox learns presence from a snapshot, not only from events
+**Context** Visitor presence reaches the dashboard as `presence:visitor` events. An agent who opens
+the inbox after a visitor has already connected receives no event, so the visitor appeared as
+"Offline" while they were sitting in the chat.
+**Chosen** `inbox:subscribe` answers with the gateway's current view of every subscribed property's
+visitors, and the dashboard treats that answer as the complete truth for those properties.
+**Reason** Showing "Offline" for someone who is online is worse than showing nothing: an agent
+decides whether to reply now or send an email based on it. Presence already lives in Redis with a
+TTL, so the snapshot is a read the gateway can always answer.
+**Tradeoffs** A snapshot replaces rather than merges, so a `presence:visitor` event that arrives
+in the same millisecond as the ack could be overwritten. The heartbeat re-asserts within
+`PRESENCE_HEARTBEAT_SECONDS`, and the cost of being briefly wrong in that direction is one stale
+dot rather than a missed conversation.
+**Date** 2026-08-25
+
+---
+## ADR-023 — The host replays `open` when the panel signals ready
+**Context** The panel iframe is created lazily, by the first click on the launcher. The loader then
+posted `open` immediately — to a frame that had not loaded yet, so the message was dropped. The
+panel therefore believed it was closed for the whole session.
+**Problem** Two visible consequences: the unread badge counted messages the visitor was looking at,
+and the panel never sent a read receipt, so `visitor_unread_count` never returned to zero.
+**Chosen** The loader replays the current open state when the panel sends `ready`.
+**Reason** `ready` is the only moment the host knows the panel is listening. Replaying state there
+also makes a panel reload recover correctly, which the original code did not.
+**Tradeoffs** None material; the message is idempotent.
+**Date** 2026-08-25

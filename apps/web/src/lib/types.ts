@@ -46,3 +46,30 @@ export interface MemberDto {
   lastLoginAt: string | null;
   joinedAt: string | null;
 }
+
+export interface ConversationDto {
+  id: string;
+  propertyId: string;
+  status: 'open' | 'pending' | 'closed';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  channel: string;
+  subject: string | null;
+  tags: string[];
+  assignedMemberId: string | null;
+  lastMessageAt: string;
+  startedAt: string;
+  closedAt: string | null;
+  agentUnreadCount: number;
+  messageSeq: number;
+  visitor: {
+    id: string;
+    name: string | null;
+    email: string | null;
+    browser: string | null;
+    os: string | null;
+    deviceType: string;
+    country: string | null;
+    language: string | null;
+    isReturning: boolean;
+  };
+}

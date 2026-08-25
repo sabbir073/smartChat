@@ -8,6 +8,8 @@ export interface BootstrapResponse {
   sessionId: string;
   property: { publicId: string; name: string };
   widget: { version: number; config: WidgetConfig };
+  /** Whether anyone is available right now, so the first render is honest before the socket connects. */
+  agentsAvailable: boolean;
 }
 
 export class WidgetApiError extends Error {

@@ -85,6 +85,31 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
     return noContent(reply);
   });
 
+  /**
+   * Mint a single-use ticket for the realtime gateway.
+   *
+   * Same reasoning as the agent ticket: a browser cannot set a header on a WebSocket handshake, so
+   * anything long-lived passed to the gateway would end up in a query string and from there into
+   * proxy logs. This is worth 60 seconds and one connection.
+   */
+  app.post('/widget/realtime-ticket', async (request, reply) => {
+    const token = bearer(request);
+    await app.rateLimit(request, 'widgetSession');
+    const identity = await container.visitors.authenticate(token);
+
+    const ticket = await container.tickets.issue({
+      kind: 'visitor',
+      accountId: identity.accountId,
+      subjectId: identity.visitorId,
+      propertyId: identity.propertyId,
+      sessionId: identity.sessionId,
+      ...(identity.visitor.name ? { actorName: identity.visitor.name } : {}),
+    });
+
+    reply.header('cache-control', 'no-store');
+    return ok(reply, { ...ticket, url: container.config.REALTIME_URL });
+  });
+
   /** Lets the panel confirm its stored token is still valid before it renders a chat. */
   app.get('/widget/me', async (request, reply) => {
     const identity = await container.visitors.authenticate(bearer(request));

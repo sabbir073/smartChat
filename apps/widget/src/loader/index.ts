@@ -353,6 +353,11 @@ interface SmartChatGlobal {
             },
             locale: navigator.language || 'en',
           });
+          // The frame is created by the first open, so the OPEN sent at that moment arrives before
+          // the panel is listening and is lost. Replaying it here is what tells the panel it is
+          // visible - without it the panel counts unread messages the visitor is looking at and
+          // never sends a read receipt.
+          if (open) post({ type: HOST_TO_PANEL.OPEN, nonce });
           return;
         case PANEL_TO_HOST.CLOSE:
           setOpen(false);

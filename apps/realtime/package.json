@@ -1,0 +1,37 @@
+{
+  "name": "@smartchat/realtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch --clear-screen=false src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src --max-warnings=0",
+    "test": "vitest run --passWithNoTests",
+    "test:unit": "vitest run --passWithNoTests",
+    "clean": "rimraf dist .turbo *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@socket.io/redis-adapter": "^8.3.0",
+    "@smartchat/config": "workspace:*",
+    "@smartchat/core": "workspace:*",
+    "@smartchat/database": "workspace:*",
+    "@smartchat/logger": "workspace:*",
+    "@smartchat/types": "workspace:*",
+    "@smartchat/validation": "workspace:*",
+    "socket.io": "^4.8.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.7",
+    "pino-pretty": "^13.0.0",
+    "socket.io-client": "^4.8.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  }
+}

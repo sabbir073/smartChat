@@ -11,6 +11,16 @@ export interface TenantContext {
   accountId: string;
   /** Present for user-driven requests, absent for API-key and system actors. */
   userId?: string;
+  /**
+   * The membership id, which is what tenant-owned rows reference.
+   *
+   * Distinct from `userId` on purpose: the same person in two accounts is two memberships, and
+   * comparing an assigned member id against a user id silently never matches. Keeping both here,
+   * clearly named, is what stops that mistake being made twice.
+   */
+  memberId?: string;
+  /** Display name for audit labels and message attribution. */
+  actorName?: string;
   actorType: ActorType;
   role?: MemberRole;
   permissions: ReadonlySet<Permission>;
