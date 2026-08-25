@@ -302,6 +302,7 @@ export class ConversationService {
       propertyId: query.propertyId,
       assignedMemberId,
       search: query.search,
+      tags: query.tags,
     });
   }
 

@@ -10,16 +10,16 @@ import {
   type AgentMessage,
 } from '@/lib/realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
+import { ConversationHeader } from '@/components/inbox/conversation-header';
+import { DEFAULT_FILTERS, FilterBar, type InboxFilters } from '@/components/inbox/filter-bar';
 import {
   MessageThread,
   AgentComposer,
   type ThreadMessage,
 } from '@/components/inbox/message-thread';
 import { VisitorPanel } from '@/components/inbox/visitor-panel';
-import { Alert, EmptyState, Spinner, cn } from '@/components/ui';
-import type { ConversationDto, PropertyDto } from '@/lib/types';
-
-type StatusFilter = 'open' | 'closed' | 'all';
+import { Alert, EmptyState, Spinner, cn, useToast } from '@/components/ui';
+import type { ConversationDto, MemberDto, PropertyDto } from '@/lib/types';
 
 /**
  * The agent inbox.
@@ -32,14 +32,30 @@ type StatusFilter = 'open' | 'closed' | 'all';
  */
 export default function InboxPage() {
   const { activeAccount } = useAuth();
+  const toast = useToast();
 
   const [connection, setConnection] = useState<AgentConnectionState>('idle');
   const [conversations, setConversations] = useState<ConversationDto[]>([]);
   const [listLoading, setListLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
+  const [filters, setFilters] = useState<InboxFilters>(DEFAULT_FILTERS);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const [properties, setProperties] = useState<PropertyDto[]>([]);
+  const [members, setMembers] = useState<MemberDto[]>([]);
+  const [updating, setUpdating] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /**
+   * The open conversation, held separately from the list.
+   *
+   * Closing a conversation removes it from the "Open" filter, and deriving the thread from the
+   * list would make it disappear the instant the agent acted - no confirmation of what happened,
+   * and no way to reopen it without hunting through the closed list. It stays on screen until the
+   * agent picks something else.
+   */
+  const [selectedConversation, setSelectedConversation] = useState<ConversationDto | null>(null);
   const [messages, setMessages] = useState<Record<string, ThreadMessage[]>>({});
   const [threadLoading, setThreadLoading] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
@@ -91,18 +107,30 @@ export default function InboxPage() {
     });
   }, []);
 
+  /** The filters, as the API expects them. One place, so the first page and "load more" agree. */
+  const queryFor = useCallback(
+    (active: InboxFilters, after?: string) => ({
+      limit: 30,
+      ...(active.status === 'all' ? {} : { status: active.status }),
+      ...(active.assigned === 'any' ? {} : { assigned: active.assigned }),
+      ...(active.propertyId === 'all' ? {} : { propertyId: active.propertyId }),
+      ...(active.search ? { search: active.search } : {}),
+      ...(active.tags.length > 0 ? { tags: active.tags } : {}),
+      ...(after ? { cursor: after } : {}),
+    }),
+    [],
+  );
+
   const loadConversations = useCallback(
     async (signal?: AbortSignal) => {
       setListError(null);
       try {
         const result = await api.get<ConversationDto[]>('/conversations', {
-          query: {
-            limit: 50,
-            ...(statusFilter === 'all' ? {} : { status: statusFilter }),
-          },
+          query: queryFor(filters),
           ...(signal ? { signal } : {}),
         });
         setConversations(result.data);
+        setCursor((result.meta?.['cursor'] as string | null) ?? null);
         return result.data;
       } catch (caught) {
         if ((caught as Error).name === 'AbortError') return [];
@@ -114,8 +142,36 @@ export default function InboxPage() {
         setListLoading(false);
       }
     },
-    [statusFilter],
+    [filters, queryFor],
   );
+
+  /**
+   * Fetch the next page.
+   *
+   * Appends rather than replaces, and de-duplicates by id: a conversation that received a message
+   * while the agent was reading has moved to the top of the list, so the server's page boundary
+   * can legitimately hand back a row that is already on screen.
+   */
+  const loadMore = useCallback(async () => {
+    if (!cursor || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await api.get<ConversationDto[]>('/conversations', {
+        query: queryFor(filters, cursor),
+      });
+      setConversations((current) => {
+        const seen = new Set(current.map((row) => row.id));
+        return current.concat(result.data.filter((row) => !seen.has(row.id)));
+      });
+      setCursor((result.meta?.['cursor'] as string | null) ?? null);
+    } catch (caught) {
+      setListError(
+        caught instanceof ApiError ? caught.message : 'More conversations could not be loaded',
+      );
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, loadingMore, filters, queryFor]);
 
   // --- realtime -----------------------------------------------------------
 
@@ -248,33 +304,61 @@ export default function InboxPage() {
     return () => controller.abort();
   }, [loadConversations, activeAccount?.id]);
 
+  // The reference data the filters and the assign control are built from.
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void Promise.all([
+      api.get<PropertyDto[]>('/properties', { signal: controller.signal }),
+      api.get<{ members: MemberDto[] }>('/account/members', { signal: controller.signal }),
+    ])
+      .then(([propertyResult, memberResult]) => {
+        setProperties(propertyResult.data);
+        // Only people who could actually pick the conversation up belong in the assign list.
+        setMembers(memberResult.data.members.filter((member) => member.status === 'active'));
+      })
+      .catch((caught: unknown) => {
+        if ((caught as Error).name === 'AbortError') return;
+        setListError('Websites and team members could not be loaded.');
+      });
+
+    return () => controller.abort();
+  }, [activeAccount?.id]);
+
   // Subscribe to every property this agent can see, so a brand-new conversation arrives without
   // a poll. The gateway re-checks membership itself; this list is only a filter, never a grant.
   useEffect(() => {
-    if (connection !== 'connected') return;
+    if (connection !== 'connected' || properties.length === 0) return;
     let cancelled = false;
 
-    void api
-      .get<PropertyDto[]>('/properties')
-      .then(async (result) => {
-        if (cancelled) return;
-        const ids = result.data.map((property) => property.id);
-        if (ids.length === 0) return;
-        await clientRef.current?.subscribe(ids);
-      })
-      .catch(() => {
-        if (!cancelled) setListError('Live updates could not be started. Reload to try again.');
-      });
+    void clientRef.current?.subscribe(properties.map((property) => property.id)).catch(() => {
+      if (!cancelled) setListError('Live updates could not be started. Reload to try again.');
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [connection, activeAccount?.id]);
+  }, [connection, properties]);
 
-  const selected = useMemo(
-    () => conversations.find((conversation) => conversation.id === selectedId) ?? null,
-    [conversations, selectedId],
-  );
+  /**
+   * Every tag in use, for the filter bar.
+   *
+   * Derived from the loaded page rather than fetched: a dedicated endpoint would be a second
+   * round trip to tell the agent about tags on conversations they are not looking at.
+   */
+  const knownTags = useMemo(() => {
+    const tags = new Set<string>();
+    for (const conversation of conversations) for (const tag of conversation.tags) tags.add(tag);
+    for (const tag of filters.tags) tags.add(tag);
+    return [...tags].sort((a, b) => a.localeCompare(b));
+  }, [conversations, filters.tags]);
+
+  const selected = useMemo(() => {
+    if (!selectedId) return null;
+    return (
+      conversations.find((conversation) => conversation.id === selectedId) ?? selectedConversation
+    );
+  }, [conversations, selectedId, selectedConversation]);
 
   const thread = selectedId ? (messages[selectedId] ?? []) : [];
 
@@ -287,6 +371,7 @@ export default function InboxPage() {
     }
 
     setSelectedId(conversation.id);
+    setSelectedConversation(conversation);
     selectedRef.current = conversation.id;
     setThreadError(null);
     setThreadLoading(true);
@@ -387,12 +472,104 @@ export default function InboxPage() {
     if (conversationId) clientRef.current?.typing(conversationId, typing);
   }, []);
 
+  /**
+   * Apply a change to the open conversation and fold the server's answer back into the list.
+   *
+   * Deliberately not optimistic. These are decisions other agents act on - who owns a
+   * conversation, whether it is still open - and showing a change that the server then refused
+   * would be worse than a moment of latency. The row is only rewritten once the API confirms it.
+   */
+  const mutate = useCallback(
+    async (
+      apply: (conversationId: string) => Promise<Partial<ConversationDto>>,
+      describe: string,
+    ) => {
+      const conversationId = selectedRef.current;
+      if (!conversationId || updating) return;
+
+      setUpdating(true);
+      try {
+        const patch = await apply(conversationId);
+        setConversations((current) =>
+          current.map((row) => (row.id === conversationId ? { ...row, ...patch } : row)),
+        );
+        setSelectedConversation((current) =>
+          current && current.id === conversationId ? { ...current, ...patch } : current,
+        );
+      } catch (caught) {
+        toast.error(caught instanceof ApiError ? caught.message : `${describe} failed`);
+      } finally {
+        setUpdating(false);
+      }
+    },
+    [toast, updating],
+  );
+
+  const assign = useCallback(
+    (memberId: string | null) =>
+      void mutate(async (conversationId) => {
+        const result = await api.post<{ assignedMemberId: string | null }>(
+          `/conversations/${conversationId}/assign`,
+          { memberId },
+        );
+        toast.success(memberId ? 'Conversation assigned' : 'Conversation unassigned');
+        return { assignedMemberId: result.data.assignedMemberId };
+      }, 'Assigning'),
+    [mutate, toast],
+  );
+
+  const setStatus = useCallback(
+    (status: 'open' | 'pending' | 'closed') =>
+      void mutate(async (conversationId) => {
+        const result = await api.patch<{ status: ConversationDto['status'] }>(
+          `/conversations/${conversationId}`,
+          { status },
+        );
+        toast.success(
+          status === 'closed'
+            ? 'Conversation closed'
+            : status === 'pending'
+              ? 'Marked as pending'
+              : 'Conversation reopened',
+        );
+        return {
+          status: result.data.status,
+          closedAt: status === 'closed' ? new Date().toISOString() : null,
+        };
+      }, 'Changing the status'),
+    [mutate, toast],
+  );
+
+  const setPriority = useCallback(
+    (priority: ConversationDto['priority']) =>
+      void mutate(async (conversationId) => {
+        await api.patch(`/conversations/${conversationId}`, { priority });
+        return { priority };
+      }, 'Changing the priority'),
+    [mutate],
+  );
+
+  const setTags = useCallback(
+    (tags: string[]) =>
+      void mutate(async (conversationId) => {
+        await api.patch(`/conversations/${conversationId}`, { tags });
+        return { tags };
+      }, 'Updating tags'),
+    [mutate],
+  );
+
   // --- render -------------------------------------------------------------
 
   const live = connection === 'connected';
+  const filtered =
+    filters.status !== DEFAULT_FILTERS.status ||
+    filters.assigned !== 'any' ||
+    filters.propertyId !== 'all' ||
+    filters.search !== '' ||
+    filters.tags.length > 0;
 
   return (
-    <div className="flex h-[calc(100dvh-8.5rem)] min-h-[520px] flex-col">
+    <div className="flex h-[calc(100dvh-7.5rem)] min-h-[420px] flex-col">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold tracking-tight text-ink">Inbox</h1>
@@ -410,25 +587,21 @@ export default function InboxPage() {
             {live ? 'Live' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
           </span>
         </div>
+      </div>
 
-        <div className="flex items-center gap-1" role="group" aria-label="Filter conversations">
-          {(['open', 'closed', 'all'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setStatusFilter(value)}
-              aria-pressed={statusFilter === value}
-              className={cn(
-                'rounded-full px-3 py-1 text-[12px] font-medium capitalize transition-colors',
-                statusFilter === value
-                  ? 'bg-ink text-ink-inverted'
-                  : 'text-ink-muted hover:bg-surface-raised',
-              )}
-            >
-              {value}
-            </button>
-          ))}
-        </div>
+      <div className="mb-3">
+        <FilterBar
+          filters={filters}
+          properties={properties}
+          knownTags={knownTags}
+          resultCount={listLoading ? null : conversations.length}
+          onChange={(next) => {
+            setSelectedId(null);
+            setSelectedConversation(null);
+            selectedRef.current = null;
+            setFilters(next);
+          }}
+        />
       </div>
 
       {!live && connection !== 'idle' && (
@@ -459,17 +632,35 @@ export default function InboxPage() {
           ) : conversations.length === 0 ? (
             <div className="p-6">
               <EmptyState
-                title="No conversations yet"
-                description="When a visitor starts a chat on one of your sites, it appears here straight away."
+                title={filtered ? 'Nothing matches' : 'No conversations yet'}
+                description={
+                  filtered
+                    ? 'Try a different status, a different owner, or clear the search.'
+                    : 'When a visitor starts a chat on one of your sites, it appears here straight away.'
+                }
               />
             </div>
           ) : (
-            <ConversationList
-              conversations={conversations}
-              selectedId={selectedId}
-              onlineVisitors={onlineVisitors}
-              onSelect={(conversation) => void openConversation(conversation)}
-            />
+            <>
+              <ConversationList
+                conversations={conversations}
+                selectedId={selectedId}
+                onlineVisitors={onlineVisitors}
+                onSelect={(conversation) => void openConversation(conversation)}
+              />
+              {cursor && (
+                <div className="p-3">
+                  <button
+                    type="button"
+                    disabled={loadingMore}
+                    onClick={() => void loadMore()}
+                    className="w-full rounded-[var(--radius-control)] border border-border-strong py-2 text-[12px] font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-50"
+                  >
+                    {loadingMore ? 'Loading…' : 'Load older conversations'}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
 
@@ -489,24 +680,21 @@ export default function InboxPage() {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-3 border-b border-border px-5 py-3">
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="text-[13px] text-ink-muted hover:text-ink lg:hidden"
-                >
-                  ← Back
-                </button>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-ink">
-                    {selected.visitor.name ?? selected.visitor.email ?? 'Visitor'}
-                  </p>
-                  <p className="truncate text-[12px] text-ink-subtle">
-                    {onlineVisitors.has(selected.visitor.id) ? 'Online now' : 'Offline'}
-                    {selected.status === 'closed' ? ' · Closed' : ''}
-                  </p>
-                </div>
-              </div>
+              <ConversationHeader
+                conversation={selected}
+                members={members}
+                online={onlineVisitors.has(selected.visitor.id)}
+                busy={updating}
+                onAssign={assign}
+                onStatus={setStatus}
+                onPriority={setPriority}
+                onTags={setTags}
+                onBack={() => {
+                  setSelectedId(null);
+                  setSelectedConversation(null);
+                  selectedRef.current = null;
+                }}
+              />
 
               {threadError && (
                 <Alert tone="danger" className="m-3">

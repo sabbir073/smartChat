@@ -334,6 +334,127 @@ async function main() {
     sync.messages.map((entry) => `${entry.seq}:${entry.body}`).join(' | '),
   );
 
+  section('Working the conversation');
+
+  // Assignment. The member id comes from the account's own member list, never invented.
+  const me = await agent.call('GET', '/account/members');
+  const myMemberId = me.body.data.members[0]?.id;
+  check('the account has a member to assign to', typeof myMemberId === 'string');
+
+  const assigned = await agent.call('POST', `/conversations/${conversationId}/assign`, {
+    memberId: myMemberId,
+  });
+  check('the conversation can be assigned', assigned.status === 200, `got ${assigned.status}`);
+  check('the assignment stuck', assigned.body.data.assignedMemberId === myMemberId);
+
+  const mine = await agent.call('GET', '/conversations?assigned=me&status=open');
+  check(
+    'assigned=me finds it',
+    mine.body.data.some((row) => row.id === conversationId),
+  );
+  const unassigned = await agent.call('GET', '/conversations?assigned=unassigned&status=open');
+  check(
+    'assigned=unassigned does not',
+    !unassigned.body.data.some((row) => row.id === conversationId),
+  );
+
+  const foreignAssign = await agent.call('POST', `/conversations/${conversationId}/assign`, {
+    memberId: '00000000-0000-7000-8000-000000000000',
+  });
+  check(
+    'a member id from outside the account is refused',
+    foreignAssign.status === 404,
+    `got ${foreignAssign.status}`,
+  );
+  const stillMine = await agent.call('GET', `/conversations/${conversationId}`);
+  check('the refused assignment changed nothing', stillMine.body.data.assignedMemberId === myMemberId);
+
+  // Tags and priority.
+  const tagged = await agent.call('PATCH', `/conversations/${conversationId}`, {
+    tags: ['refund', 'hardware'],
+    priority: 'high',
+  });
+  check('tags and priority can be set', tagged.status === 200, `got ${tagged.status}`);
+
+  const byTag = await agent.call('GET', '/conversations?tags=refund&status=open');
+  check(
+    'filtering by tag finds it',
+    byTag.body.data.some((row) => row.id === conversationId),
+  );
+  const byBothTags = await agent.call('GET', '/conversations?tags=refund&tags=hardware&status=open');
+  check(
+    'filtering by two tags still finds it - filters narrow, they do not widen',
+    byBothTags.body.data.some((row) => row.id === conversationId),
+  );
+  const byMissingTag = await agent.call('GET', '/conversations?tags=refund&tags=billing&status=open');
+  check(
+    'a tag it does not carry excludes it',
+    !byMissingTag.body.data.some((row) => row.id === conversationId),
+  );
+
+  section('Search');
+
+  const byBody = await agent.call('GET', '/conversations?search=arrived%20damaged&status=open');
+  check(
+    'search matches what was actually said, not just the subject',
+    byBody.body.data.some((row) => row.id === conversationId),
+  );
+  const byNote = await agent.call('GET', '/conversations?search=refund%20pre-approved&status=open');
+  check(
+    'search reaches internal notes, which only agents can read anyway',
+    byNote.body.data.some((row) => row.id === conversationId),
+  );
+  const byNonsense = await agent.call('GET', '/conversations?search=zzzznotarealterm&status=open');
+  check('a search with no matches returns nothing', byNonsense.body.data.length === 0);
+
+  section('Close and reopen');
+
+  const closed = await agent.call('PATCH', `/conversations/${conversationId}`, { status: 'closed' });
+  check('the conversation can be closed', closed.body.data.status === 'closed');
+
+  const openList = await agent.call('GET', '/conversations?status=open');
+  check(
+    'a closed conversation leaves the open list',
+    !openList.body.data.some((row) => row.id === conversationId),
+  );
+  const closedList = await agent.call('GET', '/conversations?status=closed');
+  check(
+    'and appears in the closed list',
+    closedList.body.data.some((row) => row.id === conversationId),
+  );
+
+  const replyWhenClosed = await agent.call('POST', `/conversations/${conversationId}/messages`, {
+    clientMessageId: ulid(),
+    body: 'This should not be accepted.',
+    type: 'text',
+  });
+  check(
+    'replying to a closed conversation is refused',
+    replyWhenClosed.status === 409,
+    `got ${replyWhenClosed.status}`,
+  );
+
+  const noteWhenClosed = await agent.call('POST', `/conversations/${conversationId}/messages`, {
+    clientMessageId: ulid(),
+    body: 'Closing note: replacement shipped.',
+    type: 'note',
+  });
+  check(
+    'but an internal note still is - a closed conversation is still a record',
+    noteWhenClosed.status === 201,
+    `got ${noteWhenClosed.status}`,
+  );
+
+  const reopened = await agent.call('PATCH', `/conversations/${conversationId}`, { status: 'open' });
+  check('the conversation can be reopened', reopened.body.data.status === 'open');
+
+  const afterReopen = await agent.call('POST', `/conversations/${conversationId}/messages`, {
+    clientMessageId: ulid(),
+    body: 'Reopened - anything else I can help with?',
+    type: 'text',
+  });
+  check('replying works again after reopening', afterReopen.status === 201, `got ${afterReopen.status}`);
+
   visitor.close();
   resumed.close();
   inbox.close();

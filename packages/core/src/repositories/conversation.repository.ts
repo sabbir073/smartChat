@@ -212,6 +212,7 @@ export class ConversationRepository {
       propertyId?: string | undefined;
       assignedMemberId?: string | null | undefined;
       search?: string | undefined;
+      tags?: string[] | undefined;
     },
   ): Promise<CursorPage<ConversationWithVisitor>> {
     const limit = clampLimit(query.limit);
@@ -232,12 +233,24 @@ export class ConversationRepository {
           : query.assignedMemberId
             ? { assignedMemberId: query.assignedMemberId }
             : {}),
+        // Every tag must be present, not any: filters narrow.
+        ...(query.tags && query.tags.length > 0 ? { tags: { hasEvery: query.tags } } : {}),
+        // Agents search for what was said at least as often as for who said it, so the message
+        // body is part of the search. Every column here has a trigram index; see schema.prisma.
         ...(query.search
           ? {
               OR: [
                 { subject: { contains: query.search, mode: 'insensitive' } },
                 { visitor: { name: { contains: query.search, mode: 'insensitive' } } },
                 { visitor: { email: { contains: query.search, mode: 'insensitive' } } },
+                {
+                  messages: {
+                    some: {
+                      body: { contains: query.search, mode: 'insensitive' },
+                      deletedAt: null,
+                    },
+                  },
+                },
               ],
             }
           : {}),

@@ -47,10 +47,13 @@ function readCookie(name: string): string | undefined {
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
+/** A repeated parameter (`?tags=a&tags=b`) is expressed as an array; see below. */
+export type QueryValue = string | number | boolean | undefined | string[];
+
 export interface RequestOptions {
   method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
   body?: unknown;
-  query?: Record<string, string | number | boolean | undefined>;
+  query?: Record<string, QueryValue>;
   accountId?: string;
   signal?: AbortSignal;
 }
@@ -66,6 +69,12 @@ export async function apiRequest<T>(
 ): Promise<ApiResult<T>> {
   const url = new URL(`${apiBase()}/api/v1${path}`);
   for (const [key, value] of Object.entries(options.query ?? {})) {
+    // An array becomes repeated parameters rather than one comma-joined value: a tag may itself
+    // contain a comma, and joining would silently split it into two different tags.
+    if (Array.isArray(value)) {
+      for (const entry of value) if (entry !== '') url.searchParams.append(key, entry);
+      continue;
+    }
     if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
   }
 

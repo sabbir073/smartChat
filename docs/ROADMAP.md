@@ -10,7 +10,7 @@ previous one is green.
 | **1 — Auth & tenancy** ✅ | Prisma schema + migrations, Argon2id auth, email verification, sessions, RBAC, accounts, properties, dashboard shell, rate limiting, audit log | Register → verify → log in → create property, in a browser. Isolation suite green |
 | **2 — Widget** ✅ | loader.js, Shadow DOM launcher, panel iframe, widget config API, installation snippet, domain allowlist, visitor identity, test site | Widget appears on the test site via the real snippet and identifies the visitor |
 | **3 — Realtime** ✅ | Socket.IO gateway, Redis adapter, tickets, presence, typing, idempotent persistence, delivery/read receipts | Visitor ↔ agent messages both directions, live, surviving a server restart |
-| **4 — Inbox** | Conversation list, filters, search, assignment, transfer, close/reopen, tags, priority, notes, visitor panel | An agent can work a full conversation end to end |
+| **4 — Inbox** ✅ | Conversation list, filters, search, assignment, transfer, close/reopen, tags, priority, notes, visitor panel | An agent can work a full conversation end to end |
 | **5 — Team** | Invitations, roles, permissions, property membership, departments, agent availability | Invite an agent, scope them to a property, verify they see only that property |
 | **6 — Automation** | Rule engine, triggers, shortcuts, pre-chat form, offline form | A trigger fires on a real visit; `/shortcut` expands; offline capture works |
 | **7 — Files & contacts** | Signed uploads, validation, attachment rendering, contacts, custom fields | Upload from both sides; contact history assembled |

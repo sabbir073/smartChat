@@ -315,3 +315,51 @@ and the panel never sent a read receipt, so `visitor_unread_count` never returne
 also makes a panel reload recover correctly, which the original code did not.
 **Tradeoffs** None material; the message is idempotent.
 **Date** 2026-08-25
+
+---
+## ADR-024 — Inbox search covers message bodies, backed by trigram indexes
+**Context** Agents look for a conversation by what was said in it at least as often as by who said
+it. The first implementation searched only the subject and the visitor's name and email, which are
+exactly the fields that are most often empty.
+**Chosen** Search matches the subject, the visitor's name, the visitor's email, and the body of any
+non-deleted message in the conversation. Every one of those columns has a `gin_trgm_ops` index.
+**Reason** A substring match cannot use a B-tree, so without trigram indexes searching `messages` —
+the largest table in the system — is a sequential scan across the whole tenant's history. `pg_trgm`
+was already enabled in the first migration for exactly this.
+**Tradeoffs** The indexes are single-column rather than `(account_id, column)` composites, because
+Prisma cannot express a `btree_gin` composite containing a uuid and a raw-SQL migration for it would
+be silently dropped by the next `prisma migrate dev`. The planner combines the trigram bitmap with
+the existing `account_id` indexes instead, so the tenant filter still happens before rows are read;
+the cost is a slightly wider bitmap. Choosing the expressible form over the marginally faster one
+removes a real footgun.
+**Note** Search reaches internal notes. Agents can already read every note in a conversation they
+can open, and the tenant and assignment scopes are applied before the search, so this exposes
+nothing new — it just stops the search lying about what is in the record.
+**Date** 2026-08-25
+
+---
+## ADR-025 — Conversation actions are not optimistic
+**Context** Assigning, closing, reopening, re-prioritising and tagging all have an obvious
+optimistic implementation: change the row, fire the request, roll back on failure.
+**Chosen** None of them are optimistic. The control disables while the request is in flight and the
+row is rewritten only from the server's answer.
+**Reason** These are not private UI state; they are decisions other agents act on. Showing a
+conversation as assigned to someone, then silently un-assigning it a second later when the server
+refuses, is worse than a moment of latency — an agent may already have moved on believing it was
+handled. Messages *are* optimistic, because the sender is the only person who sees a pending bubble.
+**Tradeoffs** A visible pause on a slow connection. Accepted deliberately.
+**Date** 2026-08-25
+
+---
+## ADR-026 — The open conversation is held outside the list
+**Context** The thread was rendered by looking the selected id up in the loaded list. Closing a
+conversation removes it from the "Open" filter, so the moment an agent clicked Close the entire
+thread vanished — no confirmation of what had happened, and no way to reopen it without going to
+find it again in the closed list.
+**Chosen** The open conversation is its own piece of state. The list is consulted first so live
+updates still flow into it, but if the list no longer contains it, the held copy keeps it on screen
+until the agent selects something else.
+**Reason** A filter describes what an agent is browsing, not what they are currently working on.
+**Tradeoffs** Two places hold a conversation, so every mutation updates both. Contained to one
+helper.
+**Date** 2026-08-25

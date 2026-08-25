@@ -611,6 +611,10 @@ model Visitor {
   @@unique([propertyId, externalId])
   @@index([accountId, propertyId, lastSeenAt(sort: Desc)])
   @@index([propertyId, email])
+  // Inbox search by who the visitor is. Two separate trigram indexes rather than one composite:
+  // a search matches either column on its own, and a combined index could serve neither alone.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("visitors")
 }
 
@@ -739,6 +743,12 @@ model Conversation {
   @@index([accountId, assignedMemberId, status, lastMessageAt(sort: Desc)])
   // Drives the visitor's own history and the widget's "resume my conversation".
   @@index([accountId, visitorId, lastMessageAt(sort: Desc)])
+  // Inbox search by subject. A substring match cannot use a B-tree, so this is a trigram GIN
+  // index. Single-column on purpose: Prisma cannot express a btree_gin composite containing a
+  // uuid, and the planner combines this bitmap with the account_id indexes above anyway.
+  @@index([subject(ops: raw("gin_trgm_ops"))], type: Gin)
+  // Tag filtering. tags is an array, so containment is the operator and GIN is the index.
+  @@index([tags], type: Gin)
   @@map("conversations")
 }
 
@@ -782,6 +792,10 @@ model Message {
   // Keyset pagination within a conversation.
   @@index([conversationId, seq(sort: Desc)])
   @@index([accountId, createdAt(sort: Desc)])
+  // Inbox search by what was actually said. Without this, searching the largest table in the
+  // system is a sequential scan; with it the planner can BitmapAnd it against the account_id
+  // index above, so the tenant filter still happens before rows are read.
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("messages")
 }
 

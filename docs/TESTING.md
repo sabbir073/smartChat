@@ -36,7 +36,7 @@ Two scripts exist so that "it works" is a command rather than an opinion. Both n
 | Command | What it proves |
 | --- | --- |
 | `pnpm smoke` | The HTTP surface: registration, sessions, CSRF, rate limits, property CRUD, the public widget surface, and tenant isolation returning 404 rather than 403. |
-| `pnpm e2e:realtime` | The Phase 3 guarantees over real sockets: single-use tickets, the presence snapshot on subscribe, live delivery in both directions, gapless sequence numbers, idempotent resend, internal notes never reaching the visitor, and `sync:since` replaying exactly what a reconnecting visitor missed. |
+| `pnpm e2e:realtime` | The Phase 3 guarantees over real sockets: single-use tickets, the presence snapshot on subscribe, live delivery in both directions, gapless sequence numbers, idempotent resend, internal notes never reaching the visitor, and `sync:since` replaying exactly what a reconnecting visitor missed. Then the Phase 4 workflow over HTTP: assignment (including a member id from another account being refused), the `me` / `unassigned` filters, tag filtering that narrows rather than widens, search reaching message bodies, and close/reopen — with a reply to a closed conversation refused and an internal note still accepted. |
 
 `pnpm e2e:realtime` is the script that caught ADR-021: a retry with a repeated `clientMessageId`
 returned a 500 because the recovery read ran inside an already-aborted transaction. Unit tests had

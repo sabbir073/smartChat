@@ -61,6 +61,12 @@ export const listConversationsSchema = paginationSchema.extend({
   /** `me` is resolved server-side from the caller's membership; never trusted from the client. */
   assigned: z.enum(['me', 'unassigned', 'any']).optional(),
   search: z.string().trim().max(120).optional(),
+  /** Repeatable `tag` parameter. A conversation must carry every tag asked for, not any of them. */
+  tags: z
+    .union([z.string(), z.array(z.string())])
+    .transform((value) => (Array.isArray(value) ? value : [value]))
+    .pipe(z.array(z.string().trim().min(1).max(40)).max(10))
+    .optional(),
 });
 
 export const updateConversationSchema = z.object({
