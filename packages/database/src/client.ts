@@ -139,3 +139,12 @@ export type JsonValue = Prisma.InputJsonValue;
 export function toJson(value: Record<string, unknown> | undefined | null): Prisma.InputJsonObject {
   return (value ?? {}) as Prisma.InputJsonObject;
 }
+
+/**
+ * SQL NULL for a nullable Json column.
+ *
+ * Prisma distinguishes SQL NULL (`Prisma.DbNull`) from the JSON value `null` (`Prisma.JsonNull`),
+ * and a plain `null` is rejected by the generated types. Exported here so callers do not have to
+ * import the Prisma namespace just to clear a Json field.
+ */
+export const dbNull = Prisma.DbNull;

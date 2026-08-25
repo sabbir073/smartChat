@@ -73,7 +73,7 @@ It clears rate-limit keys before running (the registration limiter is real, and 
 several accounts). `SMOKE_RESET_LIMITS=0` keeps them, for when the limiter is what you are
 investigating.
 
-As of Phase 1 it asserts 45 checks, including:
+As of Phase 2 it asserts 62 checks, including:
 
 - an unknown email and a wrong password return **identical** status and error code
 - the session cookie is httpOnly and SameSite=Lax; the CSRF cookie deliberately is not httpOnly
@@ -83,3 +83,8 @@ As of Phase 1 it asserts 45 checks, including:
   delete, installation snippet and domain creation - and cannot borrow A's account through either
   the switch endpoint or the `x-account-id` header
 - repeated registration attempts for one address are rate limited
+- the widget surface serves any origin but **never** with `Access-Control-Allow-Credentials`
+- a visitor token whose payload has been edited to name a different visitor is refused, because
+  the signature is checked before the payload is parsed
+- the widget config response contains no account id, no internal property id and no draft
+- serving the widget is what marks a property installed — there is no separate verification step

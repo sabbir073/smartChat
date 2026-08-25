@@ -1,0 +1,15 @@
+{
+  "name": "@smartchat/test-site",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A real customer website with the SmartChat widget installed exactly the way a customer installs it. This is the acceptance harness for the whole system, not a mock.",
+  "scripts": {
+    "build": "node build.mjs",
+    "dev": "node build.mjs --watch",
+    "typecheck": "echo \"@smartchat/test-site: static site, nothing to typecheck\"",
+    "lint": "echo \"@smartchat/test-site: static site, nothing to lint\"",
+    "test": "echo \"@smartchat/test-site: exercised by the end-to-end suite\"",
+    "test:unit": "echo \"@smartchat/test-site: exercised by the end-to-end suite\"",
+    "clean": "rimraf dist .turbo"
+  }
+}

@@ -9,12 +9,30 @@ import 'dotenv/config';
 import { hash } from '@node-rs/argon2';
 import { PrismaClient } from '@prisma/client';
 import { v7 as uuidv7 } from 'uuid';
+import { ID_PREFIX, isPublicId } from '../src/ids.js';
 
 const prisma = new PrismaClient();
 
 const ARGON2 = { algorithm: 2, memoryCost: 19_456, timeCost: 2, parallelism: 1, outputLen: 32 };
 
 const DEMO_PASSWORD = 'Demo!Passw0rd';
+
+/**
+ * A fixed public id for the demo property, so the test site's installation snippet can be baked in
+ * at build time.
+ *
+ * It must be valid Crockford base32 - no I, L, O or U. An earlier value spelled out
+ * "DEMO TEST SITE", which contains both O and I, and the widget loader correctly refused to load
+ * for it. The assertion below turns that from a silent, confusing failure into a failed seed.
+ */
+const DEMO_PROPERTY_PUBLIC_ID = 'prp_DEMKTESTSTE00001';
+
+if (!isPublicId(DEMO_PROPERTY_PUBLIC_ID, ID_PREFIX.property)) {
+  throw new Error(
+    `Seed misconfigured: "${DEMO_PROPERTY_PUBLIC_ID}" is not a valid public id. ` +
+      'Public ids use Crockford base32, which excludes I, L, O and U.',
+  );
+}
 
 const PLANS = [
   {
@@ -373,7 +391,7 @@ async function seedDemoAccount(planIds: Map<string, string>): Promise<void> {
       data: {
         id: uuidv7(),
         accountId: account.id,
-        publicId: 'prp_DEMO0TESTSITE01',
+        publicId: DEMO_PROPERTY_PUBLIC_ID,
         name: 'Demo Test Site',
         websiteUrl: 'http://localhost:3004',
         timezone: 'Asia/Dhaka',

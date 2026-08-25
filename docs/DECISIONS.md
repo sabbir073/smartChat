@@ -193,3 +193,75 @@ safety net rather than the normal path.
 **Tradeoffs** A create that somehow bypasses the extension gets a v4 id, losing index locality but
 staying correct. The extension is applied at `$allModels`, so that path does not exist in practice.
 **Date** 2026-08-25
+
+---
+## ADR-016 — Widget configuration stored as one validated JSON document
+**Context** The widget has roughly forty settings today and will have far more: colours, placement,
+behaviour, copy, and two fully data-driven form definitions.
+**Options** (a) a `widget_settings` table with a column per setting; (b) an entity-attribute-value
+table; (c) a single `jsonb` column validated by a Zod schema.
+**Chosen** (c), with `widgetConfigSchema` in `@smartchat/validation` as the contract and a `version`
+integer that increments on publish.
+**Reason** The config is always read and written whole and is never queried by individual field, so
+a column per setting buys nothing and costs a migration per setting. Every field has a default, so
+a config written by an older release is upgraded on read — which is what makes the schema additive.
+**Tradeoffs** No database-level constraint on the contents. Mitigated by parsing on read *and*
+write: an invalid config is rejected at the API and, if one somehow existed, `parseWidgetConfig`
+falls back to defaults rather than shipping something the widget cannot render.
+**Date** 2026-08-25
+
+---
+## ADR-017 — Draft and published configuration are separate
+**Context** The builder autosaves. Autosaving directly to the live config would mean a customer
+dragging a colour slider is changing their production website in real time.
+**Chosen** `config` (live) and `draft_config` (unpublished). The builder writes only the draft;
+Publish promotes it and increments the version.
+**Reason** It makes autosave safe, which in turn makes the builder feel like a design tool rather
+than a form. It also gives "discard my changes" a real meaning.
+**Tradeoffs** Two copies of the document, and a publish step customers must not forget. The
+dashboard shows an explicit unpublished-changes banner for exactly that reason.
+**Date** 2026-08-25
+
+---
+## ADR-018 — The builder's live preview is the real widget, not a replica
+**Context** A preview that reimplements the widget's markup in the dashboard drifts from the real
+thing within a release or two, and the drift is invisible until a customer complains.
+**Options** (a) a React replica of the panel inside the dashboard; (b) embed the real panel and
+push the unpublished config into it over the existing postMessage bridge.
+**Chosen** (b). The panel accepts `?preview=1` and renders from a `sc:host:preview-config` message
+instead of bootstrapping a visitor.
+**Reason** Preview and production cannot disagree, because they are the same code. It also means
+preview creates no visitor, no session and no page view — a customer trying out colours does not
+pollute their own analytics.
+**Tradeoffs** The preview needs the widget host to be reachable from the browser, and it exercises
+the bridge on a path visitors never take. Both are acceptable; the second is arguably a feature,
+since the bridge is now exercised every time somebody opens the builder.
+**Date** 2026-08-25
+
+---
+## ADR-019 — Runtime URLs substituted into static widget assets at container start
+**Context** `loader.js` and the panel bundle are static files that must know where the API and
+realtime gateway are, and that differs per environment.
+**Options** (a) bake the URLs in at build time; (b) fetch a runtime config file before doing
+anything; (c) ship literal placeholders and substitute them in the image's entrypoint.
+**Chosen** (c).
+**Reason** (a) means one image per environment and no way to promote an artefact from staging to
+production. (b) adds a network round trip to every page load on every customer site, which is
+exactly where we can least afford one. (c) costs a `sed` at container start and nothing at runtime.
+**Tradeoffs** A silent failure mode if the entrypoint does not run. Closed by making the entrypoint
+exit non-zero when it finds no placeholders — a misbuilt image fails to start rather than pointing
+customers' visitors at localhost.
+**Date** 2026-08-25
+
+---
+## ADR-020 — A hand-rolled signed token for visitors, not JWT
+**Context** The widget needs a bearer credential identifying a visitor.
+**Options** (a) JWT via a library; (b) a minimal signed token of our own.
+**Chosen** (b): `base64url(payload).base64url(hmac-sha256(payload))`, verified signature-first.
+**Reason** JWT carries its algorithm inside the token, which is the root of the `alg: none` and
+RS256/HS256 confusion families, and we gain nothing from that flexibility for a token only we issue
+and only we verify. This format has no negotiable algorithm and no header to attack; there is a
+test asserting the payload contains no `alg` field at all.
+**Tradeoffs** Not interoperable with JWT tooling. We do not need it to be. Rotation is handled by
+the `v` field, and expiry by `exp`.
+**Date** 2026-08-25

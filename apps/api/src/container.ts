@@ -9,6 +9,8 @@ import {
   QueueProducer,
   RateLimiter,
   SmtpMailProvider,
+  VisitorService,
+  WidgetService,
   createRedisClient,
   systemClock,
   type Clock,
@@ -32,6 +34,8 @@ export interface Container {
   auth: AuthService;
   accounts: AccountService;
   properties: PropertyService;
+  widgets: WidgetService;
+  visitors: VisitorService;
   entitlements: EntitlementService;
   shutdown(): Promise<void>;
 }
@@ -102,6 +106,13 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   });
 
   const accounts = new AccountService(db, entitlements);
+  const widgets = new WidgetService(db, clock);
+  const visitors = new VisitorService({
+    db,
+    visitorTokenSecret: config.VISITOR_TOKEN_SECRET,
+    allowLocalhostOrigins: config.ALLOW_LOCALHOST_ORIGINS,
+    clock,
+  });
   const properties = new PropertyService({
     db,
     entitlements,
@@ -122,6 +133,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     auth,
     accounts,
     properties,
+    widgets,
+    visitors,
     entitlements,
     async shutdown() {
       await queue.close().catch(() => {});

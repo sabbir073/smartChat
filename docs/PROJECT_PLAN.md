@@ -74,8 +74,9 @@ docs/           this documentation set
 | --- | --- |
 | 0 — Foundation | ✅ complete |
 | 1 — Auth, accounts, properties | ✅ complete |
-| 2 — Widget | ⏳ next |
-| 3 → 14 | ☐ planned (see `ROADMAP.md`) |
+| 2 — Widget | ✅ complete |
+| 3 — Realtime chat | ⏳ in progress |
+| 4 → 14 | ☐ planned (see `ROADMAP.md`) |
 
 ## 7. Definition of done for the product
 

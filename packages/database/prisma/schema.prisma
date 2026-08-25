@@ -84,6 +84,61 @@ enum SubscriptionStatus {
   @@map("subscription_status")
 }
 
+enum ConversationStatus {
+  open
+  pending
+  closed
+
+  @@map("conversation_status")
+}
+
+enum ConversationPriority {
+  low
+  normal
+  high
+  urgent
+
+  @@map("conversation_priority")
+}
+
+enum ConversationChannel {
+  widget
+  offline_form
+  email
+  api
+
+  @@map("conversation_channel")
+}
+
+enum SenderType {
+  visitor
+  agent
+  system
+  bot
+
+  @@map("sender_type")
+}
+
+enum MessageType {
+  text
+  file
+  image
+  system
+  note
+
+  @@map("message_type")
+}
+
+enum DeviceType {
+  desktop
+  mobile
+  tablet
+  bot
+  unknown
+
+  @@map("device_type")
+}
+
 enum ActorType {
   user
   api_key
@@ -269,8 +324,10 @@ model Account {
   owner        User?               @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   members      AccountMember[]
   roles        Role[]
-  properties   Property[]
-  auditLogs    AuditLog[]
+  properties    Property[]
+  visitors      Visitor[]
+  conversations Conversation[]
+  auditLogs     AuditLog[]
   tokens       VerificationToken[]
   subscription Subscription?
   usage        UsageRecord[]
@@ -301,9 +358,12 @@ model AccountMember {
 
   account    Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
   user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role       Role?            @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  invitedBy  User?            @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
-  properties PropertyMember[]
+  role                 Role?              @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  invitedBy            User?              @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  properties           PropertyMember[]
+  assignedConversations Conversation[]    @relation("ConversationAssignee")
+  sentMessages         Message[]
+  reads                ConversationRead[]
 
   @@unique([accountId, userId])
   @@unique([accountId, id])
@@ -357,9 +417,13 @@ model Property {
   updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
-  account Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  domains PropertyDomain[]
-  members PropertyMember[]
+  account  Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  domains  PropertyDomain[]
+  members  PropertyMember[]
+  widget        Widget?
+  visitors      Visitor[]
+  sessions      VisitorSession[]
+  conversations Conversation[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -461,4 +525,279 @@ model AuditLog {
   @@index([actorId, createdAt(sort: Desc)])
   @@index([resourceType, resourceId])
   @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+// Widget
+// -----------------------------------------------------------------------------
+
+/// One widget per property.
+///
+/// Appearance, placement, behaviour, content and form definitions live in a single JSON document
+/// validated by `widgetConfigSchema` in @smartchat/validation, rather than in ~40 columns. The
+/// config surface grows constantly and is always read and written whole; a Zod schema plus a
+/// version number gives type safety and a migration path without a DDL change per setting.
+model Widget {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String    @map("account_id") @db.Uuid
+  propertyId String    @unique @map("property_id") @db.Uuid
+  /// The live configuration the widget serves to visitors.
+  config     Json      @default("{}")
+  /// Unpublished edits from the builder. Null once published.
+  draftConfig Json?    @map("draft_config")
+  /// Incremented on publish. Lets a cached loader detect that it has stale config.
+  version    Int       @default(1)
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  property Property @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([accountId, id])
+  // Required by Prisma for a one-to-one across a composite key, and correct on its own terms:
+  // exactly one widget per property, and the pair can never straddle two accounts.
+  @@unique([accountId, propertyId])
+  @@index([accountId])
+  @@map("widgets")
+}
+
+// -----------------------------------------------------------------------------
+// Visitors
+// -----------------------------------------------------------------------------
+
+/// A durable visitor identity, scoped to one property.
+///
+/// The same person on two of an account's websites is two visitors: properties are isolated, and
+/// silently joining them across sites would be both a privacy problem and a surprise.
+model Visitor {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String  @map("account_id") @db.Uuid
+  propertyId String  @map("property_id") @db.Uuid
+  /// Supplied by the customer's site via SmartChat('identify'). Never trusted for authorisation.
+  externalId String? @map("external_id")
+  name       String?
+  email      String? @db.Citext
+  phone      String?
+
+  firstSeenAt DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  visitCount  Int       @default(1) @map("visit_count")
+
+  country    String? @db.Char(2)
+  region     String?
+  city       String?
+  timezone   String?
+  language   String?
+  browser    String?
+  os         String?
+  deviceType DeviceType @default(unknown) @map("device_type")
+
+  /// Abuse control. A ban blocks new conversations and messages, not page views.
+  isBanned    Boolean   @default(false) @map("is_banned")
+  bannedUntil DateTime? @map("banned_until") @db.Timestamptz(6)
+  banReason   String?   @map("ban_reason")
+
+  metadata  Json      @default("{}")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account       Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property      Property         @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  sessions      VisitorSession[]
+  conversations Conversation[]
+
+  @@unique([accountId, id])
+  @@unique([propertyId, externalId])
+  @@index([accountId, propertyId, lastSeenAt(sort: Desc)])
+  @@index([propertyId, email])
+  @@map("visitors")
+}
+
+/// One browsing session. High-churn and pruned by the retention job; visitors are kept.
+model VisitorSession {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  visitorId  String @map("visitor_id") @db.Uuid
+
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  endedAt    DateTime? @map("ended_at") @db.Timestamptz(6)
+
+  ip           String?
+  userAgent    String? @map("user_agent")
+  referrer     String?
+  landingUrl   String? @map("landing_url")
+  currentUrl   String? @map("current_url")
+  currentTitle String? @map("current_title")
+
+  browser      String?
+  os           String?
+  deviceType   DeviceType @default(unknown) @map("device_type")
+  screenWidth  Int?       @map("screen_width")
+  screenHeight Int?       @map("screen_height")
+  language     String?
+  country      String?    @db.Char(2)
+  region       String?
+  city         String?
+
+  pageViewCount Int @default(0) @map("page_view_count")
+
+  visitor   Visitor           @relation(fields: [accountId, visitorId], references: [accountId, id], onDelete: Cascade)
+  property  Property          @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  pageViews VisitorPageView[]
+
+  @@unique([accountId, id])
+  @@index([accountId, visitorId, startedAt(sort: Desc)])
+  @@index([propertyId, lastSeenAt(sort: Desc)])
+  @@map("visitor_sessions")
+}
+
+model VisitorPageView {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String   @map("account_id") @db.Uuid
+  propertyId String   @map("property_id") @db.Uuid
+  visitorId  String   @map("visitor_id") @db.Uuid
+  sessionId  String   @map("session_id") @db.Uuid
+  url        String
+  title      String?
+  referrer   String?
+  viewedAt   DateTime @default(now()) @map("viewed_at") @db.Timestamptz(6)
+
+  session VisitorSession @relation(fields: [accountId, sessionId], references: [accountId, id], onDelete: Cascade)
+
+  @@index([accountId, sessionId, viewedAt])
+  @@index([propertyId, viewedAt(sort: Desc)])
+  @@map("visitor_page_views")
+}
+
+// -----------------------------------------------------------------------------
+// Conversations and messages
+// -----------------------------------------------------------------------------
+
+/// One thread between a visitor and the account's agents.
+model Conversation {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  visitorId  String @map("visitor_id") @db.Uuid
+
+  status   ConversationStatus   @default(open)
+  priority ConversationPriority @default(normal)
+  channel  ConversationChannel  @default(widget)
+
+  /// Assignment is to a *membership*, not a user: the same person in two accounts is two members,
+  /// and a conversation must never reference the wrong one.
+  assignedMemberId String? @map("assigned_member_id") @db.Uuid
+
+  /**
+   * The gapless per-conversation message counter.
+   *
+   * Incremented in the same transaction as every message insert. Ordering and reconnect replay
+   * both use it, because wall-clock timestamps are ambiguous under clock skew and same-millisecond
+   * writes. See docs/REALTIME.md.
+   */
+  messageSeq BigInt @default(0) @map("message_seq")
+
+  subject      String?
+  /// Whatever the pre-chat form collected. Claims from the visitor, never authorisation.
+  preChatData  Json    @default("{}") @map("pre_chat_data")
+  tags         String[] @default([])
+  metadata     Json    @default("{}")
+
+  startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  lastMessageAt        DateTime  @default(now()) @map("last_message_at") @db.Timestamptz(6)
+  lastVisitorMessageAt DateTime? @map("last_visitor_message_at") @db.Timestamptz(6)
+  lastAgentMessageAt   DateTime? @map("last_agent_message_at") @db.Timestamptz(6)
+  /// First agent reply. The basis of the response-time report, so it is recorded once and never
+  /// overwritten.
+  firstResponseAt      DateTime? @map("first_response_at") @db.Timestamptz(6)
+  closedAt             DateTime? @map("closed_at") @db.Timestamptz(6)
+  closedByMemberId     String?   @map("closed_by_member_id") @db.Uuid
+
+  /// Maintained counters rather than COUNT(*) over messages, which would be the single most
+  /// expensive query in the inbox.
+  visitorUnreadCount Int @default(0) @map("visitor_unread_count")
+  agentUnreadCount   Int @default(0) @map("agent_unread_count")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account        Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property       Property           @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  visitor        Visitor            @relation(fields: [accountId, visitorId], references: [accountId, id], onDelete: Cascade)
+  assignedMember AccountMember?     @relation("ConversationAssignee", fields: [accountId, assignedMemberId], references: [accountId, id], onDelete: SetNull)
+  messages       Message[]
+  reads          ConversationRead[]
+
+  @@unique([accountId, id])
+  // Drives the inbox list.
+  @@index([accountId, propertyId, status, lastMessageAt(sort: Desc)])
+  // Drives "assigned to me".
+  @@index([accountId, assignedMemberId, status, lastMessageAt(sort: Desc)])
+  // Drives the visitor's own history and the widget's "resume my conversation".
+  @@index([accountId, visitorId, lastMessageAt(sort: Desc)])
+  @@map("conversations")
+}
+
+/// The largest table in the system. Target: 10^8 rows. See docs/DATABASE.md.
+model Message {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+
+  /// Gapless within the conversation. Assigned in the same transaction as the insert.
+  seq BigInt
+
+  /**
+   * Client-generated, so a retry after a lost acknowledgement is idempotent rather than a
+   * duplicate. The unique index below is what actually enforces that.
+   */
+  clientMessageId String? @map("client_message_id")
+
+  senderType      SenderType
+  senderMemberId  String?    @map("sender_member_id") @db.Uuid
+  senderVisitorId String?    @map("sender_visitor_id") @db.Uuid
+
+  type MessageType @default(text)
+  /// Stored exactly as received. Sanitised at render, never on write - so the record of what was
+  /// actually said stays intact.
+  body String
+  metadata Json @default("{}")
+
+  deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(6)
+  readAt      DateTime? @map("read_at") @db.Timestamptz(6)
+  editedAt    DateTime? @map("edited_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  conversation Conversation   @relation(fields: [accountId, conversationId], references: [accountId, id], onDelete: Cascade)
+  sender       AccountMember? @relation(fields: [accountId, senderMemberId], references: [accountId, id], onDelete: SetNull)
+
+  @@unique([conversationId, seq])
+  @@unique([conversationId, clientMessageId])
+  // Keyset pagination within a conversation.
+  @@index([conversationId, seq(sort: Desc)])
+  @@index([accountId, createdAt(sort: Desc)])
+  @@map("messages")
+}
+
+/// How far each agent has read in a conversation. One row per member per conversation.
+model ConversationRead {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId      String   @map("account_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  memberId       String   @map("member_id") @db.Uuid
+  lastReadSeq    BigInt   @default(0) @map("last_read_seq")
+  readAt         DateTime @default(now()) @map("read_at") @db.Timestamptz(6)
+
+  conversation Conversation  @relation(fields: [accountId, conversationId], references: [accountId, id], onDelete: Cascade)
+  member       AccountMember @relation(fields: [accountId, memberId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([conversationId, memberId])
+  @@index([accountId, memberId])
+  @@map("conversation_reads")
 }

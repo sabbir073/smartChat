@@ -135,15 +135,20 @@ export default function PropertyDetailPage() {
         title={data.name}
         description={data.websiteUrl}
         action={
-          data.installed ? (
-            <Badge tone="success" dot>
-              Widget installed
-            </Badge>
-          ) : (
-            <Badge tone="warning" dot>
-              Awaiting installation
-            </Badge>
-          )
+          <div className="flex items-center gap-3">
+            {data.installed ? (
+              <Badge tone="success" dot>
+                Widget installed
+              </Badge>
+            ) : (
+              <Badge tone="warning" dot>
+                Awaiting installation
+              </Badge>
+            )}
+            <Link href={`/properties/${id}/widget`}>
+              <Button size="sm">Customise widget</Button>
+            </Link>
+          </div>
         }
       />
 
@@ -183,7 +188,7 @@ export default function PropertyDetailPage() {
                 ) : (
                   <Alert tone="info" title="Not detected yet">
                     Once the snippet is live, load a page on your site and this will turn green
-                    automatically. The widget itself arrives in Phase 2.
+                    automatically - serving the widget from an allowed origin is the verification.
                   </Alert>
                 )}
               </>

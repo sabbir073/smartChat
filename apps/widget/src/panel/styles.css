@@ -1,0 +1,316 @@
+/*
+ * The panel's own stylesheet.
+ *
+ * It lives in a cross-origin iframe, so nothing here can leak into the customer's page and nothing
+ * of theirs can reach in. Colours come from CSS custom properties set at runtime from the widget
+ * configuration, so a theme change is a variable update rather than a rebuild.
+ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--sc-font);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--sc-ink);
+  background: var(--sc-surface);
+  -webkit-font-smoothing: antialiased;
+}
+
+:root {
+  --sc-primary: #2f6fed;
+  --sc-header: #2f6fed;
+  --sc-header-text: #ffffff;
+  --sc-radius: 16px;
+  --sc-surface: #ffffff;
+  --sc-surface-alt: #f5f6f8;
+  --sc-ink: #1a1d23;
+  --sc-ink-muted: #5b616e;
+  --sc-ink-subtle: #8a8f9a;
+  --sc-border: #e4e6eb;
+  --sc-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+}
+
+:root[data-theme='dark'] {
+  --sc-surface: #16181d;
+  --sc-surface-alt: #1e2128;
+  --sc-ink: #f2f3f5;
+  --sc-ink-muted: #a8adb8;
+  --sc-ink-subtle: #767c88;
+  --sc-border: #2a2e37;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--sc-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--sc-surface);
+}
+
+/* ---- header --------------------------------------------------------------- */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  background: var(--sc-header);
+  color: var(--sc-header-text);
+  flex-shrink: 0;
+}
+
+.header-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 14px;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+.header-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.header-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.header-title {
+  font-weight: 600;
+  font-size: 15px;
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.header-subtitle {
+  margin: 2px 0 0;
+  font-size: 12.5px;
+  opacity: 0.86;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  flex-shrink: 0;
+}
+
+.status-dot[data-online='false'] {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.header-close {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  opacity: 0.85;
+  display: flex;
+}
+
+.header-close:hover {
+  background: rgba(255, 255, 255, 0.16);
+  opacity: 1;
+}
+
+/* ---- body ----------------------------------------------------------------- */
+.body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.bubble {
+  max-width: 84%;
+  padding: 10px 13px;
+  border-radius: 14px;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.bubble-agent {
+  align-self: flex-start;
+  background: var(--sc-surface-alt);
+  color: var(--sc-ink);
+  border-bottom-left-radius: 5px;
+}
+
+.bubble-visitor {
+  align-self: flex-end;
+  background: var(--sc-primary);
+  color: #fff;
+  border-bottom-right-radius: 5px;
+}
+
+/* ---- forms ---------------------------------------------------------------- */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.form-intro {
+  color: var(--sc-ink-muted);
+  font-size: 13.5px;
+  margin: 0;
+}
+
+.field label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  margin-bottom: 5px;
+  color: var(--sc-ink);
+}
+
+.field input,
+.field textarea,
+.field select {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--sc-border);
+  border-radius: 9px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--sc-ink);
+  background: var(--sc-surface);
+}
+
+.field textarea {
+  min-height: 84px;
+  resize: vertical;
+}
+
+.field input[aria-invalid='true'],
+.field textarea[aria-invalid='true'] {
+  border-color: #e5484d;
+}
+
+.field-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: #e5484d;
+}
+
+.checkbox-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--sc-ink-muted);
+}
+
+.primary-button {
+  width: 100%;
+  padding: 11px 16px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--sc-primary);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.primary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---- states --------------------------------------------------------------- */
+.centered {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--sc-ink-muted);
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border: 2.5px solid var(--sc-border);
+  border-top-color: var(--sc-primary);
+  border-radius: 50%;
+  animation: sc-spin 0.7s linear infinite;
+}
+
+@keyframes sc-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2s;
+  }
+}
+
+.footer {
+  padding: 8px 16px 12px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--sc-ink-subtle);
+  flex-shrink: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

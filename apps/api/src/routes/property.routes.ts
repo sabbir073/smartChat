@@ -5,6 +5,7 @@ import {
   createPropertySchema,
   listPropertiesSchema,
   updatePropertySchema,
+  updateWidgetConfigSchema,
 } from '@smartchat/validation';
 import type { Container } from '../container.js';
 import { requireTenant } from '../plugins/auth.js';
@@ -74,5 +75,38 @@ export async function propertyRoutes(app: FastifyInstance, container: Container)
     const tenant = requireTenant(request);
     const { id, domainId } = parseParams(domainParam, request.params);
     return ok(reply, toPropertyDto(await container.properties.removeDomain(tenant, id, domainId)));
+  });
+
+  // ---------------------------------------------------------------------------
+  // Widget builder
+  //
+  // The builder edits a draft. Nothing a customer types reaches a visitor until they publish, so
+  // a half-finished change is never live on their site.
+  // ---------------------------------------------------------------------------
+
+  app.get('/properties/:id/widget', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    return ok(reply, await container.widgets.get(tenant, id));
+  });
+
+  app.patch('/properties/:id/widget', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    const input = parseBody(updateWidgetConfigSchema, request.body);
+    return ok(reply, await container.widgets.saveDraft(tenant, id, input));
+  });
+
+  app.post('/properties/:id/widget/publish', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    await app.rateLimit(request, 'mutation', `account:${tenant.accountId}`);
+    return ok(reply, await container.widgets.publish(tenant, id));
+  });
+
+  app.post('/properties/:id/widget/discard', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    return ok(reply, await container.widgets.discardDraft(tenant, id));
   });
 }

@@ -266,6 +266,51 @@ services:
       start_period: 40s
     networks: [smartchat]
 
+  # ---------------------------------------------------------------------------
+  # The embeddable surface: loader.js and the panel bundle, served by nginx.
+  # Runtime URLs are substituted into the static files at container start, so one image
+  # works in every environment.
+  # ---------------------------------------------------------------------------
+  widget:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/widget.Dockerfile
+    image: smartchat/widget:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      API_URL: ${API_URL:-http://localhost:3001}
+      REALTIME_URL: ${REALTIME_URL:-http://localhost:3002}
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # A real customer website with the widget installed the way a customer installs it.
+  # This is the acceptance harness for the whole system, not a mock.
+  # ---------------------------------------------------------------------------
+  test-site:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/test-site.Dockerfile
+      args:
+        WIDGET_URL: ${WIDGET_URL:-http://localhost:3003}
+        TEST_SITE_PROPERTY_ID: ${TEST_SITE_PROPERTY_ID:-prp_DEMKTESTSTE00001}
+    image: smartchat/test-site:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks: [smartchat]
+
 volumes:
   postgres_data:
   redis_data:

@@ -373,6 +373,146 @@ async function main() {
     survived.status === 200 && survived.body?.data?.name === 'Smoke Site',
   );
 
+
+  // --- widget surface -------------------------------------------------------
+  //
+  // Reachable from any website on the internet, so it gets its own scrutiny: no cookies, a bearer
+  // token that must be unforgeable, and a public id that identifies without authorising.
+  section('Widget surface');
+
+  const widgetPublicId = property.publicId;
+
+  async function widgetCall(method, path, body, options = {}) {
+    const headers = { accept: 'application/json' };
+    if (body !== undefined) headers['content-type'] = 'application/json';
+    if (options.token) headers.authorization = `Bearer ${options.token}`;
+    if (options.origin) headers.origin = options.origin;
+
+    const response = await fetch(`${API}/api/v1${path}`, {
+      method,
+      headers,
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
+    const text = await response.text();
+    let parsed = null;
+    if (text) {
+      try {
+        parsed = JSON.parse(text);
+      } catch {
+        parsed = null;
+      }
+    }
+    return { status: response.status, body: parsed, headers: response.headers };
+  }
+
+  const publicConfig = await widgetCall('GET', `/widget/config?p=${widgetPublicId}`, undefined, {
+    origin: 'https://any-customer-site.test',
+  });
+  check(
+    'the widget config is served to any origin, as it must be',
+    publicConfig.status === 200,
+    `got ${publicConfig.status}`,
+  );
+  check(
+    'the config response allows cross-origin reads',
+    publicConfig.headers.get('access-control-allow-origin') !== null,
+  );
+  check(
+    'the config response does NOT allow credentials',
+    publicConfig.headers.get('access-control-allow-credentials') !== 'true',
+  );
+  check(
+    'the config exposes no account id, property uuid or draft',
+    !JSON.stringify(publicConfig.body).includes(accountA) &&
+      !JSON.stringify(publicConfig.body).includes(property.id) &&
+      !JSON.stringify(publicConfig.body).includes('draft'),
+  );
+
+  const unknownProperty = await widgetCall('GET', '/widget/config?p=prp_ZZZZZZZZZZZZZZZZ');
+  check(
+    'an unknown public id returns 404, not a hint',
+    unknownProperty.status === 404,
+    `got ${unknownProperty.status}`,
+  );
+
+  const malformedId = await widgetCall('GET', '/widget/config?p=not-a-public-id');
+  check('a malformed public id is rejected', malformedId.status === 422, `got ${malformedId.status}`);
+
+  const bootstrapped = await widgetCall('POST', '/widget/session', {
+    p: widgetPublicId,
+    page: { url: 'https://any-customer-site.test/pricing', title: 'Pricing' },
+    language: 'en-GB',
+    timezone: 'Europe/London',
+  });
+  check('a visitor session can be created', bootstrapped.status === 200, `got ${bootstrapped.status}`);
+  const visitorToken = bootstrapped.body?.data?.token;
+  check('the session returns a visitor token', typeof visitorToken === 'string' && visitorToken.length > 40);
+  check(
+    'the session response never contains an account id',
+    !JSON.stringify(bootstrapped.body).includes(accountA),
+  );
+
+  const visitorMe = await widgetCall('GET', '/widget/me', undefined, { token: visitorToken });
+  check('the visitor token authenticates', visitorMe.status === 200, `got ${visitorMe.status}`);
+
+  const noToken = await widgetCall('GET', '/widget/me');
+  check('the widget surface refuses an unauthenticated request', noToken.status === 401, `got ${noToken.status}`);
+
+  const garbageToken = await widgetCall('GET', '/widget/me', undefined, {
+    token: 'not.a.real.token.at.all.but.long.enough',
+  });
+  check('a garbage token is refused', garbageToken.status === 401, `got ${garbageToken.status}`);
+
+  /**
+   * The signature check is the whole security model for the visitor token. Editing the payload to
+   * name a different visitor must fail on the signature, before anything in it is parsed.
+   */
+  const [encodedPayload, signature] = String(visitorToken).split('.');
+  const decoded = JSON.parse(Buffer.from(encodedPayload, 'base64url').toString('utf8'));
+  decoded.visitorId = '00000000-0000-7000-8000-000000000000';
+  const forged = `${Buffer.from(JSON.stringify(decoded), 'utf8').toString('base64url')}.${signature}`;
+  const forgedResult = await widgetCall('GET', '/widget/me', undefined, { token: forged });
+  check(
+    'a visitor token edited to impersonate someone else is refused',
+    forgedResult.status === 401,
+    `got ${forgedResult.status}`,
+  );
+
+  const pageView = await widgetCall(
+    'POST',
+    '/widget/page-view',
+    { url: 'https://any-customer-site.test/product' },
+    { token: visitorToken },
+  );
+  check('a page view is recorded', pageView.status === 204, `got ${pageView.status}`);
+
+  const dangerousUrl = await widgetCall(
+    'POST',
+    '/widget/page-view',
+    { url: 'javascript:alert(1)' },
+    { token: visitorToken },
+  );
+  check(
+    'a javascript: URL is accepted without being stored',
+    dangerousUrl.status === 204,
+    `got ${dangerousUrl.status}`,
+  );
+
+  const identified = await widgetCall(
+    'POST',
+    '/widget/identify',
+    { name: 'Visitor Smoke', email: 'visitor.smoke@example.test' },
+    { token: visitorToken },
+  );
+  check('a visitor can be identified', identified.status === 204, `got ${identified.status}`);
+
+  // The property is now installed, because the widget was served for it.
+  const afterWidget = await a.call('GET', `/properties/${property.id}/install`);
+  check(
+    'serving the widget marks the property installed - no separate verification step',
+    afterWidget.body?.data?.verified === true,
+  );
+
   // --- sessions -------------------------------------------------------------
   section('Sessions');
   const sessions = await a.call('GET', '/auth/sessions');

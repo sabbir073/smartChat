@@ -76,3 +76,11 @@ services:
       - '${WEB_PORT:-3000}:3000'
     environment:
       NODE_ENV: production
+
+  widget:
+    ports:
+      - '${WIDGET_PORT:-3003}:80'
+
+  test-site:
+    ports:
+      - '${TEST_SITE_PORT:-3004}:80'

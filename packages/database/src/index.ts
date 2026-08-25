@@ -17,11 +17,16 @@ export type {
   UsageRecord,
   User,
   VerificationToken,
+  Visitor,
+  VisitorPageView,
+  VisitorSession,
+  Widget,
 } from '@prisma/client';
 export {
   AccountStatus,
   ActorType,
   AgentAvailability,
+  DeviceType,
   MemberRole,
   MemberStatus,
   PropertyStatus,
