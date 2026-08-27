@@ -70,10 +70,18 @@ export const resendVerificationSchema = z.object({
   email: emailSchema,
 });
 
+/**
+ * Accepting an invitation.
+ *
+ * Name and password are optional because two different people arrive here: somebody who already
+ * has a SmartChat login and only needs the membership activated, and somebody brand new who has
+ * to choose a password. Which one it is depends on the invited address, which the server knows
+ * and the client does not - so the requirement is enforced there rather than guessed here.
+ */
 export const acceptInvitationSchema = z.object({
   token: z.string().min(20).max(200),
-  name: displayNameSchema,
-  password: passwordSchema,
+  name: displayNameSchema.optional(),
+  password: passwordSchema.optional(),
 });
 
 export const updateProfileSchema = z.object({

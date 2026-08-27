@@ -1,12 +1,28 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { Button, cn } from '@/components/ui';
+import { AvailabilityControl } from './availability-control';
 
 export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
   const { user, accounts, activeAccount, switchAccount, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [availability, setAvailability] = useState<'online' | 'away' | 'offline' | null>(null);
+
+  // Read once per account. The control owns the value from then on.
+  useEffect(() => {
+    const controller = new AbortController();
+    setAvailability(null);
+    void api
+      .get<{ availability: 'online' | 'away' | 'offline' }>('/team/availability', {
+        signal: controller.signal,
+      })
+      .then((result) => setAvailability(result.data.availability))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [activeAccount?.id]);
 
   const initials = (user?.name ?? '?')
     .split(' ')
@@ -53,6 +69,7 @@ export function Topbar({ onOpenNav }: { onOpenNav: () => void }) {
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        {availability && <AvailabilityControl initial={availability} />}
         {user && !user.emailVerified && (
           <a
             href="/verify-email"

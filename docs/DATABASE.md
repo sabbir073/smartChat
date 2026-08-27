@@ -115,3 +115,25 @@ plus `(actor_id, created_at DESC)`.
   first.
 - Both paths are tested: migrate from an empty database, and migrate from the previous release's
   seeded database.
+
+## Departments
+
+A department is a named desk — "Billing", "Sales" — that a conversation can belong to, so an
+account can divide an inbox by responsibility rather than by website. Membership is many-to-many
+(`department_members`): one person is usually on two desks.
+
+At most one department per account is the default. That is enforced in the service rather than by
+a partial unique index, which Prisma cannot express — setting a new default clears the previous one
+in the same call.
+
+Deleting a department is a soft delete that also detaches its conversations (`department_id` set to
+NULL) and drops its membership rows. Conversations keep their whole history; they simply stop
+belonging to a desk that no longer exists.
+
+## Invited users
+
+`users.password_hash` is nullable. A user row is created the moment somebody is invited, so a
+membership can point at it, but nobody can sign in as them until they accept and choose one.
+`verifyPassword` returns false for a null hash, and the login route treats that identically to a
+wrong password — otherwise the sign-in form would become a way to discover who has been invited.
+See ADR-030.

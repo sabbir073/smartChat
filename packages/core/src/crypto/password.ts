@@ -31,7 +31,15 @@ export async function hashPassword(password: string): Promise<string> {
  * Returns false rather than throwing on a malformed hash: a corrupted row must read as "wrong
  * password", never as a 500 that tells an attacker something about the account.
  */
-export async function verifyPassword(storedHash: string, password: string): Promise<boolean> {
+/**
+ * `storedHash` is nullable because an invited user has no password yet. A null hash can never
+ * match, and saying so here means no caller has to remember the special case.
+ */
+export async function verifyPassword(
+  storedHash: string | null,
+  password: string,
+): Promise<boolean> {
+  if (storedHash === null) return false;
   try {
     return await verify(storedHash, password, ARGON2_OPTIONS);
   } catch {
@@ -43,7 +51,8 @@ export async function verifyPassword(storedHash: string, password: string): Prom
  * True when a hash was produced with weaker parameters than we now use, so the password can be
  * transparently upgraded on the next successful login.
  */
-export function needsRehash(storedHash: string): boolean {
+export function needsRehash(storedHash: string | null): boolean {
+  if (storedHash === null) return false;
   const match = /^\$argon2id\$v=19\$m=(\d+),t=(\d+),p=(\d+)\$/.exec(storedHash);
   if (!match) return true;
   const [, memory, time, parallelism] = match;

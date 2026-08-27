@@ -282,27 +282,42 @@ export class ConversationService {
     query: ListConversationsInput,
   ): Promise<CursorPage<ConversationWithVisitor>> {
     const memberId = this.requireMemberId(context);
-    // An agent without the "view all" permission sees only what is assigned to them, whatever
-    // filter they ask for.
+    /**
+     * An agent without "view all" sees their own conversations *and the unassigned queue*.
+     *
+     * Not just their own. A conversation is assigned to nobody the moment it arrives, so a list
+     * restricted to "assigned to me" would make every new chat invisible to precisely the people
+     * whose job is to answer it - on a team of agents with no manager online, nobody would ever
+     * see it. This matches `assertCanSee`, which has always allowed the queue; the two used to
+     * disagree, and the list was the stricter one.
+     */
     const restrictedToOwn = !context.permissions.has(Permission.CONVERSATION_VIEW_ALL);
     if (restrictedToOwn) requirePermission(context, Permission.CONVERSATION_VIEW_ASSIGNED);
 
-    const assignedMemberId = restrictedToOwn
-      ? memberId
-      : query.assigned === 'me'
+    // An explicit filter still narrows within what the caller is allowed to see.
+    const explicit =
+      query.assigned === 'me'
         ? memberId
         : query.assigned === 'unassigned'
           ? null
           : query.assignedMemberId;
+
+    const scope =
+      restrictedToOwn && explicit === undefined
+        ? { mineOrUnassigned: memberId }
+        : restrictedToOwn && explicit !== null && explicit !== memberId
+          ? // Asking for somebody else's queue: allowed to ask, guaranteed to be empty.
+            { assignedMemberId: '__none__' }
+          : { assignedMemberId: explicit };
 
     return this.repo.list(context, {
       cursor: query.cursor,
       limit: query.limit,
       status: query.status,
       propertyId: query.propertyId,
-      assignedMemberId,
       search: query.search,
       tags: query.tags,
+      ...scope,
     });
   }
 

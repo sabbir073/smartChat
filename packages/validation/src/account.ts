@@ -25,20 +25,29 @@ const memberRoleSchema = z.enum([
 export const inviteMemberSchema = z.object({
   email: emailSchema,
   name: displayNameSchema.optional(),
-  role: memberRoleSchema.default(MemberRole.AGENT),
+  baseRole: memberRoleSchema.default(MemberRole.AGENT),
+  /** An optional custom role layered on top of the base role's defaults. */
   roleId: uuidSchema.optional(),
-  propertyIds: z.array(uuidSchema).max(200).optional(),
+  title: z.string().trim().max(120).optional(),
+  /** When true the member sees only the websites listed below. */
   restrictedToProperties: z.boolean().default(false),
+  propertyIds: z.array(uuidSchema).max(200).optional(),
+  departmentIds: z.array(uuidSchema).max(50).optional(),
 });
 
 export const updateMemberSchema = z.object({
-  role: memberRoleSchema.optional(),
+  baseRole: memberRoleSchema.optional(),
   roleId: uuidSchema.nullable().optional(),
   status: z.enum(['active', 'disabled']).optional(),
   title: z.string().trim().max(120).nullable().optional(),
   displayName: displayNameSchema.nullable().optional(),
   restrictedToProperties: z.boolean().optional(),
   propertyIds: z.array(uuidSchema).max(200).optional(),
+  departmentIds: z.array(uuidSchema).max(50).optional(),
+});
+
+export const availabilitySchema = z.object({
+  availability: z.enum(['online', 'away', 'offline']),
 });
 
 export const createRoleSchema = z.object({
@@ -56,7 +65,26 @@ export const createRoleSchema = z.object({
 
 export const updateRoleSchema = createRoleSchema.partial().omit({ key: true });
 
+export const createDepartmentSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  key: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .min(2)
+    .max(40)
+    .regex(/^[a-z][a-z0-9_]*$/, 'Use lowercase letters, numbers and underscores'),
+  description: z.string().trim().max(280).optional(),
+  isDefault: z.boolean().default(false),
+});
+
+export const updateDepartmentSchema = createDepartmentSchema.partial().omit({ key: true });
+
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
 export type UpdateMemberInput = z.infer<typeof updateMemberSchema>;
+export type AvailabilityInput = z.infer<typeof availabilitySchema>;
 export type CreateRoleInput = z.infer<typeof createRoleSchema>;
+export type UpdateRoleInput = z.infer<typeof updateRoleSchema>;
+export type CreateDepartmentInput = z.infer<typeof createDepartmentSchema>;
+export type UpdateDepartmentInput = z.infer<typeof updateDepartmentSchema>;

@@ -45,6 +45,7 @@ export const ErrorCode = {
   ARTICLE_NOT_FOUND: 'ARTICLE_NOT_FOUND',
   WEBHOOK_NOT_FOUND: 'WEBHOOK_NOT_FOUND',
   MEMBER_NOT_FOUND: 'MEMBER_NOT_FOUND',
+  MEMBER_ALREADY_EXISTS: 'MEMBER_ALREADY_EXISTS',
   DUPLICATE_SLUG: 'DUPLICATE_SLUG',
   VISITOR_BANNED: 'VISITOR_BANNED',
 
@@ -98,6 +99,7 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   ARTICLE_NOT_FOUND: 404,
   WEBHOOK_NOT_FOUND: 404,
   MEMBER_NOT_FOUND: 404,
+  MEMBER_ALREADY_EXISTS: 409,
   DUPLICATE_SLUG: 409,
   VISITOR_BANNED: 403,
 
@@ -217,6 +219,7 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   ARTICLE_NOT_FOUND: 'Article not found',
   WEBHOOK_NOT_FOUND: 'Webhook not found',
   MEMBER_NOT_FOUND: 'Team member not found',
+  MEMBER_ALREADY_EXISTS: 'That person is already on this team',
   DUPLICATE_SLUG: 'That slug is already in use',
   VISITOR_BANNED: 'Chat is not available',
   FILE_TYPE_NOT_ALLOWED: 'This file type is not allowed',

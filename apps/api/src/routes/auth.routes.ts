@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import {
+  acceptInvitationSchema,
   changePasswordSchema,
   forgotPasswordSchema,
   loginSchema,
@@ -10,7 +11,7 @@ import {
   verifyEmailSchema,
 } from '@smartchat/validation';
 import { AppError, ErrorCode } from '@smartchat/types';
-import { UserRepository } from '@smartchat/core';
+import { UserRepository, buildTenantContext } from '@smartchat/core';
 import { z } from 'zod';
 import type { Container } from '../container.js';
 import { requireSession, requireUser } from '../plugins/auth.js';
@@ -94,10 +95,35 @@ export async function authRoutes(app: FastifyInstance, container: Container): Pr
     const accounts = await container.accounts.listForUser(user.id);
     const activeAccountId = request.cookies['sc_account'] ?? accounts[0]?.id ?? null;
 
+    /**
+     * The caller's permissions in the active account.
+     *
+     * Sent here because this is the one endpoint every signed-in person can reach - `/account`
+     * needs ACCOUNT_VIEW, which an agent does not have. Without it the dashboard has to guess, and
+     * guessing means showing an agent buttons that answer with 403 when pressed.
+     *
+     * This is for *rendering* only. Every route re-derives the same permissions server-side; a
+     * client that lies to itself about this gains nothing.
+     */
+    let permissions: string[] = [];
+    let role: string | null = null;
+    if (activeAccountId) {
+      try {
+        const membership = await container.accounts.requireMembership(user.id, activeAccountId);
+        const context = buildTenantContext({ membership, requestId: request.requestId });
+        permissions = [...context.permissions];
+        role = context.role ?? null;
+      } catch {
+        // A membership that cannot be resolved simply grants nothing.
+      }
+    }
+
     return ok(reply, {
       user: toUserDto(user),
       accounts,
       activeAccountId,
+      permissions,
+      role,
       csrfToken: requireSession(request).csrfSecret,
     });
   });
@@ -108,6 +134,29 @@ export async function authRoutes(app: FastifyInstance, container: Container): Pr
     const input = parseBody(updateProfileSchema, request.body);
     const updated = await new UserRepository(container.db).updateProfile(user.id, input);
     return ok(reply, { user: toUserDto(updated) });
+  });
+
+  /**
+   * Accept a team invitation.
+   *
+   * Deliberately unauthenticated: the whole point is that the person following the link may not
+   * have an account yet. The token is the credential, and it is single-use. On success the caller
+   * is signed straight in - making somebody log in immediately after proving who they are is
+   * friction with no security value.
+   */
+  app.post('/auth/accept-invitation', async (request, reply) => {
+    await app.rateLimit(request, 'emailToken');
+    const input = parseBody(acceptInvitationSchema, request.body);
+
+    const result = await container.team.acceptInvitation(input);
+    const session = await container.auth.issueSessionFor(result.user.id, meta(request));
+    const accounts = await container.accounts.listForUser(result.user.id);
+
+    setSessionCookie(reply, session.token, session.expiresAt, cookieOptions);
+    setCsrfCookie(reply, session.csrfToken, session.expiresAt, cookieOptions);
+    setActiveAccountCookie(reply, result.accountId, session.expiresAt, cookieOptions);
+
+    return ok(reply, { user: toUserDto(result.user), accounts, accountId: result.accountId });
   });
 
   // ---------------------------------------------------------------------------

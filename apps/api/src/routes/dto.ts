@@ -136,6 +136,7 @@ export interface MemberDto {
   title: string | null;
   restrictedToProperties: boolean;
   propertyIds: string[];
+  departmentIds: string[];
   lastLoginAt: string | null;
   joinedAt: string | null;
 }
@@ -150,6 +151,7 @@ type MemberRow = AccountMember & {
   };
   role: { id: string; key: string; name: string } | null;
   properties: { propertyId: string }[];
+  departments: { departmentId: string }[];
 };
 
 export function toMemberDto(member: MemberRow): MemberDto {
@@ -167,6 +169,7 @@ export function toMemberDto(member: MemberRow): MemberDto {
     title: member.title,
     restrictedToProperties: member.restrictedToProperties,
     propertyIds: member.properties.map((p) => p.propertyId),
+    departmentIds: member.departments.map((d) => d.departmentId),
     lastLoginAt: member.user.lastLoginAt?.toISOString() ?? null,
     joinedAt: member.joinedAt?.toISOString() ?? null,
   };

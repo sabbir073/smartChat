@@ -5,6 +5,8 @@ export type {
   AccountMember,
   AuditLog,
   Conversation,
+  Department,
+  DepartmentMember,
   ConversationRead,
   Message,
   Plan,

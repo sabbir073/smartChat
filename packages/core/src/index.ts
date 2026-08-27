@@ -8,6 +8,7 @@ export * from './redis/login-throttle.js';
 export * from './redis/rate-limit.js';
 export * from './repositories/index.js';
 export * from './services/account.service.js';
+export * from './services/team.service.js';
 export * from './services/auth.service.js';
 export * from './services/domain-matcher.js';
 export * from './services/entitlement.service.js';

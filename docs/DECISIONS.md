@@ -404,3 +404,81 @@ one that never had it.
 **Tradeoffs** One join on the message list query, selecting two columns. Only the name is selected:
 a message payload has no business carrying the rest of a user row.
 **Date** 2026-08-25
+
+---
+## ADR-029 — An agent's inbox is "mine, and the queue"
+**Context** An `agent` holds `CONVERSATION_VIEW_ASSIGNED` and not `CONVERSATION_VIEW_ALL`. The list
+query read that as "assigned to me", full stop.
+**Problem** A conversation is assigned to nobody the moment it arrives. So on a team of agents with
+no manager online, every incoming chat was invisible to precisely the people whose job is to answer
+it. Worse, the two guards disagreed: `assertCanSee` had always allowed the unassigned queue, so an
+agent could open a conversation by id that the list refused to show them.
+**Chosen** `CONVERSATION_VIEW_ASSIGNED` means *assigned to me, or to nobody*. An explicit
+`assigned=` filter still narrows within that, and asking for another agent's queue is allowed to
+ask and guaranteed to be empty.
+**Reason** A queue somebody can claim from is the whole point of the permission. The alternative -
+giving every agent `VIEW_ALL` - would have widened access to solve a bug in a list query.
+**Also fixed here** The visibility clause and the search clause were both disjunctions written as
+`OR` keys on the same Prisma `where` object, where the second silently replaces the first. Left
+alone, adding a search term would have turned "my queue AND matching" into "anyone's queue OR
+matching" - a search that widens visibility. They now compose under `AND`, with a test asserting a
+search cannot reach another website's conversations.
+**Date** 2026-08-27
+
+---
+## ADR-030 — Invited users exist before they accept, with no password
+**Context** An invitation has to be attachable to a membership row so the team list can show
+somebody as pending, but the invited address may never have had a SmartChat login.
+**Chosen** The user row is created at invitation time with `password_hash` NULL, and the membership
+is created with `invited` status. Accepting sets the password (if they need one) and flips the
+membership to `active`.
+**Reason** The alternative - keeping the invitation only in the token table - means the team page
+cannot show pending people without a second source of truth, and accepting has to create a
+membership at exactly the moment it is least convenient to fail.
+**Safety** `verifyPassword` returns false for a null hash, so an un-accepted account can never be
+signed into, and the login route treats it identically to a wrong password - otherwise the sign-in
+form becomes a way to discover who has been invited. There is a smoke check for this.
+**Tradeoffs** A user row exists for somebody who may never accept. Revoking soft-deletes the
+membership and invalidates the token; the orphan user row carries nothing but an address.
+**Date** 2026-08-27
+
+---
+## ADR-031 — Permissions reach the browser through `/auth/me`
+**Context** The dashboard was deciding what to render from `Boolean(user)`, so an agent was shown
+an "Invite someone" button that answered 403, and a bare permission error where a page should have
+been.
+**Chosen** `/auth/me` returns the caller's permissions and role for the active account, and the
+auth context exposes `can(permission)`.
+**Reason** It had to be `/auth/me` rather than `/account`: `/account` requires `ACCOUNT_VIEW`, which
+an agent does not have, so the one endpoint every signed-in person can reach is the only one that
+can carry this. Switching accounts re-reads it, because permissions are per-account.
+**Boundary** This is for *rendering*. Every route re-derives the same permissions server-side from
+the membership; a client that lies to itself here gains nothing but a button that fails.
+**Date** 2026-08-27
+
+---
+## ADR-032 — A rejected session takes its cookie with it
+**Context** The dashboard middleware routes on the session cookie being *present* - it runs at the
+edge and cannot validate one. A cookie the API had already rejected therefore stranded the person:
+every page said "your session has expired, sign in again", and `/login` redirected them straight
+back out because the cookie was still there. The cookie is HttpOnly, so the browser could not drop
+it either.
+**Chosen** The API clears the auth cookies at the moment it rejects a session, and the client
+redirects to `/login?expired=1`.
+**Reason** The server is the only party that can end this, and the rejection is the moment it knows.
+**Date** 2026-08-27
+
+---
+## ADR-033 — The widget entrypoint tolerates a restart
+**Context** The widget image ships with placeholder URLs that its entrypoint substitutes at
+container start, and fails loudly if it finds none - a guard against a build whose define step
+silently stopped working (ADR-019).
+**Problem** A container that is *restarted* rather than recreated keeps the filesystem it wrote on
+its first boot. The placeholders are gone and the real URLs are in their place: a healthy widget,
+which the guard killed on every subsequent start. `docker compose restart widget` took the widget
+down until somebody recreated the container.
+**Chosen** The error is raised only when there is neither a placeholder to substitute nor an
+already-substituted URL to find.
+**Reason** "No placeholders" was never the condition worth failing on; "nothing that looks like a
+configured bundle" is.
+**Date** 2026-08-27

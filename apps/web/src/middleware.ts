@@ -34,7 +34,14 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (hasSession && isPublic && pathname !== '/verify-email' && pathname !== '/reset-password') {
+  // Accepting an invitation is excluded as well: somebody already signed into one workspace may
+  // be joining a second, and bouncing them to the dashboard would silently drop the invitation.
+  const staysPublicWhenSignedIn =
+    pathname === '/verify-email' ||
+    pathname === '/reset-password' ||
+    pathname === '/accept-invitation';
+
+  if (hasSession && isPublic && !staysPublicWhenSignedIn) {
     const url = request.nextUrl.clone();
     url.pathname = '/';
     url.search = '';

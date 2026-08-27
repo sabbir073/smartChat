@@ -119,10 +119,109 @@ export class AccountRepository {
         user: { select: { id: true, email: true, name: true, avatarUrl: true, lastLoginAt: true } },
         role: { select: { id: true, key: true, name: true } },
         properties: { select: { propertyId: true } },
+        departments: { select: { departmentId: true } },
       },
       orderBy: [{ baseRole: 'asc' }, { createdAt: 'asc' }],
       take: 500,
     });
+  }
+
+  findMemberById(context: TenantContext, memberId: string) {
+    return this.db.accountMember.findFirst({
+      where: { id: memberId, ...tenantScope(context), deletedAt: null },
+      include: {
+        user: { select: { id: true, email: true, name: true, avatarUrl: true, lastLoginAt: true } },
+        role: { select: { id: true, key: true, name: true } },
+        properties: { select: { propertyId: true } },
+        departments: { select: { departmentId: true } },
+      },
+    });
+  }
+
+  findMemberByEmail(accountId: string, email: string) {
+    return this.db.accountMember.findFirst({
+      where: { accountId, deletedAt: null, user: { email } },
+      include: { user: { select: { id: true, email: true } } },
+    });
+  }
+
+  /** How many active owners the account has. The guard against locking everybody out. */
+  countOwners(accountId: string): Promise<number> {
+    return this.db.accountMember.count({
+      where: { accountId, deletedAt: null, baseRole: 'owner', status: 'active' },
+    });
+  }
+
+  createMember(data: {
+    accountId: string;
+    userId: string;
+    baseRole: 'owner' | 'admin' | 'manager' | 'agent';
+    status: 'active' | 'invited';
+    invitedByUserId?: string | null;
+    invitedAt?: Date | null;
+    joinedAt?: Date | null;
+    title?: string | null;
+    restrictedToProperties: boolean;
+  }) {
+    return this.db.accountMember.create({ data });
+  }
+
+  updateMember(context: TenantContext, memberId: string, data: Record<string, unknown>) {
+    return this.db.accountMember.updateMany({
+      where: { id: memberId, ...tenantScope(context), deletedAt: null },
+      data,
+    });
+  }
+
+  /**
+   * Replace a member's property scope.
+   *
+   * Delete-then-insert rather than a diff: the set is tiny, and a diff has more ways to leave the
+   * table describing something nobody asked for.
+   */
+  async setMemberProperties(
+    accountId: string,
+    memberId: string,
+    propertyIds: string[],
+  ): Promise<void> {
+    await this.db.propertyMember.deleteMany({ where: { accountId, memberId } });
+    if (propertyIds.length === 0) return;
+    await this.db.propertyMember.createMany({
+      data: propertyIds.map((propertyId) => ({ accountId, propertyId, memberId })),
+      skipDuplicates: true,
+    });
+  }
+
+  async setMemberDepartments(
+    accountId: string,
+    memberId: string,
+    departmentIds: string[],
+  ): Promise<void> {
+    await this.db.departmentMember.deleteMany({ where: { accountId, memberId } });
+    if (departmentIds.length === 0) return;
+    await this.db.departmentMember.createMany({
+      data: departmentIds.map((departmentId) => ({ accountId, departmentId, memberId })),
+      skipDuplicates: true,
+    });
+  }
+
+  /** Which of these ids are real properties of this account. Guards against ids from elsewhere. */
+  async existingPropertyIds(accountId: string, propertyIds: string[]): Promise<string[]> {
+    if (propertyIds.length === 0) return [];
+    const rows = await this.db.property.findMany({
+      where: { accountId, deletedAt: null, id: { in: propertyIds } },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  async existingDepartmentIds(accountId: string, departmentIds: string[]): Promise<string[]> {
+    if (departmentIds.length === 0) return [];
+    const rows = await this.db.department.findMany({
+      where: { accountId, deletedAt: null, id: { in: departmentIds } },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
   }
 
   countActiveMembers(context: TenantContext): Promise<number> {

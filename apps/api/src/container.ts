@@ -3,6 +3,7 @@ import {
   AccountService,
   AuthService,
   ConversationService,
+  EmailJob,
   EntitlementService,
   LogMailProvider,
   LoginThrottle,
@@ -12,6 +13,7 @@ import {
   PresenceService,
   RedisEventPublisher,
   SmtpMailProvider,
+  TeamService,
   TicketService,
   VisitorService,
   WidgetService,
@@ -37,6 +39,7 @@ export interface Container {
   mailer: MailProvider;
   auth: AuthService;
   accounts: AccountService;
+  team: TeamService;
   properties: PropertyService;
   widgets: WidgetService;
   visitors: VisitorService;
@@ -96,23 +99,37 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
 
   const entitlements = new EntitlementService(db);
 
+  const brand = {
+    productName: 'SmartChat',
+    appUrl: config.APP_URL,
+    supportEmail: config.MAIL_FROM_ADDRESS,
+  };
+
   const auth = new AuthService({
     db,
     queue,
     mailer,
     throttle: loginThrottle,
     clock,
-    brand: {
-      productName: 'SmartChat',
-      appUrl: config.APP_URL,
-      supportEmail: config.MAIL_FROM_ADDRESS,
-    },
+    brand,
     sessionTtlMs: config.SESSION_TTL_DAYS * DAY,
     passwordResetTtlMs: 60 * MINUTE,
     autoVerifyEmail: config.AUTO_VERIFY_EMAIL,
   });
 
   const accounts = new AccountService(db, entitlements);
+
+  const team = new TeamService({
+    db,
+    mailer,
+    brand,
+    // Same reasoning as the auth service: a slow SMTP server must never hold up an HTTP response.
+    deliver: queue
+      ? (message) =>
+          queue.enqueue(EmailJob.SEND, { message, requestId: 'team' }).then(() => undefined)
+      : undefined,
+    clock,
+  });
   const widgets = new WidgetService(db, clock);
   const presence = new PresenceService(redis);
   const tickets = new TicketService(redis);
@@ -156,6 +173,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     mailer,
     auth,
     accounts,
+    team,
     properties,
     widgets,
     visitors,

@@ -526,6 +526,19 @@ async function main() {
   const afterLogout = await a.call('GET', '/auth/me');
   check('the session is dead immediately after logout', afterLogout.status === 401, `got ${afterLogout.status}`);
 
+  // A rejected session must take its cookie with it. The dashboard middleware routes on the
+  // cookie being present, not valid, so a cookie left behind after the server has refused it
+  // strands the person: every page says "sign in again" and /login bounces them back.
+  const stale = new Client();
+  stale.cookies.set('sc_session', 'a-token-that-was-never-valid'.padEnd(64, '0'));
+  const rejected = await stale.call('GET', '/auth/me');
+  check('a stale session cookie is refused', rejected.status === 401, `got ${rejected.status}`);
+  check(
+    'and the server clears it, so the person can reach the sign-in page',
+    stale.setCookieFor('sc_session').length > 0 && !stale.cookies.has('sc_session'),
+    stale.setCookieFor('sc_session') || 'no Set-Cookie for sc_session',
+  );
+
   // --- result ---------------------------------------------------------------
   process.stdout.write('\n');
   if (failures.length === 0) {

@@ -4,6 +4,7 @@ import { accountRoutes } from './account.routes.js';
 import { authRoutes } from './auth.routes.js';
 import { conversationRoutes } from './conversation.routes.js';
 import { propertyRoutes } from './property.routes.js';
+import { teamRoutes } from './team.routes.js';
 import { widgetRoutes } from './widget.routes.js';
 
 /**
@@ -21,6 +22,7 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       await v1.register(async (scoped) => widgetRoutes(scoped, container));
       await v1.register(async (scoped) => propertyRoutes(scoped, container));
       await v1.register(async (scoped) => conversationRoutes(scoped, container));
+      await v1.register(async (scoped) => teamRoutes(scoped, container));
     },
     { prefix: '/api/v1' },
   );

@@ -190,6 +190,8 @@ export class AuthService {
       throw new AppError(ErrorCode.INVALID_CREDENTIALS);
     }
 
+    // An invited user who has not accepted yet has no password. That must look exactly like a
+    // wrong password, or the login form becomes a way to discover who has been invited.
     const valid = await verifyPassword(user.passwordHash, input.password);
     if (!valid) {
       await Promise.all([
@@ -493,6 +495,17 @@ export class AuthService {
   // ---------------------------------------------------------------------------
   // Internals
   // ---------------------------------------------------------------------------
+
+  /**
+   * Sign somebody in without a password.
+   *
+   * Used by flows where the caller has already proved who they are by other means - accepting an
+   * invitation from a single-use emailed token. It is deliberately explicit rather than a flag on
+   * `login`, so every call site that skips a password is visible.
+   */
+  async issueSessionFor(userId: string, meta: RequestMeta): Promise<SessionIssue> {
+    return this.issueSession(userId, meta);
+  }
 
   private async issueSession(
     userId: string,

@@ -30,6 +30,33 @@ export interface InstallationDto {
   lastRequestAt: string | null;
 }
 
+export interface RoleDto {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  permissions: string[];
+  isSystem: boolean;
+}
+
+export interface DepartmentDto {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+}
+
+export interface InvitationDto {
+  id: string;
+  email: string;
+  baseRole: string;
+  createdAt: string;
+  /** Empty when the link has lapsed - reported rather than hidden, so it can be resent. */
+  expiresAt: string;
+  invitedByName: string | null;
+}
+
 export interface MemberDto {
   id: string;
   userId: string;
@@ -38,11 +65,14 @@ export interface MemberDto {
   displayName: string | null;
   avatarUrl: string | null;
   role: string;
+  /** An optional named permission set layered over the base role. */
+  customRole: { id: string; key: string; name: string } | null;
   status: string;
   availability: string;
   title: string | null;
   restrictedToProperties: boolean;
   propertyIds: string[];
+  departmentIds: string[];
   lastLoginAt: string | null;
   joinedAt: string | null;
 }

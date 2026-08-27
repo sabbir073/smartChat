@@ -6,7 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { useResource } from '@/lib/use-resource';
 import { PageHeader } from '@/components/layout/page-header';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/components/ui';
-import type { PropertyDto } from '@/lib/types';
+import type { MemberDto, PropertyDto } from '@/lib/types';
 
 interface AccountResponse {
   account: { id: string; name: string; slug: string; timezone: string };
@@ -42,7 +42,21 @@ export default function OverviewPage() {
     [activeAccount?.id],
   );
 
+  // Only what the caller is actually allowed to read. An agent has no MEMBER_VIEW permission, so
+  // the tile below reports what it knows rather than showing an error for a stat.
+  const members = useResource<{ members: MemberDto[] } | null>(
+    (signal) =>
+      api
+        .get<{ members: MemberDto[] }>('/team/members', { signal })
+        .then((result) => result.data)
+        .catch(() => null),
+    [activeAccount?.id],
+  );
+
   const propertyLimit = account.data?.limits['max_properties'] ?? null;
+  const memberCount = members.data?.members.length ?? null;
+  const pendingCount =
+    members.data?.members.filter((member) => member.status === 'invited').length ?? 0;
   const count = properties.data?.length ?? 0;
   const installed = properties.data?.filter((property) => property.installed).length ?? 0;
 
@@ -78,7 +92,17 @@ export default function OverviewPage() {
           value={properties.loading ? '—' : installed}
           hint={installed < count ? `${count - installed} waiting for the snippet` : 'All verified'}
         />
-        <Stat label="Team members" value="—" hint="Team management arrives in Phase 5" />
+        <Stat
+          label="Team members"
+          value={members.loading || memberCount === null ? '—' : memberCount}
+          hint={
+            memberCount === null
+              ? 'Only administrators can see the team'
+              : pendingCount > 0
+                ? `${pendingCount} invitation${pendingCount === 1 ? '' : 's'} not accepted yet`
+                : 'Everyone has accepted'
+          }
+        />
       </div>
 
       <Card>

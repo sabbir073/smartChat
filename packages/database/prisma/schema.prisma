@@ -233,7 +233,10 @@ model PlatformSession {
 model User {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   email              String    @unique @db.Citext
-  passwordHash       String    @map("password_hash")
+  /// Null until the person sets one. A user row is created the moment somebody is invited, so a
+  /// membership can point at it, but nobody can sign in as them until they accept. `verifyPassword`
+  /// treats a null hash as never matching, so this cannot become an authentication bypass.
+  passwordHash       String?   @map("password_hash")
   name               String
   avatarUrl          String?   @map("avatar_url")
   locale             String    @default("en")
@@ -324,6 +327,7 @@ model Account {
   owner        User?               @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   members      AccountMember[]
   roles        Role[]
+  departments  Department[]
   properties    Property[]
   visitors      Visitor[]
   conversations Conversation[]
@@ -361,6 +365,7 @@ model AccountMember {
   role                 Role?              @relation(fields: [roleId], references: [id], onDelete: SetNull)
   invitedBy            User?              @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
   properties           PropertyMember[]
+  departments          DepartmentMember[]
   assignedConversations Conversation[]    @relation("ConversationAssignee")
   sentMessages         Message[]
   reads                ConversationRead[]
@@ -460,6 +465,50 @@ model PropertyMember {
   @@unique([propertyId, memberId])
   @@index([accountId, memberId])
   @@map("property_members")
+}
+
+/// A named group of agents - "Sales", "Billing" - that a conversation can belong to.
+///
+/// Departments exist so an account can divide an inbox by responsibility rather than by website.
+/// Membership is many-to-many: one person is often on two desks.
+model Department {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId   String  @map("account_id") @db.Uuid
+  name        String
+  /// Stable, human-readable handle. Unique per account, used in the API and in routing rules.
+  key         String  @db.Citext
+  description String?
+  /// Where a conversation lands when nothing else decides. At most one per account; enforced in
+  /// the service rather than by a partial unique index, which Prisma cannot express.
+  isDefault   Boolean @default(false) @map("is_default")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account       Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  members       DepartmentMember[]
+  conversations Conversation[]
+
+  @@unique([accountId, id])
+  @@unique([accountId, key])
+  @@index([accountId, deletedAt])
+  @@map("departments")
+}
+
+model DepartmentMember {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId    String   @map("account_id") @db.Uuid
+  departmentId String   @map("department_id") @db.Uuid
+  memberId     String   @map("member_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  department Department    @relation(fields: [accountId, departmentId], references: [accountId, id], onDelete: Cascade)
+  member     AccountMember @relation(fields: [accountId, memberId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([departmentId, memberId])
+  @@index([accountId, memberId])
+  @@map("department_members")
 }
 
 // -----------------------------------------------------------------------------
@@ -695,6 +744,9 @@ model Conversation {
   /// and a conversation must never reference the wrong one.
   assignedMemberId String? @map("assigned_member_id") @db.Uuid
 
+  /// Which desk owns this conversation. Null means nobody has decided yet.
+  departmentId String? @map("department_id") @db.Uuid
+
   /**
    * The gapless per-conversation message counter.
    *
@@ -733,6 +785,7 @@ model Conversation {
   property       Property           @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
   visitor        Visitor            @relation(fields: [accountId, visitorId], references: [accountId, id], onDelete: Cascade)
   assignedMember AccountMember?     @relation("ConversationAssignee", fields: [accountId, assignedMemberId], references: [accountId, id], onDelete: SetNull)
+  department     Department?        @relation(fields: [accountId, departmentId], references: [accountId, id], onDelete: SetNull)
   messages       Message[]
   reads          ConversationRead[]
 
@@ -743,6 +796,8 @@ model Conversation {
   @@index([accountId, assignedMemberId, status, lastMessageAt(sort: Desc)])
   // Drives the visitor's own history and the widget's "resume my conversation".
   @@index([accountId, visitorId, lastMessageAt(sort: Desc)])
+  // Drives "everything on my desk".
+  @@index([accountId, departmentId, status, lastMessageAt(sort: Desc)])
   // Inbox search by subject. A substring match cannot use a B-tree, so this is a trigram GIN
   // index. Single-column on purpose: Prisma cannot express a btree_gin composite containing a
   // uuid, and the planner combines this bitmap with the account_id indexes above anyway.

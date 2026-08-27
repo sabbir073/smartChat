@@ -245,6 +245,11 @@ export class ConversationRepository {
       status?: 'open' | 'pending' | 'closed' | undefined;
       propertyId?: string | undefined;
       assignedMemberId?: string | null | undefined;
+      /**
+       * "Assigned to this member, or to nobody" - the working view for an agent who can only see
+       * their own conversations. Mutually exclusive with `assignedMemberId`.
+       */
+      mineOrUnassigned?: string | undefined;
       search?: string | undefined;
       tags?: string[] | undefined;
     },
@@ -269,25 +274,44 @@ export class ConversationRepository {
             : {}),
         // Every tag must be present, not any: filters narrow.
         ...(query.tags && query.tags.length > 0 ? { tags: { hasEvery: query.tags } } : {}),
-        // Agents search for what was said at least as often as for who said it, so the message
-        // body is part of the search. Every column here has a trigram index; see schema.prisma.
-        ...(query.search
-          ? {
-              OR: [
-                { subject: { contains: query.search, mode: 'insensitive' } },
-                { visitor: { name: { contains: query.search, mode: 'insensitive' } } },
-                { visitor: { email: { contains: query.search, mode: 'insensitive' } } },
+        /**
+         * Both remaining conditions are disjunctions, so they go in `AND` rather than as two `OR`
+         * keys - a second `OR` in the same object silently replaces the first, which would have
+         * turned "my queue, and matching the search" into "anyone's queue, or matching the
+         * search". Visibility must never be the thing a search widens.
+         */
+        AND: [
+          ...(query.mineOrUnassigned
+            ? [
                 {
-                  messages: {
-                    some: {
-                      body: { contains: query.search, mode: 'insensitive' },
-                      deletedAt: null,
-                    },
-                  },
+                  OR: [{ assignedMemberId: query.mineOrUnassigned }, { assignedMemberId: null }],
                 },
-              ],
-            }
-          : {}),
+              ]
+            : []),
+          // Agents search for what was said at least as often as for who said it, so the message
+          // body is part of the search. Every column has a trigram index; see schema.prisma.
+          ...(query.search
+            ? [
+                {
+                  OR: [
+                    { subject: { contains: query.search, mode: 'insensitive' as const } },
+                    { visitor: { name: { contains: query.search, mode: 'insensitive' as const } } },
+                    {
+                      visitor: { email: { contains: query.search, mode: 'insensitive' as const } },
+                    },
+                    {
+                      messages: {
+                        some: {
+                          body: { contains: query.search, mode: 'insensitive' as const },
+                          deletedAt: null,
+                        },
+                      },
+                    },
+                  ],
+                },
+              ]
+            : []),
+        ],
         ...afterCursor(query.cursor),
       },
       include: { visitor: true },

@@ -2,7 +2,14 @@ import type { DatabaseOrTransaction, User } from '@smartchat/database';
 
 export interface CreateUserInput {
   email: string;
-  passwordHash: string;
+  /**
+   * Null for a user created by an invitation.
+   *
+   * The row has to exist so a membership can point at it, but nobody can sign in as that person
+   * until they accept and choose a password - which is exactly what a null hash means, since
+   * `verifyPassword` has nothing to compare against.
+   */
+  passwordHash: string | null;
   name: string;
   timezone?: string;
   locale?: string;
