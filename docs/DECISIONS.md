@@ -421,8 +421,14 @@ giving every agent `VIEW_ALL` - would have widened access to solve a bug in a li
 **Also fixed here** The visibility clause and the search clause were both disjunctions written as
 `OR` keys on the same Prisma `where` object, where the second silently replaces the first. Left
 alone, adding a search term would have turned "my queue AND matching" into "anyone's queue OR
-matching" - a search that widens visibility. They now compose under `AND`, with a test asserting a
-search cannot reach another website's conversations.
+matching" - a search that widens visibility. They now compose under `AND`.
+**On proving it** The first test written for this could not have caught it: it searched for a
+conversation on *another* website, which the separate property `restriction` key excludes whether or
+not the two `OR` keys collided. The case that actually exercises the collision is a conversation on
+the agent's **own** website that is assigned to a colleague. That test now exists, and it was
+verified by negative control - the compiled query was reverted to the two-`OR`-key form inside the
+running container, at which point the new check failed and the old one still passed. A regression
+test nobody has watched fail is a comment, not a test.
 **Date** 2026-08-27
 
 ---
@@ -454,6 +460,9 @@ an agent does not have, so the one endpoint every signed-in person can reach is 
 can carry this. Switching accounts re-reads it, because permissions are per-account.
 **Boundary** This is for *rendering*. Every route re-derives the same permissions server-side from
 the membership; a client that lies to itself here gains nothing but a button that fails.
+**Guarded by** `scripts/e2e-team.mjs` asserts the payload itself - an agent is not told they may
+invite or read the member list, an owner is told both, and each is told which role they hold. Trim
+the payload and the suite fails rather than the UI quietly reverting to an owner's toolbar.
 **Date** 2026-08-27
 
 ---

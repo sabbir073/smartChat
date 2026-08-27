@@ -410,7 +410,32 @@ async function main() {
     afterAssign.body.data.map((entry) => entry.id).join(','),
   );
 
+  /**
+   * The real test of the OR fix.
+   *
+   * This conversation is on the agent's *own* website, so the property scope does not exclude it -
+   * only the "mine or unassigned" clause does. If that clause and the search clause were both
+   * written as `OR` on the same query object, the second would silently replace the first and this
+   * search would hand back a colleague's conversation. A search must narrow, never widen.
+   */
+  const searchWhileAssigned = await agent.call(
+    'GET',
+    '/conversations?search=Hello&status=open&limit=50',
+  );
+  check(
+    'searching cannot surface a colleague conversation on the agent own website',
+    !searchWhileAssigned.body.data.map((entry) => entry.id).includes(conversationA),
+    searchWhileAssigned.body.data.map((entry) => entry.id).join(','),
+  );
+
   await owner.call('POST', `/conversations/${conversationA}/assign`, { memberId: null });
+
+  const afterUnassign = await agent.call('GET', '/conversations?search=Hello&status=open&limit=50');
+  check(
+    'and finds it again once it returns to the queue',
+    afterUnassign.body.data.map((entry) => entry.id).includes(conversationA),
+    afterUnassign.body.data.map((entry) => entry.id).join(','),
+  );
 
   const reachConversation = await agent.call('GET', `/conversations/${conversationB}`);
   check(
@@ -434,6 +459,36 @@ async function main() {
   );
 
   section('Permission boundaries');
+
+  /**
+   * The dashboard decides what to render from this payload, not from "is somebody signed in".
+   * If /auth/me ever stops carrying the permission set, every agent gets an owner's toolbar
+   * again and the buttons 403 when pressed. This is the check that keeps that from coming back.
+   */
+  const agentMe = await agent.call('GET', '/auth/me');
+  const agentPermissions = agentMe.body.data?.permissions ?? [];
+  check(
+    'the dashboard is told exactly what this person may do',
+    Array.isArray(agentMe.body.data?.permissions) && agentPermissions.length > 0,
+    JSON.stringify(agentMe.body.data?.permissions),
+  );
+  check(
+    'and an agent is not told they may run the team, so no team controls render',
+    !agentPermissions.includes('member:invite') && !agentPermissions.includes('member:view'),
+    agentPermissions.join(','),
+  );
+  const ownerMe = await owner.call('GET', '/auth/me');
+  const ownerPermissions = ownerMe.body.data?.permissions ?? [];
+  check(
+    'while an owner is told they may',
+    ownerPermissions.includes('member:invite') && ownerPermissions.includes('member:view'),
+    JSON.stringify(ownerPermissions),
+  );
+  check(
+    'and both are told which role they hold',
+    typeof agentMe.body.data?.role === 'string' && ownerMe.body.data?.role === 'owner',
+    `${agentMe.body.data?.role} / ${ownerMe.body.data?.role}`,
+  );
   const agentInvites = await agent.call('POST', '/team/members', {
     email: `nope.${stamp}@example.test`,
     baseRole: 'admin',
