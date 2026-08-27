@@ -91,6 +91,8 @@ export interface ConversationDto {
   closedAt: string | null;
   agentUnreadCount: number;
   messageSeq: number;
+  /** Answers from the pre-chat or offline form, in the order the customer configured them. */
+  preChat: { key: string; value: string }[];
   visitor: {
     id: string;
     name: string | null;
@@ -102,4 +104,51 @@ export interface ConversationDto {
     language: string | null;
     isReturning: boolean;
   };
+}
+
+export interface TriggerCondition {
+  field: string;
+  operator: string;
+  value: string;
+}
+
+export type TriggerAction =
+  | { type: 'send_message'; body: string }
+  | { type: 'add_tag'; tag: string }
+  | { type: 'set_priority'; priority: 'low' | 'normal' | 'high' | 'urgent' }
+  | { type: 'route_to_department'; departmentId: string };
+
+export interface TriggerDto {
+  id: string;
+  name: string;
+  description: string | null;
+  propertyId: string | null;
+  event: 'visitor_arrived' | 'page_viewed' | 'time_on_site' | 'conversation_started';
+  enabled: boolean;
+  match: 'all' | 'any';
+  conditions: TriggerCondition[];
+  actions: TriggerAction[];
+  frequency: 'once_per_session' | 'once_per_visitor' | 'every_time';
+  cooldownSeconds: number;
+  afterSeconds: number;
+  position: number;
+  fireCount: number;
+  lastFiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ShortcutDto {
+  id: string;
+  key: string;
+  title: string;
+  body: string;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AutomationSchemaDto {
+  fields: { field: string; type: 'string' | 'number' | 'boolean'; operators: string[] }[];
+  placeholders: string[];
 }

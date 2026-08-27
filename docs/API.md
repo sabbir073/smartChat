@@ -95,8 +95,13 @@ GET    /visitors                      GET    /visitors/:id
 GET    /contacts                      POST   /contacts
 GET    /contacts/:id                  PATCH  /contacts/:id
 
-GET    /shortcuts                     POST   /shortcuts
-GET    /triggers                      POST   /triggers
+GET    /automation/schema
+GET    /automation/triggers           POST   /automation/triggers
+GET    /automation/triggers/:id       PATCH  /automation/triggers/:id
+DELETE /automation/triggers/:id
+GET    /automation/shortcuts          POST   /automation/shortcuts
+PATCH  /automation/shortcuts/:id      DELETE /automation/shortcuts/:id
+POST   /automation/shortcuts/:id/used
 GET    /kb/:propertyId/articles       POST   /kb/:propertyId/articles
 GET    /tickets                       POST   /tickets
 GET    /reports/overview              GET    /reports/conversations

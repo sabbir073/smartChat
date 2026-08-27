@@ -19,6 +19,8 @@ export interface ChatClientHandlers {
   onMessage(message: MessageDto): void;
   onTyping(payload: { actorType: string; actorName?: string | null; typing: boolean }): void;
   onConversation(payload: { conversationId: string; status?: string }): void;
+  /** Whether anybody is there to answer. One boolean; never who. */
+  onAvailability(available: boolean): void;
 }
 
 interface Ack<T> {
@@ -92,8 +94,22 @@ export class ChatClient {
 
     socket.on(ServerEvent.MESSAGE_NEW, (payload: { message: MessageDto }) => {
       if (!payload?.message) return;
+      /**
+       * Adopt the conversation this message belongs to.
+       *
+       * A proactive message from a trigger opens a conversation the panel never asked for, so
+       * this is how it learns the id - and without it, typing indicators and read receipts would
+       * have nothing to address until the visitor sent something themselves.
+       */
+      if (!this.conversationId && payload.message.conversationId) {
+        this.conversationId = payload.message.conversationId;
+      }
       this.lastSeq = Math.max(this.lastSeq, payload.message.seq);
       this.handlers.onMessage(payload.message);
+    });
+
+    socket.on(ServerEvent.AGENTS_AVAILABLE, (payload: { available: boolean }) => {
+      this.handlers.onAvailability(payload?.available === true);
     });
 
     socket.on(

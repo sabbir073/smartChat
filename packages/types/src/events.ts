@@ -38,6 +38,13 @@ export const ServerEvent = {
   TYPING: 'typing',
   PRESENCE_AGENT: 'presence:agent',
   PRESENCE_VISITOR: 'presence:visitor',
+  /**
+   * Whether anybody is there to answer, sent to visitors.
+   *
+   * Distinct from PRESENCE_AGENT, which names a member and belongs to the agent namespace. A
+   * visitor is told one boolean and never which people are online.
+   */
+  AGENTS_AVAILABLE: 'presence:agents_available',
   VISITOR_UPDATED: 'visitor:updated',
   UNREAD_UPDATED: 'unread:updated',
   ERROR: 'error',

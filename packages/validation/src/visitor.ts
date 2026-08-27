@@ -47,6 +47,21 @@ export const widgetConfigQuerySchema = z.object({
   p: publicIdSchema,
 });
 
+/**
+ * An offline-form submission.
+ *
+ * A flat map of the configured field keys to what the visitor typed. Capped in both directions -
+ * the server re-applies the property's own field list afterwards, but a request should never be
+ * allowed to arrive with ten thousand keys in the first place.
+ */
+export const widgetOfflineMessageSchema = z.object({
+  values: z
+    .record(z.string().trim().min(1).max(60), z.string().max(2000))
+    .refine((values) => Object.keys(values).length <= 24, 'Too many fields'),
+});
+
+export type WidgetOfflineMessageInput = z.infer<typeof widgetOfflineMessageSchema>;
+
 export type WidgetBootstrapInput = z.infer<typeof widgetBootstrapSchema>;
 export type WidgetPageViewInput = z.infer<typeof widgetPageViewSchema>;
 export type WidgetIdentifyInput = z.infer<typeof widgetIdentifySchema>;

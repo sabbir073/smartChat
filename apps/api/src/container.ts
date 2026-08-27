@@ -2,6 +2,7 @@ import { createPrismaClient, type Database } from '@smartchat/database';
 import {
   AccountService,
   AuthService,
+  AutomationService,
   ConversationService,
   EmailJob,
   EntitlementService,
@@ -40,6 +41,7 @@ export interface Container {
   auth: AuthService;
   accounts: AccountService;
   team: TeamService;
+  automation: AutomationService;
   properties: PropertyService;
   widgets: WidgetService;
   visitors: VisitorService;
@@ -154,6 +156,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     ),
     clock,
   });
+  const automation = new AutomationService({ db, clock });
   const properties = new PropertyService({
     db,
     entitlements,
@@ -174,6 +177,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     auth,
     accounts,
     team,
+    automation,
     properties,
     widgets,
     visitors,

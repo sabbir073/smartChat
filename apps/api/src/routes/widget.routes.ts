@@ -4,6 +4,7 @@ import {
   widgetBootstrapSchema,
   widgetConfigQuerySchema,
   widgetIdentifySchema,
+  widgetOfflineMessageSchema,
   widgetPageViewSchema,
 } from '@smartchat/validation';
 import type { Container } from '../container.js';
@@ -83,6 +84,34 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
     const input = parseBody(widgetIdentifySchema, request.body);
     await container.visitors.identify(token, input);
     return noContent(reply);
+  });
+
+  /**
+   * Leave a message when nobody is available.
+   *
+   * Rate limited on the message budget rather than the session one: this writes a conversation and
+   * a message, so it is a send, not a heartbeat. Everything about what the form contains is
+   * decided by the property's own published configuration, re-applied server-side.
+   */
+  app.post('/widget/offline-message', async (request, reply) => {
+    const token = bearer(request);
+    await app.rateLimit(request, 'offlineMessage');
+    const input = parseBody(widgetOfflineMessageSchema, request.body);
+    const identity = await container.visitors.authenticate(token);
+
+    const result = await container.conversations.submitOfflineMessage(
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        sessionId: identity.sessionId,
+        visitorName: identity.visitor.name,
+      },
+      input.values,
+    );
+
+    reply.header('cache-control', 'no-store');
+    return ok(reply, { conversationId: result.conversationId });
   });
 
   /**

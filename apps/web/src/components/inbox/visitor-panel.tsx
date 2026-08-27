@@ -13,6 +13,12 @@ function Row({ label, value }: { label: string; value: string | null | undefined
   );
 }
 
+/** "order_number" reads as "Order number". The field key is not shown to an agent as-is. */
+function humaniseKey(key: string): string {
+  const spaced = key.replace(/[_-]+/g, ' ').trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 /**
  * What the agent knows about the person they are talking to.
  *
@@ -64,6 +70,25 @@ export function VisitorPanel({
           <Row label="Returning" value={visitor.isReturning ? 'Yes' : 'First visit'} />
         </dl>
       </section>
+
+      {conversation.preChat.length > 0 && (
+        <section>
+          <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-ink-subtle">
+            {conversation.channel === 'offline_form' ? 'Offline form' : 'Before the chat'}
+          </h3>
+          {/*
+            Shown with the visitor's own labels turned back into words. These are answers to
+            questions the customer chose to ask, so they belong beside the browser facts rather
+            than buried in the transcript - an agent should not have to scroll to find the order
+            number somebody typed before they said hello.
+          */}
+          <dl className="divide-y divide-border">
+            {conversation.preChat.map((entry) => (
+              <Row key={entry.key} label={humaniseKey(entry.key)} value={entry.value} />
+            ))}
+          </dl>
+        </section>
+      )}
 
       <section>
         <h3 className="mb-1 text-[12px] font-semibold uppercase tracking-wide text-ink-subtle">

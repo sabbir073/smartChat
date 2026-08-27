@@ -586,3 +586,26 @@ button {
   opacity: 0.55;
   cursor: not-allowed;
 }
+
+/* ---- offline form ----------------------------------------------------------- */
+
+/**
+ * The "somebody just came online" action inside a banner. An inline button rather than a link:
+ * it performs an action in this panel, and a link would invite a middle-click into nowhere.
+ */
+.banner-action {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--sc-primary);
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.banner-action:focus-visible {
+  outline: 2px solid var(--sc-primary);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

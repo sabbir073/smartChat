@@ -30,8 +30,8 @@ against mocks.
 
 ## 2a. Scripted checks that run against the live stack
 
-Two scripts exist so that "it works" is a command rather than an opinion. Both need
-`docker compose up -d` and both create their own throwaway account, so they can be run repeatedly.
+Four scripts exist so that "it works" is a command rather than an opinion. All need
+`docker compose up -d` and each creates its own throwaway account, so they can be run repeatedly.
 
 | Command | What it proves |
 | --- | --- |
@@ -39,6 +39,13 @@ Two scripts exist so that "it works" is a command rather than an opinion. Both n
 | `pnpm e2e:realtime` | The Phase 3 guarantees over real sockets: single-use tickets, the presence snapshot on subscribe, live delivery in both directions, gapless sequence numbers, idempotent resend, internal notes never reaching the visitor, and `sync:since` replaying exactly what a reconnecting visitor missed. Then the Phase 4 workflow over HTTP: assignment (including a member id from another account being refused), the `me` / `unassigned` filters, tag filtering that narrows rather than widens, search reaching message bodies, and close/reopen — with a reply to a closed conversation refused and an internal note still accepted. |
 
 | `pnpm e2e:team` | Phase 5: departments and roles, the invitation round trip (the link is read out of the delivered email in Mailpit, so a broken template fails the test), an invited address being unable to sign in before accepting, single-use links, and then the thing that actually matters — a scoped agent seeing their own website and not the other one, in the list, by direct id, by message, by search, and when trying to reply. Plus the owner guards and immediate effect of a scope change. |
+
+| `pnpm e2e:automation` | Phase 6, over real sockets: a trigger firing on a real visit and its tag, priority and bot attribution landing on a real conversation; "once per visit" surviving a reload; a different visitor still being greeted; a rule scoped to one website staying off another; a negative condition on an unknown fact staying silent (ADR-035); pre-chat answers reaching the agent with an unconfigured key dropped; the offline form refusing an incomplete submission and accepting a complete one into the inbox; shortcut CRUD with a duplicate key refused; cross-account reads answering 404; and a paused trigger sending nothing. |
+
+`pnpm e2e:automation` earned its place immediately: it found ADR-037, where the server validated
+form answers against "no configuration" on any property whose widget row had not been created yet -
+so every pre-chat answer on a brand-new website was silently discarded. No amount of reading the
+code would have found that; the test simply reported `{}` where a name should have been.
 
 `pnpm e2e:realtime` is the script that caught ADR-021: a retry with a repeated `clientMessageId`
 returned a 500 because the recovery read ran inside an already-aborted transaction. Unit tests had

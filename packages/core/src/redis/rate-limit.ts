@@ -137,6 +137,9 @@ export const RATE_LIMITS = {
   widgetSession: { limit: 30, windowMs: 60_000 },
   visitorMessage: { limit: 20, windowMs: 60_000 },
   propertyMessage: { limit: 300, windowMs: 60_000 },
+  // An offline message writes a conversation and sends mail later. Five an hour per IP is more
+  // than any real person needs and far less than a script wants.
+  offlineMessage: { limit: 5, windowMs: 60 * 60_000 },
   visitorUpload: { limit: 10, windowMs: 60 * 60_000 },
   dashboardApi: { limit: 600, windowMs: 60_000 },
   mutation: { limit: 120, windowMs: 60_000 },

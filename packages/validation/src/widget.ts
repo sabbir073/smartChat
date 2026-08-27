@@ -157,3 +157,84 @@ export const updateWidgetConfigSchema = z.object({
 });
 
 export type UpdateWidgetConfigInput = z.infer<typeof updateWidgetConfigSchema>;
+
+// ---------------------------------------------------------------------------
+// Submitted form values
+// ---------------------------------------------------------------------------
+
+export interface CollectedForm {
+  /** Only the keys the property actually configured, trimmed and length-capped. */
+  values: Record<string, string>;
+  /** Labels of required fields that arrived empty. */
+  missing: string[];
+  /** Labels of fields whose value is the wrong shape - an email that is not one. */
+  invalid: string[];
+}
+
+const EMAIL_SHAPE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Reduce whatever a visitor submitted to what the property asked for.
+ *
+ * The widget renders the configured fields, but the widget is on somebody else's website and the
+ * request can be replayed by hand - so the field list is applied again here, on the server. Keys
+ * that were never configured are dropped rather than rejected: the goal is to store the answers
+ * the customer asked for, not to argue with a page we do not control.
+ */
+export function collectFormValues(
+  fields: readonly FormField[],
+  submitted: Record<string, unknown>,
+): CollectedForm {
+  const values: Record<string, string> = {};
+  const missing: string[] = [];
+  const invalid: string[] = [];
+
+  for (const field of fields) {
+    if (field.requirement === 'disabled') continue;
+
+    const raw = submitted[field.key];
+    const value = typeof raw === 'string' ? raw.trim().slice(0, 2000) : '';
+
+    if (value.length === 0) {
+      if (field.requirement === 'required') missing.push(field.label);
+      continue;
+    }
+    if (field.type === 'email' && !EMAIL_SHAPE.test(value)) {
+      invalid.push(field.label);
+      continue;
+    }
+    if (field.type === 'select' && field.options && !field.options.includes(value)) {
+      invalid.push(field.label);
+      continue;
+    }
+    values[field.key] = value;
+  }
+
+  return { values, missing, invalid };
+}
+
+/** The visitor traits a form's answers imply. Everything else stays on the conversation. */
+export function traitsFromForm(values: Record<string, string>): {
+  name?: string;
+  email?: string;
+  phone?: string;
+} {
+  return {
+    ...(values['name'] ? { name: values['name'] } : {}),
+    ...(values['email'] ? { email: values['email'] } : {}),
+    ...(values['phone'] ? { phone: values['phone'] } : {}),
+  };
+}
+
+/** The message body an offline submission carries, whatever the customer named the field. */
+export function offlineMessageBody(
+  fields: readonly FormField[],
+  values: Record<string, string>,
+): string | null {
+  const textarea = fields.find(
+    (field) => field.type === 'textarea' && field.requirement !== 'disabled',
+  );
+  const key = textarea?.key ?? 'message';
+  const body = values[key];
+  return body && body.length > 0 ? body : null;
+}

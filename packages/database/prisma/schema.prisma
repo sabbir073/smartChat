@@ -149,6 +149,37 @@ enum ActorType {
   @@map("actor_type")
 }
 
+/// What makes a trigger consider firing. Each value is evaluated at a real moment in a visit;
+/// there is no polling loop looking for work that might have happened.
+enum TriggerEvent {
+  /// The visitor's socket connected - the first moment we know they are actually on the site.
+  visitor_arrived
+  /// The visitor moved to another page, or landed on the first one.
+  page_viewed
+  /// A wall-clock threshold since the session started, checked on a timer held by their socket.
+  time_on_site
+  /// The visitor sent their first message.
+  conversation_started
+
+  @@map("trigger_event")
+}
+
+enum TriggerMatch {
+  all
+  any
+
+  @@map("trigger_match")
+}
+
+/// How often one trigger may fire for one person. `every_time` is still bounded by a cooldown.
+enum TriggerFrequency {
+  once_per_session
+  once_per_visitor
+  every_time
+
+  @@map("trigger_frequency")
+}
+
 // -----------------------------------------------------------------------------
 // Platform-level tables (NOT tenant-scoped)
 // -----------------------------------------------------------------------------
@@ -324,51 +355,55 @@ model Account {
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
 
-  owner        User?               @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  members      AccountMember[]
-  roles        Role[]
-  departments  Department[]
+  owner         User?               @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  members       AccountMember[]
+  roles         Role[]
+  departments   Department[]
   properties    Property[]
   visitors      Visitor[]
   conversations Conversation[]
   auditLogs     AuditLog[]
-  tokens       VerificationToken[]
-  subscription Subscription?
-  usage        UsageRecord[]
+  tokens        VerificationToken[]
+  subscription  Subscription?
+  usage         UsageRecord[]
+  triggers      Trigger[]
+  shortcuts     Shortcut[]
 
   @@index([status, deletedAt])
   @@map("accounts")
 }
 
 model AccountMember {
-  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  accountId       String            @map("account_id") @db.Uuid
-  userId          String            @map("user_id") @db.Uuid
-  roleId          String?           @map("role_id") @db.Uuid
-  baseRole        MemberRole        @default(agent) @map("base_role")
-  status          MemberStatus      @default(active)
-  availability    AgentAvailability @default(offline)
-  displayName     String?           @map("display_name")
-  title           String?
+  id                     String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId              String            @map("account_id") @db.Uuid
+  userId                 String            @map("user_id") @db.Uuid
+  roleId                 String?           @map("role_id") @db.Uuid
+  baseRole               MemberRole        @default(agent) @map("base_role")
+  status                 MemberStatus      @default(active)
+  availability           AgentAvailability @default(offline)
+  displayName            String?           @map("display_name")
+  title                  String?
   /// When true this member only sees the properties listed in property_members.
-  restrictedToProperties Boolean    @default(false) @map("restricted_to_properties")
-  invitedByUserId String?           @map("invited_by_user_id") @db.Uuid
-  invitedAt       DateTime?         @map("invited_at") @db.Timestamptz(6)
-  joinedAt        DateTime?         @map("joined_at") @db.Timestamptz(6)
-  lastActiveAt    DateTime?         @map("last_active_at") @db.Timestamptz(6)
-  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt       DateTime?         @map("deleted_at") @db.Timestamptz(6)
+  restrictedToProperties Boolean           @default(false) @map("restricted_to_properties")
+  invitedByUserId        String?           @map("invited_by_user_id") @db.Uuid
+  invitedAt              DateTime?         @map("invited_at") @db.Timestamptz(6)
+  joinedAt               DateTime?         @map("joined_at") @db.Timestamptz(6)
+  lastActiveAt           DateTime?         @map("last_active_at") @db.Timestamptz(6)
+  createdAt              DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt              DateTime?         @map("deleted_at") @db.Timestamptz(6)
 
-  account    Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role                 Role?              @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  invitedBy            User?              @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
-  properties           PropertyMember[]
-  departments          DepartmentMember[]
-  assignedConversations Conversation[]    @relation("ConversationAssignee")
-  sentMessages         Message[]
-  reads                ConversationRead[]
+  account               Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role                  Role?              @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  invitedBy             User?              @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  properties            PropertyMember[]
+  departments           DepartmentMember[]
+  assignedConversations Conversation[]     @relation("ConversationAssignee")
+  sentMessages          Message[]
+  reads                 ConversationRead[]
+  authoredTriggers      Trigger[]          @relation("TriggerAuthor")
+  authoredShortcuts     Shortcut[]         @relation("ShortcutAuthor")
 
   @@unique([accountId, userId])
   @@unique([accountId, id])
@@ -422,13 +457,14 @@ model Property {
   updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
-  account  Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  domains  PropertyDomain[]
-  members  PropertyMember[]
+  account       Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  domains       PropertyDomain[]
+  members       PropertyMember[]
   widget        Widget?
   visitors      Visitor[]
   sessions      VisitorSession[]
   conversations Conversation[]
+  triggers      Trigger[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -587,18 +623,18 @@ model AuditLog {
 /// config surface grows constantly and is always read and written whole; a Zod schema plus a
 /// version number gives type safety and a migration path without a DDL change per setting.
 model Widget {
-  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  accountId  String    @map("account_id") @db.Uuid
-  propertyId String    @unique @map("property_id") @db.Uuid
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId   String    @map("account_id") @db.Uuid
+  propertyId  String    @unique @map("property_id") @db.Uuid
   /// The live configuration the widget serves to visitors.
-  config     Json      @default("{}")
+  config      Json      @default("{}")
   /// Unpublished edits from the builder. Null once published.
-  draftConfig Json?    @map("draft_config")
+  draftConfig Json?     @map("draft_config")
   /// Incremented on publish. Lets a cached loader detect that it has stale config.
-  version    Int       @default(1)
+  version     Int       @default(1)
   publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   property Property @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
 
@@ -628,11 +664,11 @@ model Visitor {
   email      String? @db.Citext
   phone      String?
 
-  firstSeenAt DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
-  lastSeenAt  DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
-  visitCount  Int       @default(1) @map("visit_count")
+  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  visitCount  Int      @default(1) @map("visit_count")
 
-  country    String? @db.Char(2)
+  country    String?    @db.Char(2)
   region     String?
   city       String?
   timezone   String?
@@ -651,10 +687,11 @@ model Visitor {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  account       Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  property      Property         @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
-  sessions      VisitorSession[]
-  conversations Conversation[]
+  account        Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property       Property         @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  sessions       VisitorSession[]
+  conversations  Conversation[]
+  triggerFirings TriggerFiring[]
 
   @@unique([accountId, id])
   @@unique([propertyId, externalId])
@@ -749,18 +786,17 @@ model Conversation {
 
   /**
    * The gapless per-conversation message counter.
-   *
    * Incremented in the same transaction as every message insert. Ordering and reconnect replay
    * both use it, because wall-clock timestamps are ambiguous under clock skew and same-millisecond
    * writes. See docs/REALTIME.md.
    */
   messageSeq BigInt @default(0) @map("message_seq")
 
-  subject      String?
+  subject     String?
   /// Whatever the pre-chat form collected. Claims from the visitor, never authorisation.
-  preChatData  Json    @default("{}") @map("pre_chat_data")
-  tags         String[] @default([])
-  metadata     Json    @default("{}")
+  preChatData Json     @default("{}") @map("pre_chat_data")
+  tags        String[] @default([])
+  metadata    Json     @default("{}")
 
   startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
   lastMessageAt        DateTime  @default(now()) @map("last_message_at") @db.Timestamptz(6)
@@ -788,6 +824,7 @@ model Conversation {
   department     Department?        @relation(fields: [accountId, departmentId], references: [accountId, id], onDelete: SetNull)
   messages       Message[]
   reads          ConversationRead[]
+  triggerFirings TriggerFiring[]
 
   @@unique([accountId, id])
   // Drives the inbox list.
@@ -827,11 +864,11 @@ model Message {
   senderMemberId  String?    @map("sender_member_id") @db.Uuid
   senderVisitorId String?    @map("sender_visitor_id") @db.Uuid
 
-  type MessageType @default(text)
+  type     MessageType @default(text)
   /// Stored exactly as received. Sanitised at render, never on write - so the record of what was
   /// actually said stays intact.
-  body String
-  metadata Json @default("{}")
+  body     String
+  metadata Json        @default("{}")
 
   deliveredAt DateTime? @map("delivered_at") @db.Timestamptz(6)
   readAt      DateTime? @map("read_at") @db.Timestamptz(6)
@@ -869,4 +906,132 @@ model ConversationRead {
   @@unique([conversationId, memberId])
   @@index([accountId, memberId])
   @@map("conversation_reads")
+}
+
+// -----------------------------------------------------------------------------
+// Automation
+// -----------------------------------------------------------------------------
+
+/**
+ * A rule: when this happens, and these things are true, do that.
+ * Conditions and actions are JSON rather than tables. They are always read whole, always written
+ * whole, and never queried by their contents - so a join table would buy nothing and cost a
+ * multi-row write on every edit. What keeps them honest is that both are parsed by a Zod schema on
+ * write and on read; an action shape that no longer exists cannot be stored, and one that has
+ * somehow survived a downgrade is rejected at evaluation rather than half-executed.
+ */
+model Trigger {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String  @map("account_id") @db.Uuid
+  /// Null means every website in the account. A trigger scoped to one property only ever sees
+  /// visitors of that property.
+  propertyId String? @map("property_id") @db.Uuid
+
+  name        String
+  description String?
+  event       TriggerEvent
+  enabled     Boolean      @default(true)
+  match       TriggerMatch @default(all)
+
+  /// `TriggerCondition[]`, validated by @smartchat/validation on every write and every read.
+  conditions Json @default("[]")
+  /// `TriggerAction[]`, same contract.
+  actions    Json @default("[]")
+
+  frequency       TriggerFrequency @default(once_per_session)
+  /// Applies to `every_time`: the shortest gap between two firings for the same visitor.
+  cooldownSeconds Int              @default(60) @map("cooldown_seconds")
+  /// `time_on_site` only: how long into the session this becomes eligible.
+  afterSeconds    Int              @default(0) @map("after_seconds")
+
+  /// Evaluation order within an event. Lower runs first; the first trigger that fires wins.
+  position Int @default(0)
+
+  /// Maintained counters. Read by the UI, so they are the real thing rather than a COUNT(*) over
+  /// a table the retention job prunes.
+  fireCount   Int       @default(0) @map("fire_count")
+  lastFiredAt DateTime? @map("last_fired_at") @db.Timestamptz(6)
+
+  createdByMemberId String? @map("created_by_member_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account   Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property  Property?       @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  createdBy AccountMember?  @relation("TriggerAuthor", fields: [accountId, createdByMemberId], references: [accountId, id], onDelete: SetNull)
+  firings   TriggerFiring[]
+
+  @@unique([accountId, id])
+  /// The gateway's hot path: every enabled trigger for one event, in order.
+  @@index([accountId, event, enabled, position])
+  @@index([accountId, propertyId, deletedAt])
+  @@map("triggers")
+}
+
+/**
+ * One firing. This table is what makes "once per visitor" true rather than best-effort.
+ * `dedupeKey` is null for `every_time` triggers, and Postgres treats nulls in a unique index as
+ * distinct - so the same index enforces at-most-once for the two capped frequencies and imposes
+ * nothing on the uncapped one, without a partial index Prisma cannot express.
+ */
+model TriggerFiring {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String  @map("account_id") @db.Uuid
+  triggerId  String  @map("trigger_id") @db.Uuid
+  propertyId String  @map("property_id") @db.Uuid
+  visitorId  String  @map("visitor_id") @db.Uuid
+  /// Not a foreign key on purpose: visitor sessions are pruned by the retention job, and a firing
+  /// is a fact about a person, not about a row that will not outlive the month.
+  sessionId  String? @map("session_id") @db.Uuid
+
+  conversationId String? @map("conversation_id") @db.Uuid
+
+  dedupeKey String?  @map("dedupe_key")
+  firedAt   DateTime @default(now()) @map("fired_at") @db.Timestamptz(6)
+
+  trigger      Trigger       @relation(fields: [accountId, triggerId], references: [accountId, id], onDelete: Cascade)
+  visitor      Visitor       @relation(fields: [accountId, visitorId], references: [accountId, id], onDelete: Cascade)
+  conversation Conversation? @relation(fields: [accountId, conversationId], references: [accountId, id], onDelete: SetNull)
+
+  @@unique([triggerId, dedupeKey])
+  /// Drives the cooldown check for `every_time`.
+  @@index([accountId, triggerId, visitorId, firedAt(sort: Desc)])
+  @@index([accountId, firedAt(sort: Desc)])
+  @@map("trigger_firings")
+}
+
+/**
+ * A canned response, addressed by the token an agent types after "/".
+ * Account-wide and shared, deliberately: a saved reply is a team asset, and per-agent private
+ * shortcuts would mean two people typing the same "/refund" and getting different text, which is
+ * exactly the inconsistency the feature exists to remove.
+ */
+model Shortcut {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  /// Typed after "/". Lowercase, unique within the account - enforced below, not just in the UI.
+  key   String @db.Citext
+  title String
+  body  String
+
+  /// Maintained by the composer when a shortcut is actually inserted, so the list can be ordered
+  /// by what the team really uses.
+  usageCount Int @default(0) @map("usage_count")
+
+  createdByMemberId String? @map("created_by_member_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account   Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdBy AccountMember? @relation("ShortcutAuthor", fields: [accountId, createdByMemberId], references: [accountId, id], onDelete: SetNull)
+
+  @@unique([accountId, id])
+  @@unique([accountId, key])
+  @@index([accountId, deletedAt, usageCount(sort: Desc)])
+  @@map("shortcuts")
 }

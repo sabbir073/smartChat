@@ -18,7 +18,10 @@ export type {
   PropertyMember,
   Role,
   Session,
+  Shortcut,
   Subscription,
+  Trigger,
+  TriggerFiring,
   UsageRecord,
   User,
   VerificationToken,
@@ -42,4 +45,7 @@ export {
   PropertyStatus,
   SubscriptionStatus,
   TokenPurpose,
+  TriggerEvent,
+  TriggerFrequency,
+  TriggerMatch,
 } from '@prisma/client';

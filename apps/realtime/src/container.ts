@@ -1,4 +1,5 @@
 import {
+  AutomationRunner,
   ConversationService,
   PresenceService,
   RedisEventPublisher,
@@ -27,6 +28,7 @@ export interface RealtimeContainer {
   presence: PresenceService;
   tickets: TicketService;
   conversations: ConversationService;
+  automation: AutomationRunner;
   shutdown(): Promise<void>;
 }
 
@@ -66,6 +68,15 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
     clock,
   });
 
+  const automation = new AutomationRunner({
+    db,
+    conversations,
+    clock,
+    // A rule that throws is logged and skipped. One broken trigger must not cost a visitor their
+    // connection, and it must not stop the rules after it from being considered.
+    onError: (error, meta) => logger.error({ err: error, ...meta }, 'trigger failed'),
+  });
+
   return {
     config,
     logger,
@@ -78,6 +89,7 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
     presence,
     tickets,
     conversations,
+    automation,
     async shutdown() {
       await db.$disconnect().catch(() => undefined);
       for (const client of [redis, pubClient, subClient, eventSubscriber]) {

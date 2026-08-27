@@ -30,6 +30,12 @@ export interface ConversationDto {
   closedAt: string | null;
   agentUnreadCount: number;
   messageSeq: number;
+  /**
+   * What the pre-chat or offline form collected, as a list so the order the customer configured
+   * is the order the agent reads. Values are whatever the visitor typed - claims, never
+   * authorisation - and the keys were filtered against the property's own field list on write.
+   */
+  preChat: { key: string; value: string }[];
   visitor: {
     id: string;
     name: string | null;
@@ -41,6 +47,14 @@ export interface ConversationDto {
     language: string | null;
     isReturning: boolean;
   };
+}
+
+/** Flatten the stored JSON, dropping anything that is not a plain string. */
+function toPreChatEntries(value: unknown): { key: string; value: string }[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value as Record<string, unknown>)
+    .filter(([, entry]) => typeof entry === 'string' && entry.length > 0)
+    .map(([key, entry]) => ({ key, value: entry as string }));
 }
 
 export function toConversationDto(row: Conversation & { visitor: Visitor }): ConversationDto {
@@ -58,6 +72,7 @@ export function toConversationDto(row: Conversation & { visitor: Visitor }): Con
     closedAt: row.closedAt?.toISOString() ?? null,
     agentUnreadCount: row.agentUnreadCount,
     messageSeq: Number(row.messageSeq),
+    preChat: toPreChatEntries(row.preChatData),
     visitor: {
       id: row.visitor.id,
       name: row.visitor.name,

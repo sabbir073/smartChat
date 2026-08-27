@@ -17,6 +17,7 @@ import { sanitiseUrl, type VisitorIdentity } from '@smartchat/core';
 import { z } from 'zod';
 import type { RealtimeContainer } from '../container.js';
 import { SocketAbuseGuard } from '../lib/abuse.js';
+import { AutomationSession } from '../lib/automation-session.js';
 import { ackError, ackOk, parsePayload, respond, type AckCallback } from '../lib/ack.js';
 
 interface VisitorSocketData {
@@ -68,6 +69,21 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
 
     // Rooms come from the authenticated identity, never from the client.
     void socket.join(room.visitor(identity.visitorId));
+    // Availability is announced per account. This is the /visitor namespace, so joining a room
+    // named after the account tells this socket nothing about the account beyond one boolean.
+    void socket.join(room.account(identity.accountId));
+
+    /**
+     * Tell this visitor immediately whether anybody is there.
+     *
+     * The bootstrap response already carried an answer, but that was an HTTP call that may have
+     * happened seconds ago - and it is what decides whether the panel offers a live chat or an
+     * offline form, so the socket confirms it the moment it is up.
+     */
+    void container.presence
+      .hasAvailableAgent(identity.accountId)
+      .then((available) => socket.emit(ServerEvent.AGENTS_AVAILABLE, { available }))
+      .catch((error: unknown) => logger.error({ err: error }, 'availability lookup failed'));
 
     let heartbeat: NodeJS.Timeout | null = null;
     let currentPage: { url: string | null; title: string | null } = { url: null, title: null };
@@ -79,6 +95,32 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
 
     void touchPresence();
     heartbeat = setInterval(touchPresence, PRESENCE_HEARTBEAT_SECONDS * 1000);
+
+    /**
+     * Rules that run for this visitor while they are here.
+     *
+     * A fired message is delivered to this socket directly as well as being published to the
+     * conversation room, because a brand-new conversation is created by the rule itself - this
+     * socket cannot have joined a room whose id did not exist a moment ago. The panel keys
+     * messages on their id, so the visitor sees one message however many copies arrive.
+     */
+    const automation = new AutomationSession({
+      container,
+      identity,
+      onFired: async (result) => {
+        if (!result.conversationId) return;
+        await socket.join(room.conversation(result.conversationId));
+        if (result.message) {
+          socket.emit(ServerEvent.MESSAGE_NEW, { message: result.message });
+        }
+        logger.debug(
+          { visitorId: identity.visitorId, triggerId: result.triggerId },
+          'trigger fired',
+        );
+      },
+    });
+
+    void automation.start(currentPage.url ? { url: currentPage.url, title: currentPage.title } : null);
 
     logger.debug({ visitorId: identity.visitorId, socketId: socket.id }, 'visitor connected');
 
@@ -103,6 +145,10 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
               isNew: result.isNew,
             }),
           );
+
+          // Only a genuinely new conversation is a "conversation started". Continuing an open one
+          // must not re-run the rules that welcome somebody.
+          if (result.isNew) void automation.onConversationStarted();
         } catch (error) {
           handleFailure(socket, guard, logger, error);
           respond(callback, ackError(error));
@@ -277,6 +323,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
           const input = parsePayload(widgetPageViewSchema, payload);
           currentPage = { url: sanitiseUrl(input.url), title: input.title ?? null };
           await touchPresence();
+          void automation.onPage({ url: currentPage.url ?? input.url, title: currentPage.title });
           // Agents watching this property see the visitor move around the site live.
           namespace.server
             .of('/agent')
@@ -295,6 +342,9 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
 
     socket.on('disconnect', (reason) => {
       if (heartbeat) clearInterval(heartbeat);
+      // Pending time-based rules die with the connection. Messaging somebody about how long they
+      // have been reading, after they have closed the tab, is worse than not messaging them.
+      automation.stop();
       guard.forget(socket.id);
       void presence
         .setVisitorOffline(identity.propertyId, identity.visitorId)

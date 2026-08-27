@@ -25,3 +25,8 @@ export * from './repositories/widget.repository.js';
 export * from './realtime/index.js';
 export * from './repositories/conversation.repository.js';
 export * from './services/conversation.service.js';
+export * from './automation/engine.js';
+export * from './automation/facts.js';
+export * from './automation/runner.js';
+export * from './repositories/automation.repository.js';
+export * from './services/automation.service.js';

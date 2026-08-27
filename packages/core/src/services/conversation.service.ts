@@ -9,11 +9,14 @@ import {
   type CursorPage,
   type TenantContext,
 } from '@smartchat/types';
-import type {
-  ListConversationsInput,
-  SendMessageInput,
-  StartConversationInput,
-  UpdateConversationInput,
+import {
+  collectFormValues,
+  offlineMessageBody,
+  traitsFromForm,
+  type ListConversationsInput,
+  type SendMessageInput,
+  type StartConversationInput,
+  type UpdateConversationInput,
 } from '@smartchat/validation';
 import { AuditRepository } from '../repositories/audit.repository.js';
 import {
@@ -22,6 +25,7 @@ import {
   type PersistedMessage,
 } from '../repositories/conversation.repository.js';
 import { VisitorRepository } from '../repositories/visitor.repository.js';
+import { WidgetRepository } from '../repositories/widget.repository.js';
 import { toMessageDto, type EventPublisher, type MessageDto } from '../realtime/events.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
@@ -51,12 +55,14 @@ export class ConversationService {
   private readonly clock: Clock;
   private readonly repo: ConversationRepository;
   private readonly visitors: VisitorRepository;
+  private readonly widgets: WidgetRepository;
   private readonly audit: AuditRepository;
 
   constructor(private readonly options: ConversationServiceOptions) {
     this.clock = options.clock ?? systemClock;
     this.repo = new ConversationRepository(options.db);
     this.visitors = new VisitorRepository(options.db);
+    this.widgets = new WidgetRepository(options.db);
     this.audit = new AuditRepository(options.db);
   }
 
@@ -80,6 +86,20 @@ export class ConversationService {
     const existing = await this.repo.findLatestForVisitor(identity.accountId, identity.visitorId);
     const reusable = existing && existing.status !== 'closed' ? existing : null;
 
+    /**
+     * Pre-chat answers, reduced to the fields the customer actually configured.
+     *
+     * The widget renders that list, but the widget runs on somebody else's page and this call can
+     * be replayed by hand - so the list is applied again here. Unknown keys are dropped rather
+     * than stored, which is what stops a conversation record becoming a place to park arbitrary
+     * visitor-controlled data.
+     *
+     * Missing required answers do not block the conversation. Refusing to let somebody ask for
+     * help because they skipped a field is the wrong failure direction for a support product; the
+     * agent sees exactly what was answered. See ADR-036.
+     */
+    const preChat = input.preChat && !reusable ? await this.sanitisePreChat(identity, input.preChat) : null;
+
     const conversation =
       reusable ??
       (await this.repo.create(
@@ -88,20 +108,18 @@ export class ConversationService {
           propertyId: identity.propertyId,
           visitorId: identity.visitorId,
           channel: 'widget',
-          ...(input.preChat ? { preChat: input.preChat } : {}),
+          ...(preChat && Object.keys(preChat).length > 0 ? { preChat } : {}),
         },
         now,
       ));
 
-    // Pre-chat answers that arrive with the first message are traits about the person, so they are
-    // attached to the visitor as well as the conversation.
-    if (input.preChat && !reusable) {
-      const traits = input.preChat;
-      await this.visitors.identify(identity.accountId, identity.visitorId, {
-        ...(typeof traits['name'] === 'string' ? { name: traits['name'] } : {}),
-        ...(typeof traits['email'] === 'string' ? { email: traits['email'] } : {}),
-        ...(typeof traits['phone'] === 'string' ? { phone: traits['phone'] } : {}),
-      });
+    // Answers that identify the person are traits about them, so they are attached to the visitor
+    // as well as to the conversation.
+    if (preChat) {
+      const traits = traitsFromForm(preChat);
+      if (Object.keys(traits).length > 0) {
+        await this.visitors.identify(identity.accountId, identity.visitorId, traits);
+      }
     }
 
     const result = await this.persistVisitorMessage(identity, conversation.id, {
@@ -122,6 +140,109 @@ export class ConversationService {
     }
 
     return { conversation: result.conversation, message: result.message, isNew: !reusable };
+  }
+
+  private async sanitisePreChat(
+    identity: VisitorIdentity,
+    submitted: Record<string, string>,
+  ): Promise<Record<string, string>> {
+    const config = await this.widgets.liveConfigForProperty(
+      identity.accountId,
+      identity.propertyId,
+    );
+    if (!config || !config.behaviour.preChatEnabled) return {};
+    return collectFormValues(config.forms.preChatFields, submitted).values;
+  }
+
+  /**
+   * The offline form.
+   *
+   * A real conversation on the `offline_form` channel, not a separate kind of record. It lands in
+   * the same inbox an agent already watches, so a message left overnight is answered the same way
+   * as one sent live - and the visitor's own widget shows the reply when they come back.
+   *
+   * Required fields *are* enforced here, unlike pre-chat: this is the only channel the person has,
+   * and an offline message with no way to reply to it helps nobody.
+   */
+  async submitOfflineMessage(
+    identity: VisitorIdentity,
+    submitted: Record<string, unknown>,
+  ): Promise<{ conversationId: string; message: MessageDto }> {
+    const config = await this.widgets.liveConfigForProperty(
+      identity.accountId,
+      identity.propertyId,
+    );
+    if (!config) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
+    if (!config.behaviour.offlineFormEnabled) {
+      throw new AppError(ErrorCode.FEATURE_NOT_AVAILABLE, 'This site does not take offline messages');
+    }
+
+    const collected = collectFormValues(config.forms.offlineFields, submitted);
+    if (collected.missing.length > 0 || collected.invalid.length > 0) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, 'Please check the form', {
+        details: [
+          ...collected.missing.map((label) => ({ path: label, message: `${label} is required` })),
+          ...collected.invalid.map((label) => ({ path: label, message: `${label} is not valid` })),
+        ],
+      });
+    }
+
+    const body = offlineMessageBody(config.forms.offlineFields, collected.values);
+    if (!body) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, 'Please tell us how we can help');
+    }
+
+    const now = this.clock.now();
+    const traits = traitsFromForm(collected.values);
+    if (Object.keys(traits).length > 0) {
+      await this.visitors.identify(identity.accountId, identity.visitorId, traits);
+    }
+
+    const conversation = await this.repo.create(
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        channel: 'offline_form',
+        preChat: collected.values,
+      },
+      now,
+    );
+
+    const persisted = await this.options.db.$transaction((tx) =>
+      new ConversationRepository(tx).insertMessage({
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        conversationId: conversation.id,
+        senderType: 'visitor',
+        senderVisitorId: identity.visitorId,
+        type: 'text',
+        body,
+        metadata: { channel: 'offline_form' },
+        now,
+      }),
+    );
+
+    const dto = toMessageDto(persisted.message, collected.values['name'] ?? identity.visitorName ?? null);
+
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_CREATED,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId: conversation.id,
+      visitorId: identity.visitorId,
+      payload: { conversationId: conversation.id },
+    });
+    await this.options.events.publish({
+      type: ServerEvent.MESSAGE_NEW,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId: conversation.id,
+      visitorId: identity.visitorId,
+      payload: { message: dto, room: room.conversation(conversation.id) },
+    });
+
+    return { conversationId: conversation.id, message: dto };
   }
 
   async sendVisitorMessage(
@@ -220,6 +341,132 @@ export class ConversationService {
     }
 
     return { message: dto, conversation: persisted.conversation, created: persisted.created };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Automation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Deliver a proactive message from a rule.
+   *
+   * A trigger fires before the visitor has necessarily said anything, so this opens a conversation
+   * when there is not already an open one. The sender type is `bot`, not `agent`: the transcript
+   * has to say honestly who spoke, and a report that counts this as an agent reply would be
+   * measuring the automation rather than the team. `firstResponseAt` is untouched for the same
+   * reason - it is only ever set by a person.
+   */
+  async sendBotMessage(
+    identity: VisitorIdentity,
+    input: { body: string; senderName?: string | null },
+  ): Promise<{ conversation: Conversation; message: MessageDto; isNew: boolean }> {
+    const now = this.clock.now();
+
+    const existing = await this.repo.findLatestForVisitor(identity.accountId, identity.visitorId);
+    const reusable = existing && existing.status !== 'closed' ? existing : null;
+
+    const conversation =
+      reusable ??
+      (await this.repo.create(
+        {
+          accountId: identity.accountId,
+          propertyId: identity.propertyId,
+          visitorId: identity.visitorId,
+          channel: 'widget',
+        },
+        now,
+      ));
+
+    const persisted = await this.options.db.$transaction((tx) =>
+      new ConversationRepository(tx).insertMessage({
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        conversationId: conversation.id,
+        senderType: 'bot',
+        type: 'text',
+        body: input.body,
+        metadata: { source: 'trigger' },
+        now,
+      }),
+    );
+
+    const dto = toMessageDto(persisted.message, input.senderName ?? null);
+
+    if (!reusable) {
+      await this.options.events.publish({
+        type: ServerEvent.CONVERSATION_CREATED,
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        conversationId: conversation.id,
+        visitorId: identity.visitorId,
+        payload: { conversationId: conversation.id },
+      });
+    }
+
+    await this.options.events.publish({
+      type: ServerEvent.MESSAGE_NEW,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId: conversation.id,
+      visitorId: identity.visitorId,
+      payload: { message: dto, room: room.conversation(conversation.id) },
+    });
+
+    return { conversation: persisted.conversation, message: dto, isNew: !reusable };
+  }
+
+  /**
+   * Apply a rule's non-message actions to a conversation.
+   *
+   * Account-scoped rather than context-scoped: the actor here is the rule engine, which has no
+   * member and no permissions. It still cannot reach across tenants - the account id comes from
+   * the signed ticket the visitor socket authenticated with, and the update is scoped to it.
+   *
+   * Tags are merged, never replaced. A rule exists to add a label, not to erase whatever an agent
+   * had already written on the conversation.
+   */
+  async applyAutomation(
+    identity: VisitorIdentity,
+    conversationId: string,
+    patch: {
+      addTag?: string | undefined;
+      priority?: 'low' | 'normal' | 'high' | 'urgent' | undefined;
+      departmentId?: string | undefined;
+    },
+  ): Promise<Conversation | null> {
+    const current = await this.repo.findForVisitor(
+      identity.accountId,
+      identity.visitorId,
+      conversationId,
+    );
+    if (!current) return null;
+
+    const data: Record<string, unknown> = {};
+    if (patch.priority !== undefined) data['priority'] = patch.priority;
+    if (patch.departmentId !== undefined) data['departmentId'] = patch.departmentId;
+    if (patch.addTag !== undefined && !current.tags.includes(patch.addTag)) {
+      data['tags'] = [...current.tags, patch.addTag];
+    }
+    if (Object.keys(data).length === 0) return current;
+
+    const updated = await this.repo.updateForVisitor(identity.accountId, conversationId, data);
+    if (!updated) return null;
+
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_UPDATED,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId,
+      visitorId: identity.visitorId,
+      payload: {
+        conversationId,
+        status: updated.status,
+        priority: updated.priority,
+        tags: updated.tags,
+      },
+    });
+
+    return updated;
   }
 
   async visitorHistory(

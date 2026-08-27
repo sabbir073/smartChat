@@ -61,6 +61,14 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/automation',
+    label: 'Automation',
+    available: true,
+    icon: icon(
+      'M13 3 4 14h6l-1 7 9-11h-6l1-7Z',
+    ),
+  },
+  {
     href: '/settings',
     label: 'Settings',
     available: true,
@@ -101,7 +109,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       })}
 
       <div className="mt-auto rounded-[var(--radius-control)] bg-surface-raised p-3 text-[12px] leading-relaxed text-ink-subtle">
-        Automations, the knowledge base and reporting arrive in later phases. Nothing is listed here
+        The knowledge base, tickets and reporting arrive in later phases. Nothing is listed here
         before it works.
       </div>
     </nav>

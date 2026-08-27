@@ -491,3 +491,136 @@ already-substituted URL to find.
 **Reason** "No placeholders" was never the condition worth failing on; "nothing that looks like a
 configured bundle" is.
 **Date** 2026-08-27
+
+---
+## ADR-034 — `ON DELETE SET NULL` across a tenant-composite key
+**Context** Tenant-owned references are composite: `(account_id, assigned_member_id)` pointing at
+`account_members(account_id, id)`, so a row can never be paired with a member from another account.
+Several of those columns are nullable, and the relation is declared `onDelete: SetNull`.
+**Problem** Prisma emits a bare `ON DELETE SET NULL`, which tells Postgres to null *every* column in
+the key - including `account_id`, which is `NOT NULL`. Deleting a referenced row therefore does not
+null the reference; it fails outright. Confirmed against the real database:
+`null value in column "a" of relation "t_child" violates not-null constraint`, with the context line
+showing `SET "a" = NULL, "b" = NULL`.
+**Chosen** Postgres 15's column-list form - `ON DELETE SET NULL (assigned_member_id)` - applied to
+all six composite keys in a hand-written section of the automation migration.
+**Reason** It is what the schema always meant. Prisma cannot express it, but a migration can, and
+`prisma migrate dev` reports no drift afterwards (verified). The alternatives were worse: `Cascade`
+would delete a member's conversations along with the member, and `NoAction` risks failing during an
+account cascade, where the order in which Postgres processes the tree is not something to rely on.
+**Reachable today?** No - members and departments are soft-deleted, so nothing hard-deletes a
+referenced row. This repairs a fault that would have surfaced the first time somebody implemented a
+GDPR erase, which is the worst possible moment to discover it.
+**Date** 2026-08-27
+
+---
+## ADR-035 — An unknown fact never matches, not even a negative condition
+**Context** A trigger condition reads one field from a snapshot the gateway assembles. Some fields
+are legitimately unknown: a visitor who arrived by typing the address has no referrer, and a socket
+that connected before the first page report has no URL.
+**Problem** `not_contains` reads as though it should be true when the value is missing - we have no
+URL, so it certainly does not contain `/checkout`.
+**Chosen** A condition whose fact is null evaluates false, whatever the operator.
+**Reason** The honest reading of a missing value is "we do not know", and a rule that messages
+somebody *because* a fact was absent is acting on nothing. The failure direction matters here:
+staying quiet when we are unsure costs a missed greeting, while the opposite interrupts people at
+random and looks broken from the outside. Absence of information is not evidence.
+**Date** 2026-08-27
+
+---
+## ADR-036 — Pre-chat does not gate a conversation; the offline form does
+**Context** Both forms are configured the same way, with required and optional fields, and both are
+re-validated server-side against the property's own field list.
+**Chosen** A pre-chat answer that is missing or fails validation is dropped, and the conversation
+starts anyway. An offline submission with a missing required answer is refused.
+**Reason** They are not the same situation. Pre-chat sits in front of a live conversation: refusing
+to let somebody ask for help because they skipped a field is the wrong failure direction for a
+support product, and the agent can simply ask. An offline message is the person's only channel - one
+with no way to reply to it helps nobody, so that form is worth being strict about.
+**Also** Unknown keys are dropped from both rather than stored. The widget renders the configured
+fields, but it runs on somebody else's page and the request can be replayed by hand; without this a
+conversation record is a place to park arbitrary visitor-controlled data.
+**Date** 2026-08-27
+
+---
+## ADR-037 — What the visitor was shown is what the server validates against
+**Context** The widget row is created lazily, so a property can serve a widget before that row
+exists. `findPublishedByPublicId` has always handled this by serving `DEFAULT_WIDGET_CONFIG`.
+**Problem** The new server-side form validation looked the config up separately and treated "no
+widget row" as "no configuration", which discarded every pre-chat answer and refused every offline
+message on any property whose widget had never been saved - which is every brand-new property. Found
+by the phase 6 suite, not by reasoning: the visitor was shown a default pre-chat form and the answers
+arrived as `{}`.
+**Chosen** The visitor-facing config lookup falls back to the same defaults, and returns null only
+when the property genuinely does not exist.
+**Reason** There must be one answer to "what did we ask this person?". Two lookups that disagree
+about it will always disagree in the direction that throws the visitor's input away.
+**Date** 2026-08-27
+
+---
+## ADR-038 — A firing is claimed before anything is sent
+**Context** "Once per visit" and "once per person" have to hold across gateway processes: the same
+visitor's socket could be on any instance, and a proactive message that arrives twice reads as a
+malfunction.
+**Chosen** Firing is a row in `trigger_firings` guarded by `UNIQUE (trigger_id, dedupe_key)`, and it
+is inserted *before* the message is sent. If the insert loses, this process stops. If the actions
+then fail, the claim is deleted again.
+**Reason** A read-then-act check is a race with no upper bound on how often it loses. Postgres
+treats nulls in a unique index as distinct, so the same index enforces at-most-once for the two
+capped frequencies and imposes nothing on `every_time` - which is bounded by a per-visitor cooldown
+instead. Releasing the claim on failure matters because a visitor should not lose their only
+greeting to a transient database error.
+**Date** 2026-08-27
+
+---
+## ADR-039 — Time-based rules live on the socket, not in a queue
+**Context** "After 30 seconds on the site" needs something to wake up 30 seconds later. BullMQ is
+already in the stack and was the obvious home for it.
+**Chosen** A timer held by the visitor's own socket, cleared on disconnect.
+**Reason** A delayed job would happily message somebody who closed the tab twenty seconds ago, and
+"we noticed you have been reading for a while" is only true while they are still reading. Making the
+pending rule die with the connection is not an optimisation, it is the correct behaviour. The delay
+is measured from when the *session* started rather than from when this socket connected, so a
+visitor who navigates does not reset every clock. Pending timers are capped per socket, because a
+socket is something anybody on the internet can open.
+**Date** 2026-08-27
+
+---
+## ADR-040 — Visitors are told whether anybody is available, and nothing more
+**Context** The panel decided its online indicator - and would have decided whether to show the
+offline form - from whether its socket was connected.
+**Problem** Those are different facts. A connected socket with nobody on the other end is exactly
+the situation the offline form exists for, and telling a visitor they are talking to an online team
+when they are not is the kind of small lie that becomes a complaint about response times.
+**Chosen** Agent presence changes recompute `hasAvailableAgent` for the account and emit one
+boolean to the `/visitor` namespace room for that account. Visitors join a room named after the
+account in their own namespace; nothing about which people are online crosses that boundary.
+**Reason** It is a property of the whole team, so it has to be recomputed rather than inferred from
+the one member whose status changed.
+**Date** 2026-08-27
+
+---
+## ADR-041 — Conditions and actions are JSON, parsed on write and on read
+**Context** A rule is always read whole, written whole, and never queried by its contents.
+**Chosen** Two `jsonb` columns, with `@smartchat/validation` as the only way in or out.
+**Reason** A join table would buy nothing and cost a multi-row write on every edit. What keeps JSON
+honest is that it is never trusted: an action shape that no longer exists cannot be stored, and one
+that survived a downgrade is dropped at read rather than half-executed. A partial update is merged
+into the stored rule and re-validated *whole*, so changing only the event cannot leave a rule that
+waits forever or tags a conversation that will never exist.
+**Date** 2026-08-27
+
+---
+## ADR-042 — Shortcuts are account-wide and shared
+**Context** Saved replies could be scoped per property, per member, or both.
+**Chosen** One flat set per account, `UNIQUE (account_id, key)`.
+**Reason** A saved reply is a team asset. Per-agent private shortcuts would mean two people typing
+`/refund` and getting different text, which is exactly the inconsistency the feature removes. It
+also avoids a real trap: scoping by a nullable `property_id` cannot be made unique in Postgres
+without a partial index, because multiple nulls are distinct - so two account-wide shortcuts could
+share a key and the picker would show both.
+**Expansion happens in the composer**, not on the server: the agent sees and can edit the final
+wording before sending. A placeholder we cannot fill is left visible rather than blanked, because an
+agent who can see `{{visitor.email}}` in the box will fix it, and one who sees "We will write to ."
+will not.
+**Date** 2026-08-27

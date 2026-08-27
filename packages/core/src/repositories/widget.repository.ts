@@ -64,6 +64,28 @@ export class WidgetRepository {
   }
 
   /**
+   * The published config for one property, keyed by ids we already trust.
+   *
+   * Used by paths that have authenticated a visitor and now need to know what the customer
+   * configured - the pre-chat field list, the offline form. Never the draft: an unpublished edit
+   * must not change what a live visitor is asked for.
+   *
+   * A property with no widget row yet gets the defaults, exactly as `findPublishedByPublicId`
+   * serves them. That is not a convenience: the widget row is created lazily, so a brand-new
+   * property renders the default pre-chat form to real visitors, and validating their answers
+   * against "no configuration at all" would throw away everything they typed. What the visitor
+   * was shown and what the server checks have to be the same thing. See ADR-037.
+   */
+  async liveConfigForProperty(accountId: string, propertyId: string): Promise<WidgetConfig | null> {
+    const property = await this.db.property.findFirst({
+      where: { accountId, id: propertyId, deletedAt: null },
+      select: { widget: { select: { config: true } } },
+    });
+    if (!property) return null;
+    return parseWidgetConfig(property.widget?.config);
+  }
+
+  /**
    * The visitor-facing lookup: by the property's public id, with no tenant context because the
    * caller has no identity yet. Only the *published* config is ever returned here.
    */

@@ -1,9 +1,18 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { MESSAGE_MAX_LENGTH } from '@smartchat/validation';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from 'react';
+import { MESSAGE_MAX_LENGTH, expandShortcut } from '@smartchat/validation';
 import { cn } from '@/components/ui';
 import type { AgentMessage } from '@/lib/realtime';
+import type { ShortcutDto } from '@/lib/types';
+import { ShortcutPicker, readShortcutQuery } from './shortcut-picker';
 
 interface ThreadMessage extends AgentMessage {
   delivery: 'pending' | 'sent' | 'failed';
@@ -154,17 +163,77 @@ export function AgentComposer({
   disabledReason,
   onSend,
   onTyping,
+  shortcuts = [],
+  onShortcutUsed,
+  placeholderValues = {},
 }: {
   disabled: boolean;
   disabledReason?: string;
   onSend: (body: string, asNote: boolean) => void;
   onTyping: (typing: boolean) => void;
+  /** Saved replies this agent may insert. Empty is a valid state, not an error. */
+  shortcuts?: ShortcutDto[];
+  onShortcutUsed?: (shortcut: ShortcutDto) => void;
+  /** Values for "{{visitor.name}}" and friends, from the conversation actually on screen. */
+  placeholderValues?: Record<string, string | null>;
 }) {
   const [value, setValue] = useState('');
   const [asNote, setAsNote] = useState(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const typingTimer = useRef<number | null>(null);
   const typing = useRef(false);
+
+  /** The "/word" the caret is in, or null. Null is what closes the picker. */
+  const [token, setToken] = useState<{ query: string; start: number } | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const matches = useMemo(() => {
+    if (!token) return [];
+    const query = token.query;
+    return shortcuts
+      .filter(
+        (shortcut) =>
+          shortcut.key.startsWith(query) || shortcut.title.toLowerCase().includes(query),
+      )
+      .slice(0, 8);
+  }, [shortcuts, token]);
+
+  // Keep the highlight inside the list as it shrinks under the agent's typing.
+  useEffect(() => {
+    setActiveIndex((current) => (current < matches.length ? current : 0));
+  }, [matches.length]);
+
+  function syncToken(element: HTMLTextAreaElement): void {
+    const found = readShortcutQuery(element.value, element.selectionStart ?? 0);
+    setToken(found);
+    if (found) setActiveIndex(0);
+  }
+
+  /**
+   * Replace the "/word" with the shortcut's text.
+   *
+   * Expanded first, so the agent sees and can edit the final wording before it is sent - a
+   * shortcut is a starting point, not an automated reply, and treating it as the latter is how
+   * customers end up receiving a message addressed to the wrong person.
+   */
+  function insert(shortcut: ShortcutDto): void {
+    const element = textarea.current;
+    if (!element || !token) return;
+
+    const caret = element.selectionStart ?? element.value.length;
+    const body = expandShortcut(shortcut.body, placeholderValues);
+    const next = `${value.slice(0, token.start)}${body}${value.slice(caret)}`;
+
+    setValue(next.slice(0, MESSAGE_MAX_LENGTH));
+    setToken(null);
+    onShortcutUsed?.(shortcut);
+
+    const cursor = token.start + body.length;
+    window.requestAnimationFrame(() => {
+      element.focus();
+      element.setSelectionRange(cursor, cursor);
+    });
+  }
 
   useEffect(() => {
     const element = textarea.current;
@@ -200,6 +269,7 @@ export function AgentComposer({
     if (!body || disabled) return;
     onSend(body, asNote);
     setValue('');
+    setToken(null);
     if (typing.current) {
       typing.current = false;
       onTyping(false);
@@ -208,6 +278,31 @@ export function AgentComposer({
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // While the picker is open it owns Enter, Tab and the arrow keys. Sending the message
+    // instead of inserting the shortcut the agent is looking straight at would be surprising.
+    if (token && matches.length > 0) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        setActiveIndex((current) => (current + 1) % matches.length);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        setActiveIndex((current) => (current - 1 + matches.length) % matches.length);
+        return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        event.preventDefault();
+        const picked = matches[activeIndex];
+        if (picked) insert(picked);
+        return;
+      }
+    }
+    if (event.key === 'Escape' && token) {
+      event.preventDefault();
+      setToken(null);
+      return;
+    }
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       submit();
@@ -245,6 +340,15 @@ export function AgentComposer({
         )}
       </div>
 
+      {token && !disabled && (
+        <ShortcutPicker
+          shortcuts={matches}
+          query={token.query}
+          activeIndex={activeIndex}
+          onPick={insert}
+        />
+      )}
+
       <div className="flex items-end gap-2">
         <label className="sr-only" htmlFor="agent-composer">
           {asNote ? 'Write an internal note' : 'Write a reply'}
@@ -265,8 +369,14 @@ export function AgentComposer({
           }
           onChange={(event) => {
             setValue(event.target.value);
+            syncToken(event.target);
             signalTyping();
           }}
+          // Moving the caret with the mouse or the arrow keys changes which word it is in, so
+          // the picker has to follow it rather than only reacting to typing.
+          onKeyUp={(event) => syncToken(event.currentTarget)}
+          onClick={(event) => syncToken(event.currentTarget)}
+          onBlur={() => setToken(null)}
           onKeyDown={onKeyDown}
           className="max-h-40 flex-1 resize-none rounded-[var(--radius-control)] border border-border-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-subtle disabled:cursor-not-allowed disabled:bg-surface-raised"
         />

@@ -120,6 +120,25 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
         .setAgentOnline(context.accountId, memberId, availability, Date.now())
         .catch((error: unknown) => logger.error({ err: error }, 'presence write failed'));
 
+    /**
+     * Tell the account's visitors whether anybody is there.
+     *
+     * Recomputed from presence rather than inferred from this one member's status: "somebody is
+     * available" is a property of the whole team, and this socket only knows about itself. It is
+     * what decides whether a widget offers a live chat or an offline form, so it has to be true.
+     */
+    const announceAvailability = async (): Promise<void> => {
+      try {
+        const available = await presence.hasAvailableAgent(context.accountId);
+        namespace.server
+          .of('/visitor')
+          .to(room.account(context.accountId))
+          .emit(ServerEvent.AGENTS_AVAILABLE, { available });
+      } catch (error) {
+        logger.error({ err: error }, 'could not announce availability');
+      }
+    };
+
     void touch();
     heartbeat = setInterval(touch, PRESENCE_HEARTBEAT_SECONDS * 1000);
 
@@ -128,6 +147,7 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
       status: availability,
       online: true,
     });
+    void announceAvailability();
 
     logger.debug({ memberId, socketId: socket.id }, 'agent connected');
 
@@ -303,6 +323,7 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
           status: availability,
           online: availability !== 'offline',
         });
+        await announceAvailability();
       })();
     });
 
@@ -314,6 +335,9 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
         status: 'offline',
         online: false,
       });
+      // The presence key is removed above, so this recomputation sees the team without this
+      // member - which is the whole point of announcing after leaving rather than before.
+      void announceAvailability();
       logger.debug({ memberId, reason }, 'agent disconnected');
     });
   });

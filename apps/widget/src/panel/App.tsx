@@ -11,8 +11,8 @@ import { PreChatForm } from './components/PreChatForm.js';
 import { MessageList } from './components/MessageList.js';
 import { Composer } from './components/Composer.js';
 import { ChatEnded, EndChatConfirm } from './components/ChatEnded.js';
-
-type View = 'loading' | 'unavailable' | 'prechat' | 'chat';
+import { AgentArrivedBanner, OfflineSent } from './components/OfflineSent.js';
+import { viewAfterInboundMessage, type View } from './lib/view.js';
 
 interface Params {
   publicId: string;
@@ -61,7 +61,18 @@ export function App() {
   const [messages, setMessages] = useState<PanelMessage[]>([]);
   const [connection, setConnection] = useState<ConnectionState>('idle');
   const [agentTyping, setAgentTyping] = useState(false);
+  /**
+   * Whether anybody is there to answer.
+   *
+   * Deliberately not the same thing as "the socket is up". A connected socket with nobody on the
+   * other end is exactly the situation the offline form exists for, and telling a visitor they
+   * are talking to an online team when they are not is the kind of small lie that turns into a
+   * complaint about response times.
+   */
   const [online, setOnline] = useState(false);
+  /** Pre-chat answers, held until the first message so they arrive with it in one write. */
+  const [preChat, setPreChat] = useState<Record<string, string> | null>(null);
+  const [offlineError, setOfflineError] = useState<string | null>(null);
   const [closed, setClosed] = useState(false);
   /** Who ended it, so the wording is right. Null until something actually ends. */
   const [endedBy, setEndedBy] = useState<'visitor' | 'agent' | null>(null);
@@ -103,14 +114,14 @@ export function App() {
     (token: string) => {
       if (client.current) return;
       const chat = new ChatClient(token, {
-        onState: (state) => {
-          setConnection(state);
-          setOnline(state === 'connected');
-        },
+        onState: (state) => setConnection(state),
+        onAvailability: (available) => setOnline(available),
         onMessage: (message) => {
           upsertMessage(message, 'sent');
           if (message.senderType !== 'visitor') {
             setAgentTyping(false);
+            // A trigger can greet somebody who is still on a form. Show them what was sent.
+            setView((current) => viewAfterInboundMessage(current, message.senderType));
             // The badge only counts what the visitor has not seen.
             if (!isOpen.current) {
               setMessages((current) => {
@@ -171,9 +182,20 @@ export function App() {
         applyTheme(result.widget.config);
         setOnline(result.agentsAvailable);
 
+        const behaviour = result.widget.config.behaviour;
         const knowsVisitor = Boolean(result.visitor.name || result.visitor.email);
-        const needsPreChat = result.widget.config.behaviour.preChatEnabled && !knowsVisitor;
-        setView(needsPreChat ? 'prechat' : 'chat');
+
+        /**
+         * Nobody available and the customer collects offline messages: ask for one.
+         *
+         * This is decided from real presence, not from a schedule. A team that says it is open
+         * but has nobody signed in is offline as far as the person waiting is concerned.
+         */
+        if (!result.agentsAvailable && behaviour.offlineFormEnabled) {
+          setView('offline');
+        } else {
+          setView(behaviour.preChatEnabled && !knowsVisitor ? 'prechat' : 'chat');
+        }
 
         connectSocket(result.token);
       } catch (error) {
@@ -281,25 +303,46 @@ export function App() {
   const resolved = params;
   const subtitle = online ? config.content.subtitleOnline : config.content.subtitleOffline;
 
-  async function handlePreChat(values: Record<string, string>) {
+  /**
+   * Keep the answers, do not send them yet.
+   *
+   * They travel with the first message, so the conversation is created with its pre-chat data
+   * already attached - one write, and no window in which an agent can open a conversation whose
+   * "who is this" panel is still empty. The server re-applies the configured field list, so what
+   * is held here is a claim, not a decision.
+   */
+  function handlePreChat(values: Record<string, string>) {
+    setPreChat(values);
+    setView('chat');
+  }
+
+  /**
+   * Leave a message when nobody is available.
+   *
+   * The server validates the form again and decides what is required; anything it refuses is
+   * shown here rather than swallowed, because this is the visitor's only channel right now.
+   */
+  async function handleOfflineSubmit(values: Record<string, string>) {
     if (resolved.preview) {
-      setView('chat');
+      setPreChat(values);
+      setView('offline_sent');
       return;
     }
     if (!session) return;
     setSubmitting(true);
+    setOfflineError(null);
     try {
-      await widgetApi.identify(session.token, {
-        name: values['name'],
-        email: values['email'],
-        phone: values['phone'],
-      });
-    } catch {
-      // Identification is context, not a gate. Failing to record it must never stop somebody
-      // asking for help.
+      await widgetApi.offlineMessage(session.token, values);
+      setPreChat(values);
+      setView('offline_sent');
+    } catch (error) {
+      setOfflineError(
+        error instanceof WidgetApiError && error.status !== 0
+          ? error.message
+          : 'We could not send that. Please try again in a moment.',
+      );
     } finally {
       setSubmitting(false);
-      setView('chat');
     }
   }
 
@@ -333,10 +376,14 @@ export function App() {
 
     const promise = chat.conversationId
       ? chat.send(clientMessageId, body)
-      : chat.start(clientMessageId, body);
+      : chat.start(clientMessageId, body, preChat ?? undefined);
 
     promise
-      .then((message) => upsertMessage(message, 'sent'))
+      .then((message) => {
+        // Sent once. A later message must not re-submit answers the conversation already holds.
+        setPreChat(null);
+        upsertMessage(message, 'sent');
+      })
       .catch(() => {
         setMessages((current) =>
           current.map((message) =>
@@ -398,6 +445,11 @@ export function App() {
 
   const composerDisabled =
     resolved.preview || connection !== 'connected' || closed || view !== 'chat';
+  /** Switching from the offline form to a live chat, once somebody is actually there. */
+  const startLiveChat = () => {
+    setOfflineError(null);
+    setView(config.behaviour.preChatEnabled && !preChat ? 'prechat' : 'chat');
+  };
   /** Only offer to end something that exists and is still live. */
   const canEndChat = view === 'chat' && !closed && !resolved.preview && messages.length > 0;
 
@@ -448,9 +500,36 @@ export function App() {
             fields={config.forms.preChatFields}
             submitLabel="Start chat"
             busy={submitting}
-            onSubmit={(values) => void handlePreChat(values)}
+            onSubmit={handlePreChat}
           />
         </div>
+      )}
+
+      {view === 'offline' && (
+        <div className="body">
+          {online && <AgentArrivedBanner onStartChat={startLiveChat} />}
+          <div className="bubble bubble-agent">{config.content.offlineMessage}</div>
+          {offlineError && (
+            <p className="field-error" role="alert">
+              {offlineError}
+            </p>
+          )}
+          <PreChatForm
+            intro={config.forms.offlineIntro}
+            fields={config.forms.offlineFields}
+            submitLabel="Send message"
+            busy={submitting}
+            onSubmit={(values) => void handleOfflineSubmit(values)}
+          />
+        </div>
+      )}
+
+      {view === 'offline_sent' && (
+        <OfflineSent
+          email={preChat?.['email'] ?? session?.visitor.email ?? null}
+          canChat={online && !resolved.preview}
+          onStartChat={startLiveChat}
+        />
       )}
 
       {view === 'chat' && (

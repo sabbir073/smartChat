@@ -19,7 +19,7 @@ import {
 } from '@/components/inbox/message-thread';
 import { VisitorPanel } from '@/components/inbox/visitor-panel';
 import { Alert, EmptyState, Spinner, cn, useToast } from '@/components/ui';
-import type { ConversationDto, MemberDto, PropertyDto } from '@/lib/types';
+import type { ConversationDto, MemberDto, PropertyDto, ShortcutDto } from '@/lib/types';
 
 /**
  * The agent inbox.
@@ -31,7 +31,7 @@ import type { ConversationDto, MemberDto, PropertyDto } from '@/lib/types';
  * bubble and its confirmed twin collapse into one row instead of appearing twice.
  */
 export default function InboxPage() {
-  const { activeAccount } = useAuth();
+  const { activeAccount, user } = useAuth();
   const toast = useToast();
 
   const [connection, setConnection] = useState<AgentConnectionState>('idle');
@@ -44,6 +44,7 @@ export default function InboxPage() {
 
   const [properties, setProperties] = useState<PropertyDto[]>([]);
   const [members, setMembers] = useState<MemberDto[]>([]);
+  const [shortcuts, setShortcuts] = useState<ShortcutDto[]>([]);
   const [updating, setUpdating] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -319,23 +320,36 @@ export default function InboxPage() {
     return () => controller.abort();
   }, [loadConversations, activeAccount?.id]);
 
-  // The reference data the filters and the assign control are built from.
+  /**
+   * The reference data the filters, the assign control and the composer are built from.
+   *
+   * Fetched independently rather than as one `Promise.all`. An agent has no permission to read
+   * the member list, so bundling them meant one expected 403 turned the whole inbox into an error
+   * banner - for exactly the people who use this screen most. Each list now fails on its own, and
+   * a refusal simply leaves that control empty.
+   */
   useEffect(() => {
     const controller = new AbortController();
+    const ignore = (caught: unknown) => (caught as Error).name === 'AbortError';
 
-    void Promise.all([
-      api.get<PropertyDto[]>('/properties', { signal: controller.signal }),
-      api.get<{ members: MemberDto[] }>('/account/members', { signal: controller.signal }),
-    ])
-      .then(([propertyResult, memberResult]) => {
-        setProperties(propertyResult.data);
-        // Only people who could actually pick the conversation up belong in the assign list.
-        setMembers(memberResult.data.members.filter((member) => member.status === 'active'));
-      })
+    void api
+      .get<PropertyDto[]>('/properties', { signal: controller.signal })
+      .then((result) => setProperties(result.data))
       .catch((caught: unknown) => {
-        if ((caught as Error).name === 'AbortError') return;
-        setListError('Websites and team members could not be loaded.');
+        if (ignore(caught)) return;
+        setListError('Your websites could not be loaded.');
       });
+
+    void api
+      .get<{ members: MemberDto[] }>('/account/members', { signal: controller.signal })
+      // Only people who could actually pick the conversation up belong in the assign list.
+      .then((result) => setMembers(result.data.members.filter((m) => m.status === 'active')))
+      .catch(() => setMembers([]));
+
+    void api
+      .get<ShortcutDto[]>('/automation/shortcuts', { signal: controller.signal })
+      .then((result) => setShortcuts(result.data))
+      .catch(() => setShortcuts([]));
 
     return () => controller.abort();
   }, [activeAccount?.id]);
@@ -485,6 +499,24 @@ export default function InboxPage() {
   const onTyping = useCallback((typing: boolean) => {
     const conversationId = selectedRef.current;
     if (conversationId) clientRef.current?.typing(conversationId, typing);
+  }, []);
+
+  /**
+   * Count a shortcut as used.
+   *
+   * Fire-and-forget on purpose: the ordering of a picker is not worth an error message, and the
+   * agent has already got their text. The local count is bumped too so the list reorders without
+   * waiting for a refetch.
+   */
+  const countShortcutUse = useCallback((shortcut: ShortcutDto) => {
+    setShortcuts((current) =>
+      current
+        .map((entry) =>
+          entry.id === shortcut.id ? { ...entry, usageCount: entry.usageCount + 1 } : entry,
+        )
+        .sort((a, b) => b.usageCount - a.usageCount || a.key.localeCompare(b.key)),
+    );
+    void api.post(`/automation/shortcuts/${shortcut.id}/used`, {}).catch(() => undefined);
   }, []);
 
   /**
@@ -735,6 +767,14 @@ export default function InboxPage() {
                 disabledReason="This conversation is closed"
                 onSend={send}
                 onTyping={onTyping}
+                shortcuts={shortcuts}
+                onShortcutUsed={countShortcutUse}
+                placeholderValues={{
+                  'visitor.name': selected.visitor.name,
+                  'visitor.email': selected.visitor.email,
+                  'agent.name': user?.name ?? null,
+                  'account.name': activeAccount?.name ?? null,
+                }}
               />
             </>
           )}

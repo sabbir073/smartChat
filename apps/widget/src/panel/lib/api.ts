@@ -79,4 +79,12 @@ export const widgetApi = {
 
   pageView: (token: string, page: { url: string; title?: string }) =>
     request<void>('/widget/page-view', { method: 'POST', body: page, token }),
+
+  /** Leave a message when nobody is available. The server decides what the form may contain. */
+  offlineMessage: (token: string, values: Record<string, string>) =>
+    request<{ conversationId: string }>('/widget/offline-message', {
+      method: 'POST',
+      body: { values },
+      token,
+    }),
 };

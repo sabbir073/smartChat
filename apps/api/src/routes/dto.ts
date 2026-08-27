@@ -4,8 +4,11 @@ import type {
   Property,
   PropertyDomain,
   Session,
+  Shortcut,
   User,
 } from '@smartchat/database';
+import type { ResolvedTrigger } from '@smartchat/core';
+import type { TriggerAction, TriggerCondition } from '@smartchat/validation';
 
 /**
  * Explicit DTOs.
@@ -172,5 +175,70 @@ export function toMemberDto(member: MemberRow): MemberDto {
     departmentIds: member.departments.map((d) => d.departmentId),
     lastLoginAt: member.user.lastLoginAt?.toISOString() ?? null,
     joinedAt: member.joinedAt?.toISOString() ?? null,
+  };
+}
+
+export interface TriggerDto {
+  id: string;
+  name: string;
+  description: string | null;
+  propertyId: string | null;
+  event: string;
+  enabled: boolean;
+  match: string;
+  conditions: TriggerCondition[];
+  actions: TriggerAction[];
+  frequency: string;
+  cooldownSeconds: number;
+  afterSeconds: number;
+  position: number;
+  /** Real counters, maintained on every firing - not an estimate and not a placeholder. */
+  fireCount: number;
+  lastFiredAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toTriggerDto(trigger: ResolvedTrigger): TriggerDto {
+  return {
+    id: trigger.id,
+    name: trigger.name,
+    description: trigger.description,
+    propertyId: trigger.propertyId,
+    event: trigger.event,
+    enabled: trigger.enabled,
+    match: trigger.match,
+    conditions: trigger.conditions,
+    actions: trigger.actions,
+    frequency: trigger.frequency,
+    cooldownSeconds: trigger.cooldownSeconds,
+    afterSeconds: trigger.afterSeconds,
+    position: trigger.position,
+    fireCount: trigger.fireCount,
+    lastFiredAt: trigger.lastFiredAt?.toISOString() ?? null,
+    createdAt: trigger.createdAt.toISOString(),
+    updatedAt: trigger.updatedAt.toISOString(),
+  };
+}
+
+export interface ShortcutDto {
+  id: string;
+  key: string;
+  title: string;
+  body: string;
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export function toShortcutDto(shortcut: Shortcut): ShortcutDto {
+  return {
+    id: shortcut.id,
+    key: shortcut.key,
+    title: shortcut.title,
+    body: shortcut.body,
+    usageCount: shortcut.usageCount,
+    createdAt: shortcut.createdAt.toISOString(),
+    updatedAt: shortcut.updatedAt.toISOString(),
   };
 }
