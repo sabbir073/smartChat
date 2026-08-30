@@ -56,6 +56,8 @@ x-app-env: &app-env
   COOKIE_SECURE: ${COOKIE_SECURE:-false}
   AUTO_VERIFY_EMAIL: ${AUTO_VERIFY_EMAIL:-false}
   ALLOW_LOCALHOST_ORIGINS: ${ALLOW_LOCALHOST_ORIGINS:-true}
+  # Development only. The production compose file does not set it, and it defaults to false.
+  ALLOW_PRIVATE_WEBHOOK_URLS: ${ALLOW_PRIVATE_WEBHOOK_URLS:-false}
 
 x-infra-ready: &infra-ready
   postgres:

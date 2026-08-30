@@ -18,6 +18,11 @@ export const AnalyticsJob = {
   ROLLUP: 'analytics.rollup',
 } as const;
 
+export const WebhookJob = {
+  DELIVER: 'webhook.deliver',
+  SWEEP: 'webhook.sweep',
+} as const;
+
 export const MaintenanceJob = {
   PURGE_EXPIRED_SESSIONS: 'maintenance.purge_expired_sessions',
   PURGE_EXPIRED_TOKENS: 'maintenance.purge_expired_tokens',
@@ -54,6 +59,8 @@ export interface AnalyticsRollupPayload {
 export type JobPayloadMap = {
   [EmailJob.SEND]: SendEmailPayload;
   [AnalyticsJob.ROLLUP]: AnalyticsRollupPayload;
+  [WebhookJob.DELIVER]: { deliveryId: string };
+  [WebhookJob.SWEEP]: Record<string, never>;
   [MaintenanceJob.PURGE_EXPIRED_SESSIONS]: Record<string, never>;
   [MaintenanceJob.PURGE_EXPIRED_TOKENS]: Record<string, never>;
   [MaintenanceJob.APPLY_RETENTION]: Record<string, never>;

@@ -99,6 +99,14 @@ const NAV: NavItem[] = [
     icon: icon('M4 20V10m5 10V4m5 16v-7m5 7V8'),
   },
   {
+    href: '/integrations',
+    label: 'Integrations',
+    available: true,
+    icon: icon(
+      'M10 13a5 5 0 0 0 7.1 0l2.4-2.4a5 5 0 0 0-7.1-7.1L11 4.9M14 11a5 5 0 0 0-7.1 0l-2.4 2.4a5 5 0 0 0 7.1 7.1l1.4-1.4',
+    ),
+  },
+  {
     href: '/settings',
     label: 'Settings',
     available: true,
@@ -139,8 +147,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       })}
 
       <div className="mt-auto rounded-[var(--radius-control)] bg-surface-raised p-3 text-[12px] leading-relaxed text-ink-subtle">
-        Integrations and the platform console arrive in later phases. Nothing is listed here
-        before it works.
+        The platform console arrives in a later phase. Nothing is listed here before it works.
       </div>
     </nav>
   );

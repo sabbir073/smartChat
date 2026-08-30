@@ -3,6 +3,7 @@ export * from './ids.js';
 export type {
   Account,
   AccountMember,
+  ApiKey,
   Attachment,
   AuditLog,
   Contact,
@@ -38,6 +39,8 @@ export type {
   Visitor,
   VisitorPageView,
   VisitorSession,
+  Webhook,
+  WebhookDelivery,
   Widget,
 } from '@prisma/client';
 export {
@@ -66,4 +69,5 @@ export {
   TriggerEvent,
   TriggerFrequency,
   TriggerMatch,
+  WebhookDeliveryStatus,
 } from '@prisma/client';

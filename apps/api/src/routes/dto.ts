@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountMember,
+  ApiKey,
   Contact,
   KbArticle,
   KbCategory,
@@ -11,6 +12,8 @@ import type {
   Ticket,
   TicketMessage,
   User,
+  Webhook,
+  WebhookDelivery,
 } from '@smartchat/database';
 import type { ResolvedTrigger } from '@smartchat/core';
 import type { TriggerAction, TriggerCondition } from '@smartchat/validation';
@@ -407,5 +410,92 @@ export function toTicketMessageDto(message: TicketMessage): TicketMessageDto {
     visibility: message.visibility,
     body: message.body,
     createdAt: message.createdAt.toISOString(),
+  };
+}
+
+export interface ApiKeyDto {
+  id: string;
+  name: string;
+  /** An id, not a secret. It is what a person recognises a key by once the secret is gone. */
+  prefix: string;
+  scopes: string[];
+  propertyIds: string[];
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export function toApiKeyDto(key: ApiKey): ApiKeyDto {
+  return {
+    id: key.id,
+    name: key.name,
+    prefix: key.prefix,
+    scopes: key.scopes,
+    propertyIds: key.propertyIds,
+    lastUsedAt: key.lastUsedAt?.toISOString() ?? null,
+    expiresAt: key.expiresAt?.toISOString() ?? null,
+    revokedAt: key.revokedAt?.toISOString() ?? null,
+    createdAt: key.createdAt.toISOString(),
+  };
+}
+
+export interface WebhookDto {
+  id: string;
+  name: string;
+  url: string;
+  events: string[];
+  enabled: boolean;
+  consecutiveFailures: number;
+  disabledAt: string | null;
+  disabledReason: string | null;
+  lastDeliveryAt: string | null;
+  createdAt: string;
+}
+
+/**
+ * Note the parameter type: `Webhook` without its `secret`.
+ *
+ * The service strips it before anything reaches here, so there is no code path in which a
+ * forgotten field could put a signing secret into a JSON response - the type would not compile.
+ */
+export function toWebhookDto(webhook: Omit<Webhook, 'secret'>): WebhookDto {
+  return {
+    id: webhook.id,
+    name: webhook.name,
+    url: webhook.url,
+    events: webhook.events,
+    enabled: webhook.enabled,
+    consecutiveFailures: webhook.consecutiveFailures,
+    disabledAt: webhook.disabledAt?.toISOString() ?? null,
+    disabledReason: webhook.disabledReason,
+    lastDeliveryAt: webhook.lastDeliveryAt?.toISOString() ?? null,
+    createdAt: webhook.createdAt.toISOString(),
+  };
+}
+
+export interface WebhookDeliveryDto {
+  id: string;
+  event: string;
+  status: string;
+  attempts: number;
+  responseStatus: number | null;
+  error: string | null;
+  nextAttemptAt: string;
+  deliveredAt: string | null;
+  createdAt: string;
+}
+
+export function toWebhookDeliveryDto(delivery: WebhookDelivery): WebhookDeliveryDto {
+  return {
+    id: delivery.id,
+    event: delivery.event,
+    status: delivery.status,
+    attempts: delivery.attempts,
+    responseStatus: delivery.responseStatus,
+    error: delivery.error,
+    nextAttemptAt: delivery.nextAttemptAt.toISOString(),
+    deliveredAt: delivery.deliveredAt?.toISOString() ?? null,
+    createdAt: delivery.createdAt.toISOString(),
   };
 }

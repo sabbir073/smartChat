@@ -18,6 +18,8 @@ import {
   type StartConversationInput,
   type UpdateConversationInput,
 } from '@smartchat/validation';
+import { WebhookEvent } from '@smartchat/types';
+import type { WebhookEmitter } from './webhook.service.js';
 import { AuditRepository } from '../repositories/audit.repository.js';
 import {
   ConversationRepository,
@@ -66,6 +68,14 @@ export interface OfflineTicketOpener {
 export interface ConversationServiceOptions {
   db: Database;
   events: EventPublisher;
+  /**
+   * Outbound integrations. Optional, and absent in tests that do not care.
+   *
+   * Distinct from `events` above, which is realtime fan-out to *our* clients over Redis: that is
+   * at-most-once and a dropped message costs a repaint. This one writes a durable row, because a
+   * webhook somebody built a business process on cannot be best-effort.
+   */
+  webhooks?: WebhookEmitter;
   /**
    * Optional, and absent in the realtime gateway.
    * Only the offline form opens tickets, and the offline form is an HTTP request; wiring a mail
@@ -189,6 +199,16 @@ export class ConversationService {
         conversationId: conversation.id,
         visitorId: identity.visitorId,
         payload: { conversationId: conversation.id },
+      });
+      // Only a genuinely new conversation. A visitor resuming a live one has not started
+      // anything, and an integration told otherwise would open a duplicate record every reload.
+      await this.emitWebhook(identity.accountId, WebhookEvent.CONVERSATION_STARTED, {
+        conversationId: conversation.id,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        channel: conversation.channel,
+        firstMessage: input.body,
+        startedAt: conversation.startedAt.toISOString(),
       });
     }
 
@@ -811,6 +831,26 @@ export class ConversationService {
    * handling. `body` is an English fallback for exports; clients render from `metadata` so the
    * wording is theirs, not whatever was written into the row when it was created.
    */
+  /**
+   * Tell any subscribed integration, without ever failing the thing that happened.
+   *
+   * The conversation is already committed by the time this runs. A webhook table that is
+   * unreachable must not turn a successful close into a 500 for the agent who clicked it - so
+   * this swallows, and the absence of the delivery row is itself the record that nothing went.
+   */
+  private async emitWebhook(
+    accountId: string,
+    event: WebhookEvent,
+    data: Record<string, unknown>,
+  ): Promise<void> {
+    if (!this.options.webhooks) return;
+    try {
+      await this.options.webhooks.queue(accountId, event, data);
+    } catch {
+      // Deliberate. See above.
+    }
+  }
+
   private async recordStatusChange(
     conversation: Conversation,
     change: {
@@ -939,6 +979,18 @@ export class ConversationService {
           now,
         );
       }
+    }
+
+    if (input.status === 'closed' && conversation.status !== 'closed') {
+      await this.emitWebhook(context.accountId, WebhookEvent.CONVERSATION_CLOSED, {
+        conversationId,
+        propertyId: conversation.propertyId,
+        visitorId: conversation.visitorId,
+        subject: updated.subject,
+        tags: updated.tags,
+        startedAt: conversation.startedAt.toISOString(),
+        closedAt: (updated.closedAt ?? now).toISOString(),
+      });
     }
 
     await this.options.events.publish({

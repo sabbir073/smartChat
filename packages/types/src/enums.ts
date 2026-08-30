@@ -141,23 +141,37 @@ export const FormFieldRequirement = {
 } as const;
 export type FormFieldRequirement = (typeof FormFieldRequirement)[keyof typeof FormFieldRequirement];
 
+/**
+ * The events a webhook can subscribe to.
+ *
+ * This list was drafted in phase 0 with eight speculative entries - `message.created`,
+ * `visitor.created`, `conversation.updated`, `ticket.updated` - none of which anything emitted.
+ * Offering a subscription to an event that is never sent is worse than not offering it: the
+ * integrator wires it up, tests nothing (because nothing arrives), and discovers months later that
+ * the silence was the product rather than their code.
+ *
+ * So it is now exactly what is emitted, and it grows when an emitter does. A closed list with no
+ * wildcard, for the same reason: `*` would silently start delivering a new event shape to an
+ * endpoint that has never seen it, on the day we add one.
+ */
 export const WebhookEvent = {
-  CONVERSATION_CREATED: 'conversation.created',
   CONVERSATION_STARTED: 'conversation.started',
-  CONVERSATION_UPDATED: 'conversation.updated',
   CONVERSATION_CLOSED: 'conversation.closed',
-  MESSAGE_CREATED: 'message.created',
-  VISITOR_CREATED: 'visitor.created',
   TICKET_CREATED: 'ticket.created',
-  TICKET_UPDATED: 'ticket.updated',
+  TICKET_REPLIED: 'ticket.replied',
+  TICKET_STATUS_CHANGED: 'ticket.status_changed',
+  /** Only ever sent by somebody pressing "send a test" in the dashboard. */
+  PING: 'ping',
 } as const;
 export type WebhookEvent = (typeof WebhookEvent)[keyof typeof WebhookEvent];
 
+export const WEBHOOK_EVENT_VALUES: readonly WebhookEvent[] = Object.values(WebhookEvent);
+
+/** Mirrors the database enum exactly. A status the column cannot hold is not a status. */
 export const WebhookDeliveryStatus = {
   PENDING: 'pending',
   DELIVERED: 'delivered',
   FAILED: 'failed',
-  DISABLED: 'disabled',
 } as const;
 export type WebhookDeliveryStatus =
   (typeof WebhookDeliveryStatus)[keyof typeof WebhookDeliveryStatus];

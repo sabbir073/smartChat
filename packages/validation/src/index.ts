@@ -4,6 +4,7 @@ export * from './automation.js';
 export * from './common.js';
 export * from './contact.js';
 export * from './conversation.js';
+export * from './integration.js';
 export * from './kb.js';
 export * from './password.js';
 export * from './property.js';

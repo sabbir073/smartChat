@@ -9,12 +9,13 @@ import {
   type MailProvider,
   type SendEmailPayload,
 } from '@smartchat/core';
-import { AnalyticsJob, MaintenanceJob } from '@smartchat/core';
+import { AnalyticsJob, MaintenanceJob, WebhookJob } from '@smartchat/core';
 import { createPrismaClient } from '@smartchat/database';
 import { createLogger, withLogContext } from '@smartchat/logger';
 import { loadWorkerConfig } from './config.js';
 import { processAnalyticsJob } from './processors/analytics.js';
 import { processEmailJob } from './processors/email.js';
+import { processWebhookJob } from './processors/webhook.js';
 import { processMaintenanceJob } from './processors/maintenance.js';
 
 const config = loadWorkerConfig();
@@ -63,6 +64,15 @@ async function main(): Promise<void> {
     ),
 
     new Worker(
+      QueueName.WEBHOOK,
+      (job) =>
+        withLogContext({ jobId: job.id ?? undefined }, () => processWebhookJob(job, db, logger)),
+      // Several at once: these are outbound HTTP calls to other people's servers, and one slow
+      // endpoint must not hold up everybody else's deliveries.
+      { connection, concurrency: config.WORKER_CONCURRENCY },
+    ),
+
+    new Worker(
       QueueName.ANALYTICS,
       (job) =>
         withLogContext({ jobId: job.id ?? undefined }, () =>
@@ -103,6 +113,9 @@ async function main(): Promise<void> {
   // Every quarter of an hour. Frequent enough that a report opened after lunch reflects the
   // morning; cheap enough that it is two days of aggregate per account, not the whole history.
   await scheduler.schedule(AnalyticsJob.ROLLUP, {}, '*/15 * * * *');
+  // The safety net under the webhook queue: every minute, ask the database what is due. See
+  // processors/webhook.ts for why this exists and not merely for tidiness.
+  await scheduler.schedule(WebhookJob.SWEEP, {}, '* * * * *');
 
   /**
    * A minimal health server.

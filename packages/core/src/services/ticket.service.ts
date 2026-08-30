@@ -10,6 +10,7 @@ import {
   AppError,
   ErrorCode,
   Permission,
+  WebhookEvent,
   type CursorPage,
   type TenantContext,
 } from '@smartchat/types';
@@ -33,6 +34,7 @@ import { AuditRepository } from '../repositories/audit.repository.js';
 import { afterCursor, encodeCursor, notDeleted, tenantScope } from '../repositories/scope.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { assertPropertyInAccount } from '../tenancy/property-access.js';
+import type { WebhookEmitter } from './webhook.service.js';
 import { systemClock, type Clock } from '../time.js';
 
 export type TicketWithRelations = Ticket & {
@@ -59,6 +61,8 @@ export interface TicketServiceOptions {
   db: Database;
   brand: BrandContext;
   deliver: MailDeliver;
+  /** Outbound integrations. Optional so a test can build the service without one. */
+  webhooks?: WebhookEmitter;
   clock?: Clock;
 }
 
@@ -264,6 +268,8 @@ export class TicketService {
       metadata: { number: ticket.number, subject: ticket.subject },
     });
 
+    await this.emit(WebhookEvent.TICKET_CREATED, ticket, { body: input.body });
+
     if (input.notifyRequester) {
       await this.sendReceipt(ticket, input.body, first.id);
     }
@@ -346,6 +352,10 @@ export class TicketService {
       metadata: { number: ticket.number, conversationId: input.conversationId },
     });
 
+    await this.emit(WebhookEvent.TICKET_CREATED, ticket, {
+      body: input.body,
+      source: 'offline_form',
+    });
     await this.sendReceipt(ticket, input.body, first.id);
     return ticket;
   }
@@ -398,6 +408,12 @@ export class TicketService {
     ) {
       // Assigning work to yourself does not need an email telling you that you did.
       await this.notifyAssignee(ticket, input.assignedMemberId);
+    }
+    if (input.status && input.status !== existing.status) {
+      await this.emit(WebhookEvent.TICKET_STATUS_CHANGED, ticket, {
+        from: existing.status,
+        to: ticket.status,
+      });
     }
     if (input.status === 'resolved' && existing.status !== 'resolved') {
       await this.deliver(ticketResolvedTemplate(await this.mailContext(ticket)), {
@@ -476,6 +492,13 @@ export class TicketService {
     });
 
     if (isPublic) {
+      // Only a public reply. An internal note is not something that happened to the customer, and
+      // an integration that mirrored notes into a shared channel would leak them by design.
+      await this.emit(WebhookEvent.TICKET_REPLIED, ticket, {
+        messageId: message.id,
+        body: input.body,
+        authorName: context.actorName ?? null,
+      });
       await this.deliver(
         ticketReplyTemplate(await this.mailContext(ticket), {
           reply: input.body,
@@ -505,6 +528,35 @@ export class TicketService {
   // ---------------------------------------------------------------------------
   // Email
   // ---------------------------------------------------------------------------
+
+  /**
+   * Tell any subscribed integration, without ever failing the thing that happened.
+   *
+   * The ticket is already committed. A webhook table that is unreachable must not turn a saved
+   * reply into a 500 that makes an agent retype it into a ticket that already has it.
+   */
+  private async emit(
+    event: WebhookEvent,
+    ticket: Ticket,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
+    if (!this.options.webhooks) return;
+    try {
+      await this.options.webhooks.queue(ticket.accountId, event, {
+        ticketId: ticket.id,
+        number: ticket.number,
+        propertyId: ticket.propertyId,
+        subject: ticket.subject,
+        status: ticket.status,
+        priority: ticket.priority,
+        requesterEmail: ticket.requesterEmail,
+        requesterName: ticket.requesterName,
+        ...extra,
+      });
+    } catch {
+      // Deliberate. See above.
+    }
+  }
 
   private async mailContext(ticket: Ticket): Promise<TicketMailContext> {
     const [account, property] = await Promise.all([

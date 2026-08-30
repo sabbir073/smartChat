@@ -328,3 +328,40 @@ export interface ReportArticleDto {
   status: string;
   viewCount: number;
 }
+
+export interface ApiKeyDto {
+  id: string;
+  name: string;
+  prefix: string;
+  scopes: string[];
+  propertyIds: string[];
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  revokedAt: string | null;
+  createdAt: string;
+}
+
+export interface WebhookDto {
+  id: string;
+  name: string;
+  url: string;
+  events: string[];
+  enabled: boolean;
+  consecutiveFailures: number;
+  disabledAt: string | null;
+  disabledReason: string | null;
+  lastDeliveryAt: string | null;
+  createdAt: string;
+}
+
+export interface WebhookDeliveryDto {
+  id: string;
+  event: string;
+  status: string;
+  attempts: number;
+  responseStatus: number | null;
+  error: string | null;
+  nextAttemptAt: string;
+  deliveredAt: string | null;
+  createdAt: string;
+}

@@ -56,6 +56,8 @@ services:
     environment:
       NODE_ENV: development
       LOG_LEVEL: ${LOG_LEVEL:-debug}
+      # So a webhook can point at a test receiver running on this machine. Never in production.
+      ALLOW_PRIVATE_WEBHOOK_URLS: 'true'
       # Windows bind mounts do not deliver inotify events, so the watcher has to poll.
       CHOKIDAR_USEPOLLING: '1'
     volumes:

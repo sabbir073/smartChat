@@ -1029,3 +1029,96 @@ drift afterwards.
 trap with a delay on it. The check that would have caught it years earlier is one query:
 `SELECT ... FROM information_schema.columns WHERE column_name ~ '[A-Z]'`.
 **Date** 2026-08-30
+
+---
+## ADR-069 — An API key is another actor on the same routes, not a second API
+**Context** The obvious design for a public API is a parallel surface - `/public-api/...` - with
+its own middleware, its own authorisation and its own handlers.
+**Chosen** The same routes. A key authenticates in `authenticateTenant` alongside the session
+cookie, produces an ordinary `TenantContext` with `actorType: api_key`, and goes through the same
+permission checks and audit log.
+**Reason** `ActorType.api_key` was already in the schema from phase 1, which is the shape of the
+answer. Two authorisation paths drift: the day somebody tightens a check on one, the other keeps
+the old behaviour, and nobody notices until it matters. One path, with a key simply carrying fewer
+permissions into it, cannot drift from itself.
+**What follows from it** Anything that needs a member - assigning a conversation to oneself - fails
+on its own terms with a key, because `memberId` is genuinely absent rather than faked. And there is
+no CSRF check on the key path, which is correct rather than missing: CSRF exists because browsers
+attach cookies by themselves, and nothing attaches an Authorization header on anybody's behalf.
+**Date** 2026-08-30
+
+---
+## ADR-070 — API keys are hashed with SHA-256, not Argon2
+**Context** Passwords in this system use Argon2id. The reflex is to use it for keys too.
+**Chosen** SHA-256, the same as session tokens.
+**Reason** Argon2's cost is the point *for passwords*, because passwords are low-entropy and
+guessable and the defence is making each guess expensive. An API key is 256 bits of CSPRNG output:
+there is nothing to guess, so the slow hash buys nothing. It costs a great deal, though - it would
+run on **every API request**, turning authentication into a denial-of-service amplifier where one
+attacker with a stream of invalid keys saturates the CPU.
+**The general rule** Slow hashes protect low-entropy secrets. Fast hashes are correct for
+high-entropy ones. Applying the password reflex to a random token is a performance bug wearing a
+security costume.
+**Date** 2026-08-30
+
+---
+## ADR-071 — The webhook queue is the database
+**Context** The conventional design publishes an event to a queue and lets a consumer deliver it.
+**Rejected** That. It loses events whenever the queue does - Redis restarted, flushed, briefly
+unreachable - and the loss is silent. For an integration somebody has built a business process on,
+"we published something and hoped somebody was listening" is a different claim from "we told
+them", and the difference only becomes visible on the day it costs money.
+**Chosen** A `webhook_deliveries` row written by the same request that caused the event, before
+anything is enqueued. The BullMQ job is an optimisation for latency; a sweeper every minute asks
+the database what is due and picks up anything the job never reached.
+**What this buys** The row is durable the moment the event is. A dead queue costs latency, not
+deliveries. And the realtime gateway - which has no queue producer at all - can emit webhooks by
+writing rows and letting the sweeper find them, which matters because almost every conversation in
+this product starts over a socket.
+**Cost** A row per delivery, and a query every minute. Both are cheap; losing an event is not.
+**Date** 2026-08-30
+
+---
+## ADR-072 — The timestamp is signed with the body
+**Context** The minimum viable signature is an HMAC of the request body.
+**Problem** It answers "did SmartChat send this" but not "is this fresh". A delivery captured once
+can be replayed a year later and will verify perfectly - same body, same HMAC, our secret.
+**Chosen** `t=<unix>,v1=<hmac of "timestamp.body">`, with a five-minute tolerance, and `sentAt`
+inside the signed payload as well.
+**Reason** Signing the timestamp is what makes it unforgeable; sending it unsigned would let an
+attacker replay an old body with a fresh timestamp. The tolerance check runs *before* the HMAC, so
+a replay is rejected on age rather than on cryptography.
+**On the header format** Deliberately the shape several well-known products use. An integrator has
+probably written this verification before, and a familiar shape is one they are less likely to get
+wrong. `v1` is a version so a future scheme can ship without breaking every endpoint.
+**How it is tested** The e2e suite's verifier is written from the documentation, not imported from
+our code. Two copies of one function only prove that the function agrees with itself.
+**Date** 2026-08-30
+
+---
+## ADR-073 — Webhook URLs are an allow-list, and the relaxation is configuration-only
+**Context** A webhook URL is an address this server makes outbound requests to, on a schedule the
+account controls. That is a server-side request forgery primitive.
+**Chosen** https only, on a host that looks public: no loopback, no RFC1918 literal, no bare
+hostname without a dot, and none of the service names on this compose network.
+**Why https and not merely "not private"** The signature proves who sent a payload; it does not
+hide what is in it. A ticket body crossing the internet in clear text is a customer's words in
+clear text.
+**The development hole, and where it is** `ALLOW_PRIVATE_WEBHOOK_URLS` relaxes the host rule so a
+test receiver can run on the developer's machine. It defaults to **false**, is set only in the
+development compose overlay, and is read from configuration once at boot - so no header, body field
+or query parameter can widen it, and production inherits the safe behaviour by doing nothing.
+**Date** 2026-08-30
+
+---
+## ADR-074 — The event list is what is emitted, and there is no wildcard
+**Context** Phase 0 drafted eight webhook events. Four of them - `message.created`,
+`visitor.created`, `conversation.updated`, `ticket.updated` - were never emitted by anything.
+**Chosen** Cut the list to the five that are emitted, plus `ping`. It grows when an emitter does.
+**Reason** Offering a subscription to an event that never arrives is worse than not offering it.
+The integrator wires it up, tests nothing - because nothing comes - and discovers months later that
+the silence was our product rather than their bug. A speculative enum entry is a promise, and this
+one had been sitting there since phase 0.
+**No wildcard** `*` would silently start delivering a new event shape to an endpoint that has never
+seen it, on the day we add one. An explicit list means adding an event cannot break anybody.
+**Date** 2026-08-30

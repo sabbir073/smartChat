@@ -2,6 +2,8 @@ import { createPrismaClient, type Database } from '@smartchat/database';
 import {
   AccountService,
   AnalyticsService,
+  ApiKeyService,
+  WebhookService,
   AttachmentService,
   AuthService,
   AutomationService,
@@ -9,6 +11,7 @@ import {
   KbService,
   ConversationService,
   EmailJob,
+  WebhookJob,
   EntitlementService,
   LogMailProvider,
   LoginThrottle,
@@ -53,6 +56,8 @@ export interface Container {
   kb: KbService;
   tickets: TicketService;
   analytics: AnalyticsService;
+  apiKeys: ApiKeyService;
+  webhooks: WebhookService;
   storage: StorageService;
   attachments: AttachmentService;
   properties: PropertyService;
@@ -162,6 +167,21 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const contacts = new ContactService({ db, clock });
   const kb = new KbService({ db, clock });
   const analytics = new AnalyticsService({ db, clock });
+  const apiKeys = new ApiKeyService({ db, clock });
+
+  /**
+   * Webhooks.
+   *
+   * The delivery row is written by the request that caused the event; `notify` is only a nudge so
+   * the dispatcher does not wait for its next sweep. A queue that is down therefore costs latency,
+   * not the delivery - which is the entire reason the row is written first.
+   */
+  const webhooks = new WebhookService({
+    db,
+    clock,
+    notify: (deliveryId) =>
+      queue.enqueue(WebhookJob.DELIVER, { deliveryId }).then(() => undefined),
+  });
 
   /**
    * How a ticket email actually leaves the building.
@@ -197,7 +217,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     });
   };
 
-  const tickets = new TicketService({ db, brand, deliver: deliverTicketMail, clock });
+  const tickets = new TicketService({ db, brand, deliver: deliverTicketMail, webhooks, clock });
 
   /**
    * The API publishes domain events to the same Redis channel the gateway fans out from, rather
@@ -211,6 +231,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     ),
     // An offline message is a request nobody was there to answer, so it becomes a ticket.
     tickets,
+    webhooks,
     clock,
   });
 
@@ -265,6 +286,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     kb,
     tickets,
     analytics,
+    apiKeys,
+    webhooks,
     storage,
     attachments,
     properties,

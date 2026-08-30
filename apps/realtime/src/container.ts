@@ -2,6 +2,7 @@ import {
   AutomationRunner,
   ConversationService,
   PresenceService,
+  WebhookService,
   RedisEventPublisher,
   ConnectionTicketService,
   createRedisClient,
@@ -60,11 +61,22 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
   const presence = new PresenceService(redis);
   const connectionTickets = new ConnectionTicketService(redis);
 
+  /**
+   * The gateway emits webhooks too.
+   *
+   * Almost every conversation in this product starts over a socket, so a webhook service wired
+   * only into the API would miss the event it exists for. It has no `notify` here - this process
+   * has no queue producer - which costs the delivery up to a minute of latency and nothing else:
+   * the row is durable, and the worker's sweep finds it.
+   */
+  const webhooks = new WebhookService({ db, clock });
+
   const conversations = new ConversationService({
     db,
     events: new RedisEventPublisher(redis, (error) =>
       logger.error({ err: error }, 'failed to publish domain event'),
     ),
+    webhooks,
     clock,
   });
 

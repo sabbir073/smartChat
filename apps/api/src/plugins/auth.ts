@@ -30,6 +30,21 @@ declare module 'fastify' {
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
+ * Pull an API key out of the Authorization header, if there is one.
+ *
+ * Deliberately narrow: only `Bearer sck_...`. A visitor's widget credential is also a bearer
+ * token, and treating "any bearer token" as a possible API key would mean every widget request
+ * takes a trip through the key table before failing.
+ */
+function apiKeyFrom(request: FastifyRequest): string | null {
+  const header = request.headers.authorization;
+  if (typeof header !== 'string') return null;
+  const [scheme, value] = header.split(' ');
+  if (scheme?.toLowerCase() !== 'bearer' || !value?.startsWith('sck_')) return null;
+  return value.trim();
+}
+
+/**
  * Double-submit CSRF check.
  *
  * The session cookie is `SameSite=Lax`, which already blocks cross-site form posts. This is the
@@ -110,6 +125,31 @@ export const authPlugin = fp<{ container: Container }>(
      * against the database on every request, so a forged cookie or header resolves to nothing.
      */
     app.decorate('authenticateTenant', async (request: FastifyRequest, reply: FastifyReply) => {
+      /**
+       * A key is another kind of actor, on the same routes.
+       *
+       * Not a parallel API with its own handlers - the same ones, reached with a smaller
+       * permission set. That is what stops the two authorisation paths drifting apart: there is
+       * only one, and a key simply carries fewer permissions into it.
+       *
+       * There is no CSRF check on this path, and that is correct rather than an omission: CSRF
+       * exists because a browser attaches cookies to cross-site requests by itself. Nothing
+       * attaches an Authorization header on anybody's behalf.
+       */
+      const presented = apiKeyFrom(request);
+      if (presented) {
+        const principal = await container.apiKeys.authenticate(presented);
+        // One answer for every kind of refusal - unknown prefix, wrong secret, revoked, expired,
+        // suspended account. Distinguishing them is how a key space gets enumerated.
+        if (!principal) throw new AppError(ErrorCode.UNAUTHENTICATED);
+        request.tenant = container.apiKeys.contextFor(
+          principal,
+          request.requestId,
+          request.clientIp,
+        );
+        return;
+      }
+
       if (!request.currentUser) await loadSession(request, reply);
       const user = request.currentUser;
       if (!user) throw new AppError(ErrorCode.UNAUTHENTICATED);

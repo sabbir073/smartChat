@@ -137,3 +137,53 @@ export const PlatformPermission = {
   SETTINGS_MANAGE: 'platform:settings:manage',
 } as const;
 export type PlatformPermission = (typeof PlatformPermission)[keyof typeof PlatformPermission];
+
+/**
+ * What an API key may be granted.
+ *
+ * Deliberately a *smaller* vocabulary than the permission set a member carries, and expressed in
+ * the language of an integration rather than of a role. A key is not a person: it cannot invite
+ * anybody, change billing, or manage the team, and no combination of scopes adds up to that.
+ *
+ * Each scope expands to real permissions, so a key ends up going through exactly the same checks
+ * as a member. There is no second authorisation path to keep in step.
+ */
+export const ApiScope = {
+  CONVERSATIONS_READ: 'conversations:read',
+  CONTACTS_READ: 'contacts:read',
+  CONTACTS_WRITE: 'contacts:write',
+  TICKETS_READ: 'tickets:read',
+  TICKETS_WRITE: 'tickets:write',
+  ARTICLES_READ: 'articles:read',
+  ARTICLES_WRITE: 'articles:write',
+  REPORTS_READ: 'reports:read',
+} as const;
+export type ApiScope = (typeof ApiScope)[keyof typeof ApiScope];
+
+export const API_SCOPE_VALUES: readonly ApiScope[] = Object.values(ApiScope);
+
+export const API_SCOPE_PERMISSIONS: Record<ApiScope, readonly Permission[]> = {
+  [ApiScope.CONVERSATIONS_READ]: [
+    Permission.CONVERSATION_VIEW_ALL,
+    Permission.VISITOR_VIEW,
+    Permission.PROPERTY_VIEW,
+  ],
+  [ApiScope.CONTACTS_READ]: [Permission.CONTACT_VIEW, Permission.PROPERTY_VIEW],
+  [ApiScope.CONTACTS_WRITE]: [Permission.CONTACT_VIEW, Permission.CONTACT_UPDATE],
+  [ApiScope.TICKETS_READ]: [Permission.TICKET_VIEW, Permission.PROPERTY_VIEW],
+  [ApiScope.TICKETS_WRITE]: [Permission.TICKET_VIEW, Permission.TICKET_MANAGE],
+  [ApiScope.ARTICLES_READ]: [Permission.KB_VIEW, Permission.PROPERTY_VIEW],
+  [ApiScope.ARTICLES_WRITE]: [Permission.KB_VIEW, Permission.KB_MANAGE],
+  [ApiScope.REPORTS_READ]: [Permission.REPORT_VIEW, Permission.PROPERTY_VIEW],
+};
+
+/** Expand a key's scopes into the permission set the tenant context will carry. */
+export function permissionsForScopes(scopes: readonly string[]): Set<Permission> {
+  const resolved = new Set<Permission>();
+  for (const scope of scopes) {
+    const granted = API_SCOPE_PERMISSIONS[scope as ApiScope];
+    if (!granted) continue;
+    for (const permission of granted) resolved.add(permission);
+  }
+  return resolved;
+}

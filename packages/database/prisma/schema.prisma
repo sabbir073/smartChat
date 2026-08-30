@@ -464,6 +464,9 @@ model Account {
   emailDeliveries   EmailDelivery[]
   dailyMetrics      DailyMetric[]
   dailyAgentMetrics DailyAgentMetric[]
+  apiKeys           ApiKey[]
+  webhooks          Webhook[]
+  webhookDeliveries WebhookDelivery[]
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -1606,4 +1609,156 @@ model DailyAgentMetric {
   @@unique([accountId, memberId, day])
   @@index([accountId, day])
   @@map("daily_agent_metrics")
+}
+
+// -----------------------------------------------------------------------------
+// Integrations
+//
+// Two ways in, and one way out. An API key lets somebody else's code read and write through the
+// same routes an agent uses, with fewer permissions. A webhook lets us tell somebody else's code
+// that something happened, without them polling for it.
+// -----------------------------------------------------------------------------
+
+/**
+ * A credential that is not a person.
+ * `ActorType.api_key` already existed in this schema, which is the shape of the answer: a key is
+ * another kind of actor with a smaller permission set, not a parallel authentication system with
+ * its own rules. It therefore goes through the same tenant context, the same permission checks and
+ * the same audit log as a member does.
+ */
+model ApiKey {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  name String
+
+  /**
+   * The visible half of the key: an id, not a secret.
+   * Every request looks the key up by this rather than scanning hashes, and it is what the
+   * dashboard shows so a person can tell two keys apart after the secret is gone forever.
+   */
+  prefix String @unique
+
+  /// SHA-256 of the secret half. See ADR-070 for why this is not Argon2.
+  secretHash String @map("secret_hash")
+
+  /// What this key may do. A subset of the tenant permission strings, validated on write.
+  scopes String[] @default([])
+
+  /**
+   * Restrict a key to certain websites, exactly as a restricted member is restricted.
+   * Empty means every website in the account.
+   */
+  propertyIds String[] @default([]) @map("property_ids")
+
+  /// Updated at most once a minute, so a busy key does not write on every request.
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  expiresAt  DateTime? @map("expires_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  createdByMemberId String? @map("created_by_member_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, id])
+  @@index([accountId, revokedAt])
+  @@map("api_keys")
+}
+
+/// Where an account wants to be told, and about what.
+model Webhook {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+
+  name String
+  url  String
+
+  /**
+   * The signing secret. Shown once, at creation, and never again.
+   * Stored in plain text rather than hashed, because unlike a password we have to be able to
+   * *produce* it on every delivery to sign with. That is a real difference in kind, and the
+   * mitigation is that it authorises nothing: it only proves a delivery came from us.
+   */
+  secret String
+
+  /// Which events. An empty list means nothing is sent - never "everything".
+  events String[] @default([])
+
+  enabled Boolean @default(true)
+
+  /**
+   * Consecutive failures, reset by any success.
+   * An endpoint that has failed many times in a row is gone, not slow, and continuing to retry it
+   * forever is how a queue fills up with deliveries nobody will ever receive.
+   */
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+  disabledAt          DateTime? @map("disabled_at") @db.Timestamptz(6)
+  disabledReason      String?   @map("disabled_reason")
+  lastDeliveryAt      DateTime? @map("last_delivery_at") @db.Timestamptz(6)
+
+  createdByMemberId String? @map("created_by_member_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account    Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  deliveries WebhookDelivery[]
+
+  @@unique([accountId, id])
+  @@index([accountId, deletedAt])
+  @@map("webhooks")
+}
+
+/**
+ * One attempt to tell somebody something - and the record of how it went.
+ * The row is the queue. It is written in the same request that caused the event, so a delivery
+ * cannot be lost by a worker restart or a Redis flush; the job that carries it is an optimisation
+ * for latency, and a sweeper picks up anything the job never got to. That is the difference
+ * between "we told them" and "we published something and hoped".
+ */
+model WebhookDelivery {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  webhookId String @map("webhook_id") @db.Uuid
+
+  event   String
+  /// Exactly the bytes that were signed and sent, so a replay is a replay and not a re-render.
+  payload Json
+
+  status   WebhookDeliveryStatus @default(pending)
+  attempts Int                   @default(0)
+
+  responseStatus Int?    @map("response_status")
+  /// Trimmed hard. An endpoint that answers with a megabyte of HTML must not fill this table.
+  responseBody   String? @map("response_body")
+  error          String?
+
+  /// When this becomes due. Backoff is expressed by moving this forward, not by sleeping.
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  deliveredAt   DateTime? @map("delivered_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  webhook Webhook @relation(fields: [accountId, webhookId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([accountId, id])
+  @@index([accountId, webhookId, createdAt(sort: Desc)])
+  /// The sweeper's query: everything due, oldest first.
+  @@index([status, nextAttemptAt])
+  @@map("webhook_deliveries")
+}
+
+enum WebhookDeliveryStatus {
+  pending
+  /// Accepted by the endpoint with a 2xx.
+  delivered
+  /// Out of attempts. Kept, so somebody can see what was missed.
+  failed
+
+  @@map("webhook_delivery_status")
 }

@@ -17,7 +17,7 @@ previous one is green.
 | **8 — Knowledge base** ✅ | Categories, articles, editor, search, public KB | A published article is reachable publicly and searchable |
 | **9 — Tickets & email** ✅ | Tickets, ticket messages, email abstraction, notifications | Offline message becomes a ticket and sends mail (visible in Mailpit) |
 | **10 — Analytics** ✅ | Rollup tables, scheduled and on-demand rebuilds, reports | Metrics match hand-computed values on seeded data |
-| **11 — Integrations** | Webhooks with signing/retry/logs, public API, API keys | Webhook delivered and verified; API key scoped and revocable |
+| **11 — Integrations** ✅ | Webhooks with signing/retry/logs, scoped API keys on the same routes | Webhook delivered and verified; API key scoped and revocable |
 | **12 — Super admin** | Platform console: accounts, plans, entitlements, usage, health, audit, flags | Suspend an account and observe tenant access stop immediately |
 | **13 — Production** | Hardening, performance, backups, monitoring, CI/CD, prod compose, SSL | Production images build; restore rehearsal succeeds |
 | **14 — Final QA** | Regression, security audit, load test, full E2E, rollback rehearsal | Every item in the acceptance criteria passes; `SECURITY_AUDIT.md` complete |
