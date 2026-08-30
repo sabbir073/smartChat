@@ -3,7 +3,10 @@ export * from './ids.js';
 export type {
   Account,
   AccountMember,
+  Attachment,
   AuditLog,
+  Contact,
+  ContactFieldDefinition,
   Conversation,
   Department,
   DepartmentMember,
@@ -33,7 +36,9 @@ export type {
 export {
   AccountStatus,
   ActorType,
+  AttachmentStatus,
   AgentAvailability,
+  ContactFieldType,
   ConversationChannel,
   ConversationPriority,
   ConversationStatus,

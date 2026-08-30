@@ -44,6 +44,14 @@ export interface BootstrapResult {
   widget: { version: number; config: WidgetConfig };
   /** Drives the widget's online/offline copy before the socket has connected. */
   agentsAvailable: boolean;
+  /**
+   * The largest file this deployment accepts.
+   *
+   * Sent rather than assumed: the limit is a property of the server, and a widget that guesses it
+   * either refuses files the server would have taken or lets somebody upload for a minute before
+   * being told no.
+   */
+  maxUploadBytes: number;
 }
 
 export interface VisitorServiceOptions {
@@ -58,6 +66,7 @@ export interface VisitorServiceOptions {
    * realtime layer's concern, and this keeps the two testable apart.
    */
   isAgentAvailable?: (accountId: string) => Promise<boolean>;
+  maxUploadBytes?: number;
   clock?: Clock;
 }
 
@@ -192,6 +201,7 @@ export class VisitorService {
         isReturning,
       },
       sessionId,
+      maxUploadBytes: this.options.maxUploadBytes ?? 10 * 1024 * 1024,
       property: { publicId: input.publicId, name: property.propertyName },
       widget: { version: property.version, config: property.config },
     };

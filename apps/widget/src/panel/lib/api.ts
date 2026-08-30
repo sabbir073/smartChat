@@ -1,5 +1,6 @@
 import { API_URL } from './runtime.js';
 import type { WidgetConfig } from '@smartchat/validation';
+import type { MessageAttachment, MessageDto } from './types.js';
 
 export interface BootstrapResponse {
   token: string;
@@ -10,6 +11,8 @@ export interface BootstrapResponse {
   widget: { version: number; config: WidgetConfig };
   /** Whether anyone is available right now, so the first render is honest before the socket connects. */
   agentsAvailable: boolean;
+  /** The largest file this deployment accepts. Sent by the server rather than guessed here. */
+  maxUploadBytes: number;
 }
 
 export class WidgetApiError extends Error {
@@ -79,6 +82,23 @@ export const widgetApi = {
 
   pageView: (token: string, page: { url: string; title?: string }) =>
     request<void>('/widget/page-view', { method: 'POST', body: page, token }),
+
+  signUpload: (token: string, input: { conversationId: string; fileName: string; byteSize: number }) =>
+    request<{ attachmentId: string; uploadUrl: string; expiresInSeconds: number }>(
+      '/widget/uploads/sign',
+      { method: 'POST', body: input, token },
+    ),
+
+  confirmUpload: (token: string, attachmentId: string, clientMessageId: string) =>
+    request<{ message: MessageDto; attachment: MessageAttachment }>(
+      `/widget/uploads/${attachmentId}/confirm`,
+      { method: 'POST', body: { clientMessageId }, token },
+    ),
+
+  attachmentUrl: (token: string, attachmentId: string) =>
+    request<{ url: string; expiresInSeconds: number }>(`/widget/attachments/${attachmentId}/url`, {
+      token,
+    }),
 
   /** Leave a message when nobody is available. The server decides what the form may contain. */
   offlineMessage: (token: string, values: Record<string, string>) =>

@@ -36,7 +36,8 @@
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test:unit",
     "e2e:realtime": "node scripts/e2e-realtime.mjs",
     "e2e:team": "node scripts/e2e-team.mjs",
-    "e2e:automation": "node scripts/e2e-automation.mjs"
+    "e2e:automation": "node scripts/e2e-automation.mjs",
+    "e2e:files": "node scripts/e2e-files.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

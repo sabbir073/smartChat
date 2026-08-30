@@ -24,9 +24,15 @@ import {
   type ConversationWithVisitor,
   type PersistedMessage,
 } from '../repositories/conversation.repository.js';
+import { AttachmentRepository } from '../repositories/attachment.repository.js';
 import { VisitorRepository } from '../repositories/visitor.repository.js';
 import { WidgetRepository } from '../repositories/widget.repository.js';
-import { toMessageDto, type EventPublisher, type MessageDto } from '../realtime/events.js';
+import {
+  toMessageDto,
+  type EventPublisher,
+  type MessageAttachment,
+  type MessageDto,
+} from '../realtime/events.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
 
@@ -44,6 +50,21 @@ export interface ConversationServiceOptions {
   clock?: Clock;
 }
 
+/**
+ * A message on its way out.
+ *
+ * `type` and `attachment` are widened beyond what `sendMessageSchema` accepts on purpose. A client
+ * can only ever ask for a text message or a note; a file message is produced by the attachment
+ * service, and only after the bytes have been read and accepted. There is no request shape that
+ * lets somebody claim "this is an image" without one.
+ */
+export interface OutgoingMessage extends Omit<SendMessageInput, 'type' | 'clientMessageId'> {
+  clientMessageId?: string | undefined;
+  type?: 'text' | 'note' | 'file' | 'image' | undefined;
+  attachmentId?: string | undefined;
+  attachment?: MessageAttachment | undefined;
+}
+
 export interface SendResult {
   message: MessageDto;
   conversation: Conversation;
@@ -51,10 +72,16 @@ export interface SendResult {
   created: boolean;
 }
 
+/** A file message keeps its type; everything else a client can send is text. */
+function outgoingType(input: OutgoingMessage): 'text' | 'file' | 'image' {
+  return input.type === 'file' || input.type === 'image' ? input.type : 'text';
+}
+
 export class ConversationService {
   private readonly clock: Clock;
   private readonly repo: ConversationRepository;
   private readonly visitors: VisitorRepository;
+  private readonly attachments: AttachmentRepository;
   private readonly widgets: WidgetRepository;
   private readonly audit: AuditRepository;
 
@@ -62,6 +89,7 @@ export class ConversationService {
     this.clock = options.clock ?? systemClock;
     this.repo = new ConversationRepository(options.db);
     this.visitors = new VisitorRepository(options.db);
+    this.attachments = new AttachmentRepository(options.db);
     this.widgets = new WidgetRepository(options.db);
     this.audit = new AuditRepository(options.db);
   }
@@ -248,7 +276,7 @@ export class ConversationService {
   async sendVisitorMessage(
     identity: VisitorIdentity,
     conversationId: string,
-    input: SendMessageInput,
+    input: OutgoingMessage,
   ): Promise<SendResult> {
     const conversation = await this.repo.findForVisitor(
       identity.accountId,
@@ -258,8 +286,12 @@ export class ConversationService {
     // A visitor asking for a conversation that is not theirs gets the same answer as one asking
     // for a conversation that does not exist.
     if (!conversation) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
-    // A visitor can never write an internal note, whatever they send.
-    return this.persistVisitorMessage(identity, conversationId, { ...input, type: 'text' });
+    // A visitor can never write an internal note, whatever they send. A file message is possible,
+    // but only because the attachment service produced it after verifying the bytes.
+    return this.persistVisitorMessage(identity, conversationId, {
+      ...input,
+      type: outgoingType(input),
+    });
   }
 
   /**
@@ -304,7 +336,7 @@ export class ConversationService {
   private async persistVisitorMessage(
     identity: VisitorIdentity,
     conversationId: string,
-    input: SendMessageInput,
+    input: OutgoingMessage,
   ): Promise<SendResult> {
     const now = this.clock.now();
 
@@ -319,13 +351,14 @@ export class ConversationService {
           clientMessageId: input.clientMessageId,
           senderType: 'visitor',
           senderVisitorId: identity.visitorId,
-          type: 'text',
+          type: outgoingType(input),
           body: input.body,
+          ...(input.attachmentId ? { metadata: { attachmentId: input.attachmentId } } : {}),
           now,
         }),
     );
 
-    const dto = toMessageDto(persisted.message, identity.visitorName ?? null);
+    const dto = toMessageDto(persisted.message, identity.visitorName ?? null, input.attachment);
 
     // Only a genuinely new message is broadcast. Re-broadcasting a deduplicated retry would show
     // the message twice in every agent's open inbox.
@@ -469,6 +502,44 @@ export class ConversationService {
     return updated;
   }
 
+  /**
+   * Put the files back into a replayed transcript.
+   *
+   * Live delivery carries the attachment inline, but a reload and a `sync:since` replay both read
+   * from the database - and a file message whose file is missing renders as an empty bubble with
+   * the file name in it, which is the sort of thing that looks like data loss to the person
+   * reading it. One query per thread load, keyed by message id.
+   */
+  private async withAttachments(
+    accountId: string,
+    conversationId: string,
+    messages: MessageDto[],
+  ): Promise<MessageDto[]> {
+    if (!messages.some((message) => message.type === 'file' || message.type === 'image')) {
+      return messages;
+    }
+    const rows = await this.attachments.listForConversation(accountId, conversationId);
+    const byMessage = new Map(
+      rows.filter((row) => row.messageId).map((row) => [row.messageId as string, row]),
+    );
+    return messages.map((message) => {
+      const row = byMessage.get(message.id);
+      if (!row) return message;
+      return {
+        ...message,
+        attachment: {
+          id: row.id,
+          fileName: row.fileName,
+          contentType: row.contentType,
+          byteSize: row.byteSize,
+          isImage: row.contentType.startsWith('image/'),
+          width: row.width,
+          height: row.height,
+        },
+      };
+    });
+  }
+
   async visitorHistory(
     identity: VisitorIdentity,
     conversationId: string,
@@ -487,7 +558,11 @@ export class ConversationService {
       // Never. Internal notes are invisible to the visitor by construction, not by filtering.
       includeNotes: false,
     });
-    return messages.reverse().map((message) => toMessageDto(message));
+    return this.withAttachments(
+      identity.accountId,
+      conversationId,
+      messages.reverse().map((message) => toMessageDto(message)),
+    );
   }
 
   /** Replay everything the visitor's client has not seen. Used on reconnect. */
@@ -503,7 +578,11 @@ export class ConversationService {
     );
     if (!conversation) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
     const messages = await this.repo.messagesSince(conversationId, lastSeq, false);
-    return messages.map((message) => toMessageDto(message));
+    return this.withAttachments(
+      identity.accountId,
+      conversationId,
+      messages.map((message) => toMessageDto(message)),
+    );
   }
 
   async findVisitorConversation(identity: VisitorIdentity): Promise<Conversation | null> {
@@ -587,7 +666,11 @@ export class ConversationService {
       limit: options.limit ?? 50,
       includeNotes: true,
     });
-    return messages.reverse().map((message) => toMessageDto(message));
+    return this.withAttachments(
+      context.accountId,
+      conversationId,
+      messages.reverse().map((message) => toMessageDto(message)),
+    );
   }
 
   async agentSync(
@@ -597,13 +680,17 @@ export class ConversationService {
   ): Promise<MessageDto[]> {
     await this.get(context, conversationId);
     const messages = await this.repo.messagesSince(conversationId, lastSeq, true);
-    return messages.map((message) => toMessageDto(message));
+    return this.withAttachments(
+      context.accountId,
+      conversationId,
+      messages.map((message) => toMessageDto(message)),
+    );
   }
 
   async sendAgentMessage(
     context: TenantContext,
     conversationId: string,
-    input: SendMessageInput,
+    input: OutgoingMessage,
   ): Promise<SendResult> {
     const memberId = this.requireMemberId(context);
     const conversation = await this.get(context, conversationId);
@@ -629,8 +716,9 @@ export class ConversationService {
           clientMessageId: input.clientMessageId,
           senderType: 'agent',
           senderMemberId: memberId,
-          type: isNote ? 'note' : 'text',
+          type: isNote ? 'note' : outgoingType(input),
           body: input.body,
+          ...(input.attachmentId ? { metadata: { attachmentId: input.attachmentId } } : {}),
           now,
         }),
     );
@@ -639,7 +727,7 @@ export class ConversationService {
       await this.repo.recordFirstResponse(conversationId, now);
     }
 
-    const dto = toMessageDto(persisted.message, context.actorName ?? null);
+    const dto = toMessageDto(persisted.message, context.actorName ?? null, input.attachment);
 
     if (persisted.created) {
       await this.options.events.publish({

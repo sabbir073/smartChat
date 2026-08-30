@@ -88,7 +88,66 @@ export class VisitorRepository {
       },
     });
     if (result.count === 0) return null;
+
+    // An email is the only thing that tells us two browsers are one person, and this is the one
+    // function in the system that ever writes one onto a visitor - pre-chat, the offline form and
+    // `SmartChat('identify')` all arrive here. Linking anywhere else would mean three call sites
+    // to keep in step, and eventually one of them forgets.
+    if (traits.email) {
+      await this.linkToContact(accountId, visitorId, {
+        email: traits.email,
+        ...(traits.name ? { name: traits.name } : {}),
+        ...(traits.phone ? { phone: traits.phone } : {}),
+      });
+    }
+
     return this.db.visitor.findFirst({ where: { id: visitorId, accountId } });
+  }
+
+  /**
+   * Attach this browser to the person behind it, creating that person if they are new.
+   *
+   * Enrichment, so it never throws into the caller: somebody must still be able to start a
+   * conversation on a day when this fails. A race between two visitors giving the same address at
+   * once is settled by the unique index, and the loser simply retries the read.
+   */
+  private async linkToContact(
+    accountId: string,
+    visitorId: string,
+    traits: { email: string; name?: string; phone?: string },
+  ): Promise<void> {
+    const email = traits.email.trim().toLowerCase();
+    if (email.length === 0) return;
+    const now = new Date();
+
+    try {
+      const contact = await this.db.contact.upsert({
+        where: { accountId_email: { accountId, email } },
+        // A returning person updates what we know, but nothing already recorded is overwritten
+        // with nothing: a later visit that omits a name must not erase the name we have.
+        update: {
+          lastSeenAt: now,
+          deletedAt: null,
+          ...(traits.name ? { name: traits.name } : {}),
+          ...(traits.phone ? { phone: traits.phone } : {}),
+        },
+        create: {
+          accountId,
+          email,
+          name: traits.name ?? null,
+          phone: traits.phone ?? null,
+          firstSeenAt: now,
+          lastSeenAt: now,
+        },
+      });
+
+      await this.db.visitor.updateMany({
+        where: { accountId, id: visitorId },
+        data: { contactId: contact.id },
+      });
+    } catch {
+      /* A contact is context. Failing to record one must never cost somebody a conversation. */
+    }
   }
 
   // ---------------------------------------------------------------------------

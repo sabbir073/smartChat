@@ -609,3 +609,111 @@ button {
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/* ---- attachments ------------------------------------------------------------ */
+
+/* A file bubble is its own control, so the padding a text bubble needs gets in the way. */
+.bubble[data-file] {
+  padding: 6px;
+  background: var(--sc-surface-alt);
+}
+
+.attachment-image {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  border-radius: calc(var(--sc-radius) - 6px);
+  overflow: hidden;
+  max-width: 220px;
+}
+
+.attachment-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+  object-fit: cover;
+}
+
+.attachment-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 180px;
+  height: 110px;
+  font-size: 12.5px;
+  color: var(--sc-ink-muted);
+}
+
+.attachment-file {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: calc(var(--sc-radius) - 6px);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+button.attachment-file:hover {
+  background: var(--sc-surface);
+}
+
+.attachment-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+}
+
+.attachment-size {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+.spinner-sm {
+  width: 18px;
+  height: 18px;
+  border-width: 2px;
+  flex-shrink: 0;
+}
+
+.composer-attach {
+  flex-shrink: 0;
+  border: 0;
+  background: none;
+  color: var(--sc-ink-muted);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.composer-attach:hover:not(:disabled) {
+  background: var(--sc-surface-alt);
+  color: var(--sc-ink);
+}
+
+.composer-attach:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.composer-error {
+  flex-basis: 100%;
+  margin: 0 0 6px;
+  font-size: 12.5px;
+  color: #b91c1c;
+}

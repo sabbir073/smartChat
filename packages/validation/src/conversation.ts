@@ -95,3 +95,25 @@ export type ListMessagesInput = z.infer<typeof listMessagesSchema>;
 export type ListConversationsInput = z.infer<typeof listConversationsSchema>;
 export type UpdateConversationInput = z.infer<typeof updateConversationSchema>;
 export type AssignConversationInput = z.infer<typeof assignConversationSchema>;
+
+/**
+ * Asking for somewhere to put a file.
+ *
+ * The size is a declaration, used to refuse an obviously-too-large upload before anybody spends
+ * bandwidth on it. It is checked again against the real object afterwards, because a declaration
+ * is not a measurement.
+ */
+export const signUploadSchema = z.object({
+  conversationId: uuidSchema,
+  fileName: z.string().trim().min(1).max(255),
+  byteSize: z.number().int().min(1),
+});
+
+export const confirmUploadSchema = z.object({
+  clientMessageId: clientMessageIdSchema.optional(),
+  /** Optional caption. The file name is used when there is none. */
+  body: z.string().trim().max(2000).optional(),
+});
+
+export type SignUploadInput = z.infer<typeof signUploadSchema>;
+export type ConfirmUploadInput = z.infer<typeof confirmUploadSchema>;

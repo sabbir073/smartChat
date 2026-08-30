@@ -30,7 +30,7 @@ against mocks.
 
 ## 2a. Scripted checks that run against the live stack
 
-Four scripts exist so that "it works" is a command rather than an opinion. All need
+Five scripts exist so that "it works" is a command rather than an opinion. All need
 `docker compose up -d` and each creates its own throwaway account, so they can be run repeatedly.
 
 | Command | What it proves |
@@ -41,6 +41,12 @@ Four scripts exist so that "it works" is a command rather than an opinion. All n
 | `pnpm e2e:team` | Phase 5: departments and roles, the invitation round trip (the link is read out of the delivered email in Mailpit, so a broken template fails the test), an invited address being unable to sign in before accepting, single-use links, and then the thing that actually matters — a scoped agent seeing their own website and not the other one, in the list, by direct id, by message, by search, and when trying to reply. Plus the owner guards and immediate effect of a scope change. |
 
 | `pnpm e2e:automation` | Phase 6, over real sockets: a trigger firing on a real visit and its tag, priority and bot attribution landing on a real conversation; "once per visit" surviving a reload; a different visitor still being greeted; a rule scoped to one website staying off another; a negative condition on an unknown fact staying silent (ADR-035); pre-chat answers reaching the agent with an unconfigured key dropped; the offline form refusing an incomplete submission and accepting a complete one into the inbox; shortcut CRUD with a duplicate key refused; cross-account reads answering 404; and a paused trigger sending nothing. |
+
+| `pnpm e2e:files` | Phase 7, against the real object store: a file uploaded and downloaded and compared byte for byte, from both sides; an executable named and declared as a picture refused by its signature *and deleted from the bucket*; a client that understated its size caught by measuring the real object; a storage key with nothing from the file name in it; cross-account and cross-visitor reads answering 404; a replayed transcript that still carries its files; and a contact assembled from two browsers that gave the same address in different casing, with custom-field validation. |
+
+`pnpm e2e:files` is also what proves the hand-written SigV4 signer (ADR-043) actually works, which
+is the only way that decision was defensible: it uploads with a signed URL, downloads with another,
+and compares the bytes.
 
 `pnpm e2e:automation` earned its place immediately: it found ADR-037, where the server validated
 form answers against "no configuration" on any property whose widget row had not been created yet -

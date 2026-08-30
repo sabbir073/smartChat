@@ -347,6 +347,75 @@ export function App() {
   }
 
   /**
+   * Fetch a download URL for one file.
+   *
+   * Per request and short-lived. The panel never holds one for longer than it takes to show a
+   * picture or open a file, because a URL that outlives the conversation is a file that outlives
+   * the conversation.
+   */
+  async function resolveAttachmentUrl(attachmentId: string): Promise<string> {
+    const token = session?.token ?? readToken(resolved.publicId);
+    if (!token) throw new Error('no token');
+    const result = await widgetApi.attachmentUrl(token, attachmentId);
+    return result.url;
+  }
+
+  /**
+   * Send a file.
+   *
+   * Three steps, and the bubble appears at the first one: ask for a target, PUT the bytes straight
+   * to storage, then tell the server it is there. A failure at any step leaves the bubble marked
+   * rather than removing it - the visitor chose that file, and making it disappear tells them
+   * nothing about what happened to it.
+   */
+  async function handleAttach(file: File): Promise<void> {
+    const chat = client.current;
+    const token = session?.token;
+    if (!chat?.conversationId || !token) return;
+
+    const clientMessageId = ulid();
+    const optimistic: PanelMessage = {
+      id: clientMessageId,
+      conversationId: chat.conversationId,
+      seq: Number.MAX_SAFE_INTEGER,
+      clientMessageId,
+      senderType: 'visitor',
+      senderId: null,
+      senderName: null,
+      type: 'file',
+      body: file.name,
+      createdAt: new Date().toISOString(),
+      readAt: null,
+      delivery: 'pending',
+      uploading: { fileName: file.name, byteSize: file.size },
+    };
+    setMessages((current) => [...current, optimistic]);
+
+    try {
+      const signed = await widgetApi.signUpload(token, {
+        conversationId: chat.conversationId,
+        fileName: file.name,
+        byteSize: file.size,
+      });
+
+      const put = await fetch(signed.uploadUrl, { method: 'PUT', body: file });
+      if (!put.ok) throw new Error(`upload failed: ${put.status}`);
+
+      const confirmed = await widgetApi.confirmUpload(token, signed.attachmentId, clientMessageId);
+      // The server's message replaces the optimistic one, keyed on the client id it carries back.
+      upsertMessage(confirmed.message, 'sent');
+    } catch {
+      setMessages((current) =>
+        current.map((message) =>
+          message.clientMessageId === clientMessageId
+            ? { ...message, delivery: 'failed', uploading: undefined }
+            : message,
+        ),
+      );
+    }
+  }
+
+  /**
    * Send optimistically, then reconcile.
    *
    * The bubble appears immediately as `pending` and is promoted to `sent` only when the server
@@ -538,6 +607,7 @@ export function App() {
             messages={messages}
             welcome={config.content.welcomeMessage}
             agentTyping={agentTyping && config.behaviour.showAgentTyping}
+            resolveAttachmentUrl={resolveAttachmentUrl}
           />
 
           {closed ? (
@@ -562,6 +632,15 @@ export function App() {
               disabled={composerDisabled}
               onSend={handleSend}
               onTyping={(typing) => client.current?.typing(typing)}
+              maxBytes={session?.maxUploadBytes ?? 10 * 1024 * 1024}
+              // A file needs somewhere to go. Until the visitor has said something there is no
+              // conversation, so there is nothing to attach it to - and an attach button that
+              // silently does nothing is worse than one that is not there.
+              onAttach={
+                client.current?.conversationId && !closed && !resolved.preview
+                  ? (file) => void handleAttach(file)
+                  : undefined
+              }
             />
           )}
         </>

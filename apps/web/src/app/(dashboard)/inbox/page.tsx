@@ -98,7 +98,20 @@ export default function InboxPage() {
       let next: ThreadMessage[];
       if (index >= 0) {
         next = thread.slice();
-        next[index] = { ...(thread[index] as ThreadMessage), ...message };
+        /**
+         * Client-only state does not survive a message from the server.
+         *
+         * `uploading` describes an upload in flight, and one that has come back cannot still be in
+         * flight - but a plain merge keeps it, because the incoming message has no such key. The
+         * file arrives, the agent sees "Sending" for ever, and nothing in the API tells them
+         * otherwise. Found in a browser; the suites could not have caught it, because the server
+         * was right the whole time.
+         */
+        next[index] = {
+          ...(thread[index] as ThreadMessage),
+          ...message,
+          uploading: message.uploading,
+        };
       } else {
         next = thread.concat(message);
       }
@@ -502,6 +515,60 @@ export default function InboxPage() {
   }, []);
 
   /**
+   * Send a file.
+   *
+   * Ask for a target, PUT the bytes straight to storage, then tell the server. The bubble appears
+   * at the first step and stays if anything fails - an agent who dragged a file in and watched it
+   * vanish has no idea whether the customer got it.
+   */
+  const sendFile = useCallback(
+    async (conversationId: string, file: File): Promise<void> => {
+      const clientMessageId = ulid();
+      upsertMessage({
+        id: clientMessageId,
+        conversationId,
+        seq: Number.MAX_SAFE_INTEGER,
+        clientMessageId,
+        senderType: 'agent',
+        senderId: null,
+        senderName: user?.name ?? null,
+        type: 'file',
+        body: file.name,
+        createdAt: new Date().toISOString(),
+        readAt: null,
+        delivery: 'pending',
+        uploading: { fileName: file.name, byteSize: file.size },
+      });
+
+      try {
+        const signed = await api.post<{ attachmentId: string; uploadUrl: string }>(
+          '/uploads/sign',
+          { conversationId, fileName: file.name, byteSize: file.size },
+        );
+        const put = await fetch(signed.data.uploadUrl, { method: 'PUT', body: file });
+        if (!put.ok) throw new Error(`upload failed: ${put.status}`);
+
+        const confirmed = await api.post<{ message: AgentMessage }>(
+          `/uploads/${signed.data.attachmentId}/confirm`,
+          { clientMessageId },
+        );
+        upsertMessage({ ...confirmed.data.message, delivery: 'sent' });
+      } catch (caught) {
+        setMessages((current) => ({
+          ...current,
+          [conversationId]: (current[conversationId] ?? []).map((message) =>
+            message.clientMessageId === clientMessageId
+              ? { ...message, delivery: 'failed', uploading: undefined }
+              : message,
+          ),
+        }));
+        toast.error(caught instanceof ApiError ? caught.message : 'That file could not be sent.');
+      }
+    },
+    [upsertMessage, user?.name, toast],
+  );
+
+  /**
    * Count a shortcut as used.
    *
    * Fire-and-forget on purpose: the ordering of a picker is not worth an error message, and the
@@ -769,6 +836,11 @@ export default function InboxPage() {
                 onTyping={onTyping}
                 shortcuts={shortcuts}
                 onShortcutUsed={countShortcutUse}
+                onAttach={
+                  selected.status === 'closed'
+                    ? undefined
+                    : (file) => void sendFile(selected.id, file)
+                }
                 placeholderValues={{
                   'visitor.name': selected.visitor.name,
                   'visitor.email': selected.visitor.email,

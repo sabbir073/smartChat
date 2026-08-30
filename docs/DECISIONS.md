@@ -624,3 +624,100 @@ wording before sending. A placeholder we cannot fill is left visible rather than
 agent who can see `{{visitor.email}}` in the box will fix it, and one who sees "We will write to ."
 will not.
 **Date** 2026-08-27
+
+---
+## ADR-043 — S3 request signing is written here, not imported
+**Context** Attachments need three things from object storage: a URL a browser can PUT to, a read
+of the object so the server can check what it actually is, and a delete for the ones it refuses.
+**Chosen** SigV4 implemented in `packages/core/src/storage/sigv4.ts` - about seventy lines of
+HMAC-SHA256 over a canonical string - rather than `@aws-sdk/client-s3`.
+**Reason** The SDK is the right default when a project uses S3 broadly. This one uses three
+operations against one bucket, and the SDK brings roughly two hundred packages and twenty megabytes
+into two production images to provide them. The primitive is the same one the visitor token already
+uses.
+**Why this is safe to hand-roll where a crypto primitive would not be** A wrong signature fails
+loudly and immediately with `SignatureDoesNotMatch`. There is no quiet-wrongness mode where files
+are stored insecurely without anybody noticing - either the upload works or it does not. It is
+verified against the real MinIO by `scripts/e2e-files.mjs`, which uploads, downloads and compares
+the bytes, rather than by inspection.
+**Honest disclosure** The install of the SDK also stalled repeatedly in this environment, which is
+what prompted the question. That is not why the answer came out this way, but it is why the
+question was asked, and a reader deserves to know that.
+**Revisit when** Multipart uploads, cross-region replication, or anything else that needs more of
+S3 than a single PUT and GET. At that point the SDK earns its size.
+**Date** 2026-08-27
+
+---
+## ADR-044 — What a file is, is decided by reading it
+**Context** A browser sends a `Content-Type` and a file name. Both are chosen by whoever is
+uploading.
+**Chosen** Neither is stored. After the object is uploaded the server reads its first bytes and
+matches them against a closed allow-list of formats; the type and extension recorded on the row are
+the ones that check produced. Anything unrecognised is deleted from the bucket and the row is marked
+rejected.
+**Reason** This is the entire difference between an upload feature and an arbitrary file host. A
+PHP script called `photo.png`, declared as `image/png`, is recognised as text - and served as
+`text/plain`, which nothing will execute for us. An ELF or PE binary matches nothing and is refused
+outright.
+**Also** The name is forced to end in what the bytes really are, so a file can never be handed back
+under a description that misrepresents it. Bidi override characters are stripped from names, because
+`report<U+202E>gnp.exe` renders as `report.exe.png` in a file list and somebody clicks it.
+**Date** 2026-08-27
+
+---
+## ADR-045 — A storage key contains nothing a client chose
+**Context** The key has to be fixed when the upload is signed, which is before the bytes exist.
+**Chosen** `a/{accountId}/{propertyId}/{attachmentId}` - three uuids this service generated, and no
+extension. The builder asserts each one is a uuid and throws otherwise.
+**Reason** There is no traversal to defend against if nothing traversable ever reaches the key.
+The extension is left out for a subtler reason: at signing time the only thing known about the file
+type is what the client claimed, and a key that ends in `.png` would be a stored path asserting
+something nobody has checked. Nothing is lost - a download URL pins the content type and file name
+into its own signature, both taken from the verified row.
+**Date** 2026-08-27
+
+---
+## ADR-046 — Bytes never pass through the API
+**Context** An upload could be proxied through the service, or sent straight to the store with a
+signed URL.
+**Chosen** Straight to the store. The service signs a target, the browser PUTs, and then tells the
+service it is done - at which point the object is read back and verified.
+**Reason** Proxying would put a twenty-five megabyte body through an API process for no security
+benefit, because the verification happens after the write either way. What the signed URL grants is
+deliberately narrow: one method, one key, a few minutes, no read and no listing. Handing that to a
+visitor's browser on somebody else's website gives that page no reach beyond the single object we
+chose for it.
+**The gap this leaves, and how it is closed** The store enforces nothing on our behalf - a client
+that declared one megabyte can upload forty. So the size is measured again from the real object at
+confirmation, not trusted from the declaration, and an object over the limit is deleted. Tested.
+**Date** 2026-08-27
+
+---
+## ADR-047 — A contact is a person; a visitor is a browser
+**Context** The same human writes in from a laptop and a phone, on two of an account's websites.
+That is four `Visitor` rows and one person.
+**Chosen** A `Contact` at account level, joined to visitors the moment an email address appears -
+and joined *only* then.
+**Reason** An email is the one identifier a support product can actually rely on. "These four
+visits are the same person, because they all gave us this address" is a claim we can show and
+defend; "these visits look similar" is a guess dressed up as a fact, and an agent who acts on it
+will eventually tell somebody about a conversation that was not theirs.
+**Where the join happens** In `VisitorRepository.identify`, which is the one function in the system
+that ever writes an email onto a visitor - pre-chat, the offline form and `SmartChat('identify')`
+all arrive there. Doing it in the callers would mean three places to keep in step, and eventually
+one of them forgets.
+**Scope** A restricted agent sees the whole person but only the parts of their history that
+happened on websites they work on. The person is not partitioned; the history is.
+**Date** 2026-08-27
+
+---
+## ADR-048 — Attachments reference the conversation, not the message
+**Context** An attachment belongs to a message. The obvious foreign key is to `messages`.
+**Problem** Tenant-scoped references in this schema are composite, so that key would require a
+unique index on `messages(account_id, id)` - gigabytes on a table targeting 10^8 rows.
+**Chosen** A real composite foreign key to `conversations`, and `message_id` as a plain indexed
+column with no constraint.
+**Reason** The integrity that matters is already there: deleting a conversation cascades to its
+messages and its attachments together, so an attachment cannot outlive the message it belongs to.
+The unique index would buy a guarantee we already have, at a cost measured in gigabytes.
+**Date** 2026-08-27

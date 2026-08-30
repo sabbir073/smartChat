@@ -152,3 +152,48 @@ export interface AutomationSchemaDto {
   fields: { field: string; type: 'string' | 'number' | 'boolean'; operators: string[] }[];
   placeholders: string[];
 }
+
+export interface ContactDto {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  notes: string | null;
+  customFields: Record<string, string>;
+  visitorCount: number;
+  propertyIds: string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export interface ContactFieldDto {
+  id: string;
+  key: string;
+  label: string;
+  type: 'text' | 'number' | 'url' | 'date' | 'select' | 'boolean';
+  options: string[];
+  position: number;
+}
+
+export interface ContactHistoryDto {
+  contact: ContactDto;
+  conversations: {
+    id: string;
+    propertyId: string;
+    status: string;
+    subject: string | null;
+    channel: string;
+    startedAt: string;
+    lastMessageAt: string;
+    messageCount: number;
+  }[];
+  files: {
+    id: string;
+    fileName: string;
+    contentType: string;
+    byteSize: number;
+    conversationId: string;
+    createdAt: string;
+  }[];
+}

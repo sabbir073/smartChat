@@ -1,6 +1,7 @@
 import type {
   Account,
   AccountMember,
+  Contact,
   Property,
   PropertyDomain,
   Session,
@@ -240,5 +241,39 @@ export function toShortcutDto(shortcut: Shortcut): ShortcutDto {
     usageCount: shortcut.usageCount,
     createdAt: shortcut.createdAt.toISOString(),
     updatedAt: shortcut.updatedAt.toISOString(),
+  };
+}
+
+export interface ContactDto {
+  id: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  company: string | null;
+  notes: string | null;
+  customFields: Record<string, string>;
+  /** How many browser identities we have joined to this person, and on which websites. */
+  visitorCount: number;
+  propertyIds: string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+}
+
+export function toContactDto(
+  contact: Contact & { visitors?: { id: string; propertyId: string }[] },
+): ContactDto {
+  const visitors = contact.visitors ?? [];
+  return {
+    id: contact.id,
+    name: contact.name,
+    email: contact.email,
+    phone: contact.phone,
+    company: contact.company,
+    notes: contact.notes,
+    customFields: (contact.customFields ?? {}) as Record<string, string>,
+    visitorCount: visitors.length,
+    propertyIds: [...new Set(visitors.map((visitor) => visitor.propertyId))],
+    firstSeenAt: contact.firstSeenAt.toISOString(),
+    lastSeenAt: contact.lastSeenAt.toISOString(),
   };
 }

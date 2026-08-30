@@ -60,6 +60,18 @@ disconnect and temporary ban.
 **Spam / flooding** — layered limits: per visitor, per property, per account, per IP. Configurable
 ban system (temporary and permanent) at visitor and IP level.
 
+**Malicious uploads** — implemented in phase 7. The bytes never pass through the API: a signed URL
+authorises one PUT, to one key, for five minutes, with no read and no listing. What was actually
+uploaded is then read back and identified from its leading bytes against a closed allow-list; the
+browser's `Content-Type` and the file name are claims and neither is stored. Anything unrecognised —
+every executable and script — is deleted from the bucket and the row marked rejected, so a signed
+URL cannot be used to park content on our storage. The declared size is re-measured from the real
+object, because the store enforces nothing on our behalf. Storage keys are built from three uuids
+this service generated and contain not one character a client chose, so there is no traversal to
+defend against. Download URLs are minted per request against the caller's own access, last ten
+minutes, and pin the content type and disposition into their own signature. Non-image types are
+always served `attachment`. See docs/FILES.md and ADR-044 through ADR-046.
+
 **Secret exposure** — API keys stored as SHA-256 hashes and shown exactly once; webhook secrets never
 returned by any endpoint after creation; `.env` is gitignored; no secret is ever logged (the logger
 has a redaction list); the widget snippet contains no credential at all.

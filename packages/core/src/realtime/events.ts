@@ -23,6 +23,14 @@ export interface MessageDto {
   createdAt: string;
   readAt: string | null;
   /**
+   * The file this message is, when it is a file.
+   *
+   * Carried inline rather than looked up by the client: a message and its attachment arrive
+   * together over the socket, so a bubble never renders as an empty box waiting for a second
+   * request that may not come.
+   */
+  attachment?: MessageAttachment;
+  /**
    * Structured detail for a system message, so clients can render their own wording instead of
    * displaying whatever English happened to be written into `body` when the row was created.
    *
@@ -31,6 +39,23 @@ export interface MessageDto {
    * metadata is an internal bag and must not leak by default.
    */
   event?: SystemMessageEvent;
+}
+
+/**
+ * What a client needs to render an attachment.
+ *
+ * Deliberately not the storage key, and deliberately not a URL. A download URL is short-lived and
+ * is minted per request against the caller's own permission, so putting one in a transcript would
+ * mean either a dead link or a live one that outlives the reader's access.
+ */
+export interface MessageAttachment {
+  id: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  isImage: boolean;
+  width: number | null;
+  height: number | null;
 }
 
 /** What a system message records. `body` is the human-readable fallback for exports. */
@@ -66,6 +91,7 @@ type MessageMaybeWithSender = Message & {
 export function toMessageDto(
   message: MessageMaybeWithSender,
   senderName?: string | null,
+  attachment?: MessageAttachment | undefined,
 ): MessageDto {
   // The caller's name wins (it is the live sender's own context); otherwise fall back to the
   // relation, which is what makes a reloaded transcript read the same as the live one.
@@ -86,6 +112,7 @@ export function toMessageDto(
     body: message.body,
     createdAt: message.createdAt.toISOString(),
     readAt: message.readAt?.toISOString() ?? null,
+    ...(attachment ? { attachment } : {}),
     ...(() => {
       const event = readSystemEvent(message);
       return event ? { event } : {};

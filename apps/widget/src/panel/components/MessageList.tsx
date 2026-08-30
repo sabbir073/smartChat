@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { PanelMessage } from '../lib/types.js';
+import { AttachmentBubble, UploadingBubble } from './Attachment.js';
 
 /**
  * The visitor-facing wording for a system message.
@@ -30,10 +31,12 @@ export function MessageList({
   messages,
   welcome,
   agentTyping,
+  resolveAttachmentUrl,
 }: {
   messages: PanelMessage[];
   welcome: string;
   agentTyping: boolean;
+  resolveAttachmentUrl: (attachmentId: string) => Promise<string>;
 }) {
   const bottom = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
@@ -87,8 +90,21 @@ export function MessageList({
             <div
               className={`bubble ${fromVisitor ? 'bubble-visitor' : 'bubble-agent'}`}
               data-delivery={message.delivery}
+              data-file={message.type === 'file' || message.type === 'image' || undefined}
             >
-              {message.body}
+              {message.uploading ? (
+                <UploadingBubble
+                  fileName={message.uploading.fileName}
+                  byteSize={message.uploading.byteSize}
+                />
+              ) : message.attachment ? (
+                <AttachmentBubble
+                  attachment={message.attachment}
+                  resolveUrl={resolveAttachmentUrl}
+                />
+              ) : (
+                message.body
+              )}
             </div>
             <div className="message-meta">
               {!fromVisitor && message.senderName && <span>{message.senderName}</span>}

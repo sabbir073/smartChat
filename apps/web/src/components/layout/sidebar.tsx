@@ -61,6 +61,14 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/contacts',
+    label: 'Contacts',
+    available: true,
+    icon: icon(
+      'M17 20v-1.5a3.5 3.5 0 0 0-3.5-3.5h-4A3.5 3.5 0 0 0 6 18.5V20M14.5 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z',
+    ),
+  },
+  {
     href: '/automation',
     label: 'Automation',
     available: true,

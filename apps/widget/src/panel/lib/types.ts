@@ -5,6 +5,17 @@ export interface SystemMessageEvent {
   actorName?: string;
 }
 
+/** What the panel needs to render a file. Never a URL: those are minted per request. */
+export interface MessageAttachment {
+  id: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  isImage: boolean;
+  width: number | null;
+  height: number | null;
+}
+
 export interface MessageDto {
   id: string;
   conversationId: string;
@@ -17,6 +28,8 @@ export interface MessageDto {
   body: string;
   createdAt: string;
   readAt: string | null;
+  /** Present on `type: 'file'` and `type: 'image'`. */
+  attachment?: MessageAttachment;
   /** Present only on `type: 'system'`. */
   event?: SystemMessageEvent;
 }
@@ -29,4 +42,6 @@ export interface MessageDto {
  */
 export interface PanelMessage extends MessageDto {
   delivery: 'pending' | 'sent' | 'failed';
+  /** While a file is on its way up, so the bubble can show progress rather than nothing. */
+  uploading?: { fileName: string; byteSize: number };
 }

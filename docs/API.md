@@ -92,8 +92,10 @@ GET    /conversations/:id/messages    POST   /conversations/:id/messages
 POST   /conversations/:id/notes       POST   /conversations/:id/read
 
 GET    /visitors                      GET    /visitors/:id
-GET    /contacts                      POST   /contacts
-GET    /contacts/:id                  PATCH  /contacts/:id
+GET    /contacts                      GET    /contacts/:id
+GET    /contacts/:id/history          PATCH  /contacts/:id
+GET    /contacts-fields               POST   /contacts-fields
+PATCH  /contacts-fields/:id           DELETE /contacts-fields/:id
 
 GET    /automation/schema
 GET    /automation/triggers           POST   /automation/triggers
@@ -109,12 +111,15 @@ GET    /webhooks                      POST   /webhooks
 GET    /api-keys                      POST   /api-keys
 DELETE /api-keys/:id
 
-POST   /uploads/sign                  POST   /uploads/complete
+POST   /uploads/sign                  POST   /uploads/:id/confirm
+GET    /attachments/:id/url
 
 # widget surface
 POST   /widget/session                GET    /widget/config
 POST   /widget/conversations          POST   /widget/messages
 POST   /widget/offline-message        POST   /widget/events
+POST   /widget/uploads/sign           POST   /widget/uploads/:id/confirm
+GET    /widget/attachments/:id/url
 POST   /widget/realtime-ticket
 ```
 

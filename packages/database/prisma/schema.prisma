@@ -172,6 +172,29 @@ enum TriggerMatch {
 }
 
 /// How often one trigger may fire for one person. `every_time` is still bounded by a cooldown.
+/// Where an upload is in its life. A file is invisible to anybody until it is `ready`.
+enum AttachmentStatus {
+  /// A target has been signed. The bytes may or may not exist yet; nothing trusts this row.
+  pending
+  /// The object exists, and its size, extension and actual file signature were all checked.
+  ready
+  /// Verification failed. Kept briefly so the uploader can be told why, then pruned.
+  rejected
+
+  @@map("attachment_status")
+}
+
+enum ContactFieldType {
+  text
+  number
+  url
+  date
+  select
+  boolean
+
+  @@map("contact_field_type")
+}
+
 enum TriggerFrequency {
   once_per_session
   once_per_visitor
@@ -355,7 +378,7 @@ model Account {
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
 
-  owner         User?               @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  owner         User?                    @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
   members       AccountMember[]
   roles         Role[]
   departments   Department[]
@@ -368,6 +391,9 @@ model Account {
   usage         UsageRecord[]
   triggers      Trigger[]
   shortcuts     Shortcut[]
+  attachments   Attachment[]
+  contacts      Contact[]
+  contactFields ContactFieldDefinition[]
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -465,6 +491,7 @@ model Property {
   sessions      VisitorSession[]
   conversations Conversation[]
   triggers      Trigger[]
+  attachments   Attachment[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -677,6 +704,9 @@ model Visitor {
   os         String?
   deviceType DeviceType @default(unknown) @map("device_type")
 
+  /// The person behind this browser, once we know their email address. Null until then.
+  contactId String? @map("contact_id") @db.Uuid
+
   /// Abuse control. A ban blocks new conversations and messages, not page views.
   isBanned    Boolean   @default(false) @map("is_banned")
   bannedUntil DateTime? @map("banned_until") @db.Timestamptz(6)
@@ -692,11 +722,13 @@ model Visitor {
   sessions       VisitorSession[]
   conversations  Conversation[]
   triggerFirings TriggerFiring[]
+  contact        Contact?         @relation(fields: [accountId, contactId], references: [accountId, id], onDelete: SetNull)
 
   @@unique([accountId, id])
   @@unique([propertyId, externalId])
   @@index([accountId, propertyId, lastSeenAt(sort: Desc)])
   @@index([propertyId, email])
+  @@index([accountId, contactId])
   // Inbox search by who the visitor is. Two separate trigram indexes rather than one composite:
   // a search matches either column on its own, and a combined index could serve neither alone.
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
@@ -825,6 +857,7 @@ model Conversation {
   messages       Message[]
   reads          ConversationRead[]
   triggerFirings TriggerFiring[]
+  attachments    Attachment[]
 
   @@unique([accountId, id])
   // Drives the inbox list.
@@ -1034,4 +1067,138 @@ model Shortcut {
   @@unique([accountId, key])
   @@index([accountId, deletedAt, usageCount(sort: Desc)])
   @@map("shortcuts")
+}
+
+// -----------------------------------------------------------------------------
+// Files
+// -----------------------------------------------------------------------------
+
+/**
+ * One uploaded file.
+ * The bytes live in object storage; this row is the record of what they are. Nothing here is taken
+ * from the client except the original file name, which is sanitised before it is stored and never
+ * used to build a storage key. `contentType` is what the bytes actually turned out to be when
+ * their signature was read - not what the browser claimed.
+ * A row is created when an upload target is signed and is `pending` until the object has been
+ * fetched back and checked. Nothing outside this service can see a pending attachment, so a signed
+ * target that is never used, or is used to store something else entirely, produces a row that is
+ * rejected and pruned rather than a file anybody can reach.
+ */
+model Attachment {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+
+  /**
+   * The message this file was sent as, once it has been sent.
+   * Not a foreign key, deliberately. Referencing `messages` across the tenant key would mean a
+   * unique index on `(account_id, id)` over the largest table in the system - gigabytes, to
+   * enforce a link that the conversation foreign key already protects: deleting a conversation
+   * takes its messages and its attachments together, so an attachment cannot outlive its message.
+   */
+  messageId String? @map("message_id") @db.Uuid
+
+  uploaderType      SenderType @map("uploader_type")
+  uploaderMemberId  String?    @map("uploader_member_id") @db.Uuid
+  uploaderVisitorId String?    @map("uploader_visitor_id") @db.Uuid
+
+  /// Derived server-side from ids we already trust. Never from anything a client sent.
+  storageKey String @unique @map("storage_key")
+  bucket     String
+
+  /// The original name, sanitised for display and for the download header. Not part of the key.
+  fileName    String  @map("file_name")
+  /// Decided by reading the first bytes of the stored object. The client's claim is not stored.
+  contentType String  @map("content_type")
+  byteSize    Int     @map("byte_size")
+  checksum    String?
+  width       Int?
+  height      Int?
+
+  status          AttachmentStatus @default(pending)
+  rejectionReason String?          @map("rejection_reason")
+
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  deletedAt   DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property     Property     @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [accountId, conversationId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([accountId, id])
+  /// Rendering a thread: every ready file in one conversation.
+  @@index([accountId, conversationId, status])
+  /// The reverse lookup when a thread is loaded message by message.
+  @@index([messageId])
+  /// The cleanup job: pending rows that were never confirmed, and rejected ones.
+  @@index([status, createdAt])
+  @@map("attachments")
+}
+
+// -----------------------------------------------------------------------------
+// Contacts
+// -----------------------------------------------------------------------------
+
+/**
+ * A person, at account level.
+ * A `Visitor` is a browser on one website; a contact is the human behind however many of those
+ * there are. They are joined the moment we learn an email address, which is the only identifier a
+ * support product can rely on - and the join is explicit rather than implied by a query, so an
+ * agent can see which visits belong to the same person and which are only a guess.
+ */
+model Contact {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String  @map("account_id") @db.Uuid
+  email     String? @db.Citext
+  name      String?
+  phone     String?
+  company   String?
+  /// Agent-written notes about the person, not about any one conversation.
+  notes     String?
+
+  /// Values for the account's own field definitions. Validated against them on write.
+  customFields Json @default("{}") @map("custom_fields")
+
+  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  visitors Visitor[]
+
+  @@unique([accountId, id])
+  /// One contact per address per account. Citext, so casing cannot create a second person.
+  @@unique([accountId, email])
+  @@index([accountId, lastSeenAt(sort: Desc)])
+  // Substring search over the contact list. Trigram GIN for the same reason as the inbox.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("contacts")
+}
+
+/// A field the account has decided it wants to record about people. Data, not code.
+model ContactFieldDefinition {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String           @map("account_id") @db.Uuid
+  key       String
+  label     String
+  type      ContactFieldType @default(text)
+  /// Only meaningful for `select`. Empty for every other type.
+  options   String[]         @default([])
+  position  Int              @default(0)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, key])
+  @@index([accountId, position])
+  @@map("contact_field_definitions")
 }

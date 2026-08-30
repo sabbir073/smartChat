@@ -1,6 +1,9 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError, ErrorCode } from '@smartchat/types';
+import { z } from 'zod';
 import {
+  confirmUploadSchema,
+  signUploadSchema,
   widgetBootstrapSchema,
   widgetConfigQuerySchema,
   widgetIdentifySchema,
@@ -9,7 +12,7 @@ import {
 } from '@smartchat/validation';
 import type { Container } from '../container.js';
 import { noContent, ok } from '../lib/reply.js';
-import { parseBody, parseQuery } from '../lib/validate.js';
+import { parseBody, parseParams, parseQuery } from '../lib/validate.js';
 
 /**
  * The visitor-facing surface, mounted at /api/v1/widget.
@@ -137,6 +140,78 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
 
     reply.header('cache-control', 'no-store');
     return ok(reply, { ...ticket, url: container.config.REALTIME_URL });
+  });
+
+  // --- files ----------------------------------------------------------------
+
+  /**
+   * A visitor asking for somewhere to put a file.
+   *
+   * The conversation has to exist and has to be theirs, so a signed target can only ever be
+   * obtained for a thread the caller is already part of. Rate limited on its own budget: an upload
+   * costs storage, which is not the same resource a message costs.
+   */
+  app.post('/widget/uploads/sign', async (request, reply) => {
+    const token = bearer(request);
+    await app.rateLimit(request, 'visitorUpload');
+    const input = parseBody(signUploadSchema, request.body);
+    const identity = await container.visitors.authenticate(token);
+
+    const signed = await container.attachments.signForVisitor(
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        sessionId: identity.sessionId,
+        visitorName: identity.visitor.name,
+      },
+      input,
+    );
+    reply.header('cache-control', 'no-store');
+    return ok(reply, signed);
+  });
+
+  app.post('/widget/uploads/:id/confirm', async (request, reply) => {
+    const token = bearer(request);
+    await app.rateLimit(request, 'widgetSession');
+    const { id } = parseParams(z.object({ id: z.string().uuid() }), request.params);
+    const input = parseBody(confirmUploadSchema, request.body);
+    const identity = await container.visitors.authenticate(token);
+
+    const result = await container.attachments.confirmForVisitor(
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        sessionId: identity.sessionId,
+        visitorName: identity.visitor.name,
+      },
+      id,
+      input,
+    );
+    reply.header('cache-control', 'no-store');
+    return ok(reply, result);
+  });
+
+  /** A short-lived URL for a file in one of the visitor's own conversations. */
+  app.get('/widget/attachments/:id/url', async (request, reply) => {
+    const token = bearer(request);
+    await app.rateLimit(request, 'widgetSession');
+    const { id } = parseParams(z.object({ id: z.string().uuid() }), request.params);
+    const identity = await container.visitors.authenticate(token);
+
+    const url = await container.attachments.downloadUrlForVisitor(
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        sessionId: identity.sessionId,
+        visitorName: identity.visitor.name,
+      },
+      id,
+    );
+    reply.header('cache-control', 'no-store');
+    return ok(reply, { url, expiresInSeconds: 600 });
   });
 
   /** Lets the panel confirm its stored token is still valid before it renders a chat. */

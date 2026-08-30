@@ -1,8 +1,10 @@
 import { createPrismaClient, type Database } from '@smartchat/database';
 import {
   AccountService,
+  AttachmentService,
   AuthService,
   AutomationService,
+  ContactService,
   ConversationService,
   EmailJob,
   EntitlementService,
@@ -14,6 +16,7 @@ import {
   PresenceService,
   RedisEventPublisher,
   SmtpMailProvider,
+  StorageService,
   TeamService,
   TicketService,
   VisitorService,
@@ -42,6 +45,9 @@ export interface Container {
   accounts: AccountService;
   team: TeamService;
   automation: AutomationService;
+  contacts: ContactService;
+  storage: StorageService;
+  attachments: AttachmentService;
   properties: PropertyService;
   widgets: WidgetService;
   visitors: VisitorService;
@@ -141,6 +147,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     visitorTokenSecret: config.VISITOR_TOKEN_SECRET,
     allowLocalhostOrigins: config.ALLOW_LOCALHOST_ORIGINS,
     isAgentAvailable: (accountId) => presence.hasAvailableAgent(accountId),
+    maxUploadBytes: config.UPLOAD_MAX_BYTES,
     clock,
   });
 
@@ -157,6 +164,34 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     clock,
   });
   const automation = new AutomationService({ db, clock });
+  const contacts = new ContactService({ db, clock });
+
+  /**
+   * Object storage.
+   *
+   * Two endpoints, and they are genuinely different machines as far as anybody is concerned: this
+   * service reaches the store by its name on the private network, and a browser reaches it by a
+   * name that resolves on the public internet. A signed URL has to be built against whichever one
+   * the caller will actually use, or its host will not match its signature.
+   */
+  const storage = new StorageService({
+    endpoint: config.S3_ENDPOINT,
+    publicEndpoint: config.S3_PUBLIC_ENDPOINT,
+    bucket: config.S3_BUCKET,
+    region: config.S3_REGION,
+    accessKey: config.S3_ACCESS_KEY,
+    secretKey: config.S3_SECRET_KEY,
+    forcePathStyle: config.S3_FORCE_PATH_STYLE,
+    clock,
+  });
+
+  const attachments = new AttachmentService({
+    db,
+    storage,
+    conversations,
+    maxBytes: config.UPLOAD_MAX_BYTES,
+    clock,
+  });
   const properties = new PropertyService({
     db,
     entitlements,
@@ -178,6 +213,9 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     accounts,
     team,
     automation,
+    contacts,
+    storage,
+    attachments,
     properties,
     widgets,
     visitors,

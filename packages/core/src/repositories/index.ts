@@ -1,5 +1,6 @@
 export * from './account.repository.js';
 export * from './audit.repository.js';
+export * from './attachment.repository.js';
 export * from './automation.repository.js';
 export * from './property.repository.js';
 export * from './scope.js';

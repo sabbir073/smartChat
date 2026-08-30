@@ -6,6 +6,7 @@ import {
   mailEnvSchema,
   redisEnvSchema,
   secretsEnvSchema,
+  storageEnvSchema,
   urlsEnvSchema,
 } from '@smartchat/config';
 import { z } from 'zod';
@@ -17,6 +18,7 @@ const apiEnvSchema = baseEnvSchema
   .merge(secretsEnvSchema)
   .merge(mailEnvSchema)
   .merge(httpEnvSchema)
+  .merge(storageEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('api'),

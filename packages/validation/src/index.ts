@@ -2,6 +2,7 @@ export * from './account.js';
 export * from './auth.js';
 export * from './automation.js';
 export * from './common.js';
+export * from './contact.js';
 export * from './conversation.js';
 export * from './password.js';
 export * from './property.js';

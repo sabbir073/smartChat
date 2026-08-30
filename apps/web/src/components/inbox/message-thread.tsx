@@ -13,9 +13,12 @@ import { cn } from '@/components/ui';
 import type { AgentMessage } from '@/lib/realtime';
 import type { ShortcutDto } from '@/lib/types';
 import { ShortcutPicker, readShortcutQuery } from './shortcut-picker';
+import { AttachmentCard, formatBytes } from './attachment';
 
 interface ThreadMessage extends AgentMessage {
   delivery: 'pending' | 'sent' | 'failed';
+  /** While a file is on its way up, so the bubble shows progress rather than an empty box. */
+  uploading?: { fileName: string; byteSize: number };
 }
 
 /**
@@ -111,7 +114,8 @@ export function MessageThread({
           >
             <div
               className={cn(
-                'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-sm',
+                'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl text-sm',
+                message.attachment || message.uploading ? 'p-1.5' : 'px-3.5 py-2.5',
                 fromAgent
                   ? 'rounded-br-md bg-brand text-ink-inverted'
                   : 'rounded-bl-md bg-surface-raised text-ink',
@@ -119,7 +123,21 @@ export function MessageThread({
                 message.delivery === 'failed' && 'opacity-60 outline outline-1 outline-danger',
               )}
             >
-              {message.body}
+              {message.uploading ? (
+                <span className="flex items-center gap-2.5 px-2 py-1.5">
+                  <span className="size-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-[13.5px]">{message.uploading.fileName}</span>
+                    <span className="text-[11.5px] opacity-70">
+                      Sending {formatBytes(message.uploading.byteSize)}
+                    </span>
+                  </span>
+                </span>
+              ) : message.attachment ? (
+                <AttachmentCard attachment={message.attachment} fromAgent={fromAgent} />
+              ) : (
+                message.body
+              )}
             </div>
             <div className="flex gap-2 px-1 text-[11px] text-ink-subtle">
               {fromAgent && message.senderName && <span>{message.senderName}</span>}
@@ -166,6 +184,8 @@ export function AgentComposer({
   shortcuts = [],
   onShortcutUsed,
   placeholderValues = {},
+  onAttach,
+  maxBytes = 26_214_400,
 }: {
   disabled: boolean;
   disabledReason?: string;
@@ -176,6 +196,9 @@ export function AgentComposer({
   onShortcutUsed?: (shortcut: ShortcutDto) => void;
   /** Values for "{{visitor.name}}" and friends, from the conversation actually on screen. */
   placeholderValues?: Record<string, string | null>;
+  /** Absent when this conversation cannot take a file - a closed one, for instance. */
+  onAttach?: ((file: File) => void) | undefined;
+  maxBytes?: number;
 }) {
   const [value, setValue] = useState('');
   const [asNote, setAsNote] = useState(false);
@@ -186,6 +209,28 @@ export function AgentComposer({
   /** The "/word" the caret is in, or null. Null is what closes the picker. */
   const [token, setToken] = useState<{ query: string; start: number } | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
+
+  /**
+   * Refuse an obviously-too-large file before anything is uploaded.
+   *
+   * Not the enforcement - the server measures the real object - just the courtesy of saying so
+   * now rather than after a minute of uploading.
+   */
+  function handleFile(file: File | undefined): void {
+    if (!file || !onAttach) return;
+    if (file.size === 0) {
+      setFileError('That file is empty');
+      return;
+    }
+    if (file.size > maxBytes) {
+      setFileError(`That file is larger than ${Math.floor(maxBytes / (1024 * 1024))} MB`);
+      return;
+    }
+    setFileError(null);
+    onAttach(file);
+  }
 
   const matches = useMemo(() => {
     if (!token) return [];
@@ -316,7 +361,20 @@ export function AgentComposer({
         'border-t border-border p-3 transition-colors',
         asNote ? 'bg-warning-soft' : 'bg-surface',
       )}
+      onDragOver={(event) => {
+        if (onAttach && !disabled) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!onAttach || disabled) return;
+        event.preventDefault();
+        handleFile(event.dataTransfer.files[0]);
+      }}
     >
+      {fileError && (
+        <p className="mb-2 text-[12.5px] text-danger" role="alert">
+          {fileError}
+        </p>
+      )}
       <div className="mb-2 flex items-center gap-1">
         {(['reply', 'note'] as const).map((mode) => {
           const active = (mode === 'note') === asNote;
@@ -350,6 +408,37 @@ export function AgentComposer({
       )}
 
       <div className="flex items-end gap-2">
+        {onAttach && (
+          <>
+            <input
+              ref={filePicker}
+              type="file"
+              className="sr-only"
+              onChange={(event) => {
+                handleFile(event.target.files?.[0]);
+                // Cleared so choosing the same file twice in a row still fires a change.
+                event.target.value = '';
+              }}
+            />
+            <button
+              type="button"
+              disabled={disabled}
+              aria-label="Attach a file"
+              onClick={() => filePicker.current?.click()}
+              className="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-control)] text-ink-muted transition-colors hover:bg-surface-raised hover:text-ink disabled:opacity-45"
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+                <path
+                  d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 1 1 5 5l-8 8a2 2 0 1 1-3-3l7.5-7.5"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </>
+        )}
         <label className="sr-only" htmlFor="agent-composer">
           {asNote ? 'Write an internal note' : 'Write a reply'}
         </label>

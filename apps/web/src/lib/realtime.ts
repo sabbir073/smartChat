@@ -34,8 +34,21 @@ export interface AgentMessage {
   body: string;
   createdAt: string;
   readAt: string | null;
+  /** Present on `type: 'file'` and `type: 'image'`. */
+  attachment?: MessageAttachment;
   /** Present only on `type: 'system'`. */
   event?: SystemMessageEvent;
+}
+
+/** What the thread needs to render a file. Download URLs are minted per request, never stored. */
+export interface MessageAttachment {
+  id: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  isImage: boolean;
+  width: number | null;
+  height: number | null;
 }
 
 /** One property's live visitors, as the gateway knows them at the moment of subscribing. */

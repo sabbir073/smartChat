@@ -11,6 +11,12 @@ committed under `packages/database/prisma/migrations`.
   separate, prefixed, random public id (`prp_…` for properties). Internal UUIDs are never used as
   widget keys.
 - **Timestamps** — `timestamptz`, always stored in UTC. `created_at` / `updated_at` on every table.
+- **Attachments hang off the conversation, not the message.** A composite foreign key to
+  `messages` would need a unique index on `(account_id, id)` over a table targeting 10^8 rows -
+  gigabytes to enforce a guarantee the conversation key already gives, since deleting a conversation
+  takes its messages and its attachments together. `message_id` is a plain indexed column. ADR-048.
+- **Contacts are account-level, visitors are per-property.** They are joined only when an email
+  address appears, which is the one identifier worth joining on. ADR-047.
 - **Soft delete** — `deleted_at` on tenant-visible content (conversations, contacts, articles,
   properties). Hard delete only for privacy erasure requests and expired ephemeral rows.
 - **Tenancy** — every tenant-owned table carries `account_id`. Child tables carry it too and use a
@@ -27,13 +33,13 @@ accounts ──┬── users (via account_members) ── roles ── permiss
            ├── properties ──┬── widgets ── widget_settings
            │                ├── property_members
            │                ├── visitors ── visitor_sessions ── visitor_page_views
-           │                ├── conversations ──┬── messages ── attachments
-           │                │                   ├── conversation_participants
-           │                │                   ├── conversation_tags
-           │                │                   └── message_reads
-           │                ├── contacts ── contact_notes
-           │                ├── triggers ── trigger_conditions / trigger_actions
-           │                ├── shortcuts
+           │                ├── conversations ──┬── messages
+           │                │                   ├── attachments
+           │                │                   └── conversation_reads
+           ├── contacts (account level; visitors join by email)
+           ├── contact_field_definitions
+           ├── triggers ── trigger_firings
+           ├── shortcuts
            │                ├── departments
            │                ├── knowledge_bases ── kb_categories ── kb_articles
            │                ├── tickets ── ticket_messages

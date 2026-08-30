@@ -12,14 +12,21 @@ export function Composer({
   disabled,
   onSend,
   onTyping,
+  onAttach,
+  maxBytes,
 }: {
   placeholder: string;
   disabled: boolean;
   onSend: (body: string) => void;
   onTyping: (typing: boolean) => void;
+  /** Absent when the property has no conversation yet, which is when there is nothing to attach to. */
+  onAttach?: ((file: File) => void) | undefined;
+  maxBytes: number;
 }) {
   const [value, setValue] = useState('');
+  const [fileError, setFileError] = useState<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
   const typingTimer = useRef<number | null>(null);
   const isTyping = useRef(false);
 
@@ -72,11 +79,80 @@ export function Composer({
     }
   }
 
+  /**
+   * Refuse an obviously-too-large file here, before anything is uploaded.
+   *
+   * The server checks the real object anyway - this is not the enforcement, it is the courtesy of
+   * saying so immediately instead of after a minute of uploading.
+   */
+  function handleFile(file: File | undefined): void {
+    if (!file || !onAttach) return;
+    if (file.size > maxBytes) {
+      setFileError(`That file is larger than ${Math.floor(maxBytes / (1024 * 1024))} MB`);
+      return;
+    }
+    if (file.size === 0) {
+      setFileError('That file is empty');
+      return;
+    }
+    setFileError(null);
+    onAttach(file);
+  }
+
   return (
-    <form className="composer" onSubmit={submit}>
+    <form
+      className="composer"
+      onSubmit={submit}
+      onDragOver={(event) => {
+        if (onAttach) event.preventDefault();
+      }}
+      onDrop={(event) => {
+        if (!onAttach) return;
+        event.preventDefault();
+        handleFile(event.dataTransfer.files[0]);
+      }}
+    >
       <label className="sr-only" htmlFor="sc-composer">
         Type your message
       </label>
+
+      {fileError && (
+        <p className="composer-error" role="alert">
+          {fileError}
+        </p>
+      )}
+
+      {onAttach && (
+        <>
+          <input
+            ref={filePicker}
+            type="file"
+            className="sr-only"
+            onChange={(event) => {
+              handleFile(event.target.files?.[0]);
+              // Cleared so choosing the same file twice in a row still fires a change.
+              event.target.value = '';
+            }}
+          />
+          <button
+            type="button"
+            className="composer-attach"
+            disabled={disabled}
+            aria-label="Attach a file"
+            onClick={() => filePicker.current?.click()}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
+              <path
+                d="M21 11.5 12.5 20a5 5 0 0 1-7-7l8-8a3.5 3.5 0 1 1 5 5l-8 8a2 2 0 1 1-3-3l7.5-7.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        </>
+      )}
       <textarea
         id="sc-composer"
         ref={textarea}

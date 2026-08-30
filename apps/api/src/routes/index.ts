@@ -3,9 +3,11 @@ import type { Container } from '../container.js';
 import { accountRoutes } from './account.routes.js';
 import { authRoutes } from './auth.routes.js';
 import { automationRoutes } from './automation.routes.js';
+import { contactRoutes } from './contact.routes.js';
 import { conversationRoutes } from './conversation.routes.js';
 import { propertyRoutes } from './property.routes.js';
 import { teamRoutes } from './team.routes.js';
+import { uploadRoutes } from './upload.routes.js';
 import { widgetRoutes } from './widget.routes.js';
 
 /**
@@ -25,6 +27,8 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       await v1.register(async (scoped) => conversationRoutes(scoped, container));
       await v1.register(async (scoped) => teamRoutes(scoped, container));
       await v1.register(async (scoped) => automationRoutes(scoped, container));
+      await v1.register(async (scoped) => contactRoutes(scoped, container));
+      await v1.register(async (scoped) => uploadRoutes(scoped, container));
     },
     { prefix: '/api/v1' },
   );
