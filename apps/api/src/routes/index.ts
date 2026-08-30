@@ -5,6 +5,7 @@ import { authRoutes } from './auth.routes.js';
 import { automationRoutes } from './automation.routes.js';
 import { contactRoutes } from './contact.routes.js';
 import { conversationRoutes } from './conversation.routes.js';
+import { kbRoutes, publicKbRoutes } from './kb.routes.js';
 import { propertyRoutes } from './property.routes.js';
 import { teamRoutes } from './team.routes.js';
 import { uploadRoutes } from './upload.routes.js';
@@ -29,6 +30,11 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       await v1.register(async (scoped) => automationRoutes(scoped, container));
       await v1.register(async (scoped) => contactRoutes(scoped, container));
       await v1.register(async (scoped) => uploadRoutes(scoped, container));
+      await v1.register(async (scoped) => kbRoutes(scoped, container));
+      // The public help centre gets its own scope with no auth hook. Registering it alongside the
+      // authenticated routes and relying on the hook to be skipped would be one edit away from
+      // exposing drafts.
+      await v1.register(async (scoped) => publicKbRoutes(scoped, container));
     },
     { prefix: '/api/v1' },
   );

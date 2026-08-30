@@ -9,6 +9,8 @@ export type {
   ContactFieldDefinition,
   Conversation,
   Department,
+  KbArticle,
+  KbCategory,
   DepartmentMember,
   ConversationRead,
   Message,
@@ -36,6 +38,7 @@ export type {
 export {
   AccountStatus,
   ActorType,
+  ArticleStatus,
   AttachmentStatus,
   AgentAvailability,
   ContactFieldType,

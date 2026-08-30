@@ -37,3 +37,4 @@ export * from './storage/storage.service.js';
 export * from './repositories/attachment.repository.js';
 export * from './services/attachment.service.js';
 export * from './services/contact.service.js';
+export * from './services/kb.service.js';

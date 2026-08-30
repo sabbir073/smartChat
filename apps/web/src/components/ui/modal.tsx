@@ -24,6 +24,24 @@ export function Modal({
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
 
+  /**
+   * The close callback, held in a ref rather than read as a dependency.
+   *
+   * Every caller passes an inline arrow - `onClose={() => setDraft(null)}` - which is a new
+   * function on every render. If the effect below depended on it, then every keystroke inside the
+   * dialog would re-render the parent, change the identity of `onClose`, tear the effect down and
+   * set it up again - and its setup moves focus to the first field. The symptom is that a person
+   * types two characters into the third field of a dialog and the rest of the sentence lands in
+   * the first one. Found in a browser; no server-side test could have seen it.
+   *
+   * The alternative - telling every caller to wrap its handler in `useCallback` - puts a
+   * correctness requirement on the callers and is one forgotten wrapper away from coming back.
+   */
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+
   useEffect(() => {
     if (!open) return undefined;
 
@@ -39,7 +57,7 @@ export function Modal({
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') {
         event.stopPropagation();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !panelRef.current) return;
@@ -67,7 +85,7 @@ export function Modal({
       document.body.style.overflow = overflow;
       previouslyFocused.current?.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
 

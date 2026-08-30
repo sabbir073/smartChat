@@ -77,6 +77,14 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/kb',
+    label: 'Help centre',
+    available: true,
+    icon: icon(
+      'M4 5.5A1.5 1.5 0 0 1 5.5 4H10a2 2 0 0 1 2 2v13a2 2 0 0 0-2-2H5.5A1.5 1.5 0 0 1 4 15.5v-10ZM20 5.5A1.5 1.5 0 0 0 18.5 4H14a2 2 0 0 0-2 2v13a2 2 0 0 1 2-2h4.5a1.5 1.5 0 0 0 1.5-1.5v-10Z',
+    ),
+  },
+  {
     href: '/settings',
     label: 'Settings',
     available: true,
@@ -117,8 +125,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       })}
 
       <div className="mt-auto rounded-[var(--radius-control)] bg-surface-raised p-3 text-[12px] leading-relaxed text-ink-subtle">
-        The knowledge base, tickets and reporting arrive in later phases. Nothing is listed here
-        before it works.
+        Tickets and reporting arrive in later phases. Nothing is listed here before it works.
       </div>
     </nav>
   );

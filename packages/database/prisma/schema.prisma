@@ -173,6 +173,14 @@ enum TriggerMatch {
 
 /// How often one trigger may fire for one person. `every_time` is still bounded by a cooldown.
 /// Where an upload is in its life. A file is invisible to anybody until it is `ready`.
+/// Draft until somebody decides it is ready. Nothing public ever serves a draft.
+enum ArticleStatus {
+  draft
+  published
+
+  @@map("article_status")
+}
+
 enum AttachmentStatus {
   /// A target has been signed. The bytes may or may not exist yet; nothing trusts this row.
   pending
@@ -392,6 +400,8 @@ model Account {
   triggers      Trigger[]
   shortcuts     Shortcut[]
   attachments   Attachment[]
+  kbCategories  KbCategory[]
+  kbArticles    KbArticle[]
   contacts      Contact[]
   contactFields ContactFieldDefinition[]
 
@@ -492,6 +502,8 @@ model Property {
   conversations Conversation[]
   triggers      Trigger[]
   attachments   Attachment[]
+  kbCategories  KbCategory[]
+  kbArticles    KbArticle[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -1201,4 +1213,88 @@ model ContactFieldDefinition {
   @@unique([accountId, key])
   @@index([accountId, position])
   @@map("contact_field_definitions")
+}
+
+// -----------------------------------------------------------------------------
+// Knowledge base
+// -----------------------------------------------------------------------------
+
+/**
+ * A section of one website's help centre.
+ * Scoped to a property rather than to the account: two websites of the same business often help
+ * entirely different audiences, and a shared category list would put a plumbing article in front
+ * of somebody reading about accountancy.
+ */
+model KbCategory {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId   String  @map("account_id") @db.Uuid
+  propertyId  String  @map("property_id") @db.Uuid
+  name        String
+  /// Appears in the public URL. Unique per property so two sections cannot fight over one address.
+  slug        String  @db.Citext
+  description String?
+  position    Int     @default(0)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account  Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property    @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  articles KbArticle[]
+
+  @@unique([accountId, id])
+  @@unique([propertyId, slug])
+  @@index([accountId, propertyId, position])
+  @@map("kb_categories")
+}
+
+/**
+ * One help article.
+ * `body` is markdown, stored exactly as written and rendered on the way out - never on the way in.
+ * The same rule the transcript follows: what somebody wrote is kept intact, and what a browser is
+ * shown is a decision made at render time, where the escaping lives.
+ */
+model KbArticle {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String  @map("account_id") @db.Uuid
+  propertyId String  @map("property_id") @db.Uuid
+  categoryId String? @map("category_id") @db.Uuid
+
+  slug    String  @db.Citext
+  title   String
+  /// A short summary for the list and for search results. Written, not generated from the body.
+  excerpt String?
+  body    String
+
+  status      ArticleStatus @default(draft)
+  publishedAt DateTime?     @map("published_at") @db.Timestamptz(6)
+
+  authorMemberId String? @map("author_member_id") @db.Uuid
+
+  /// Counted on public reads only. An author previewing their own draft is not a reader.
+  viewCount       Int @default(0) @map("view_count")
+  /// How often this article was offered as an answer and actually helped. Phase 10 reports on it.
+  helpfulCount    Int @default(0) @map("helpful_count")
+  notHelpfulCount Int @default(0) @map("not_helpful_count")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account  Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property    @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  category KbCategory? @relation(fields: [accountId, categoryId], references: [accountId, id], onDelete: SetNull)
+
+  @@unique([accountId, id])
+  @@unique([propertyId, slug])
+  /// The public list: everything published on one website, newest first.
+  @@index([accountId, propertyId, status, publishedAt(sort: Desc)])
+  @@index([accountId, categoryId, status])
+  // Search. Substring matching cannot use a B-tree, so both searchable columns get a trigram GIN
+  // index - the same reasoning as the inbox, and the same trade: writes cost a little more so
+  // that "what was that article about refunds" is a query rather than a scan.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("kb_articles")
 }

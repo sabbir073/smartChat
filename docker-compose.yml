@@ -285,6 +285,9 @@ services:
       API_URL: ${API_URL:-http://localhost:3001}
       REALTIME_URL: ${REALTIME_URL:-http://localhost:3002}
       WIDGET_URL: ${WIDGET_URL:-http://localhost:3003}
+      # Server-rendered pages (the public help centre) call the API from inside the network,
+      # where `localhost` is this container rather than the API.
+      INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api:3001}
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1']
       interval: 15s

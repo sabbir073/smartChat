@@ -3,6 +3,10 @@ import { NextResponse, type NextRequest } from 'next/server';
 const SESSION_COOKIE = 'sc_session';
 
 const PUBLIC_PATHS = [
+  // The help centre is read by strangers. It is public in the strong sense: no session, and it
+  // must stay reachable for somebody who is *also* signed in, which is why it is listed below as
+  // staying public when signed in too.
+  '/help',
   '/login',
   '/register',
   '/forgot-password',
@@ -37,6 +41,8 @@ export function middleware(request: NextRequest) {
   // Accepting an invitation is excluded as well: somebody already signed into one workspace may
   // be joining a second, and bouncing them to the dashboard would silently drop the invitation.
   const staysPublicWhenSignedIn =
+    pathname === '/help' ||
+    pathname.startsWith('/help/') ||
     pathname === '/verify-email' ||
     pathname === '/reset-password' ||
     pathname === '/accept-invitation';

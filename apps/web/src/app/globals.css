@@ -98,3 +98,100 @@
     }
   }
 }
+
+/*
+ * Help-centre article typography.
+ *
+ * The markdown renderer emits plain semantic tags with no classes of their own, so the styling
+ * lives here rather than being sprinkled through generated HTML. Scoped to `.kb-prose` so it
+ * cannot leak into the dashboard.
+ */
+@layer components {
+  .kb-prose {
+    color: var(--color-ink);
+    font-size: 15px;
+    line-height: 1.75;
+  }
+
+  .kb-prose > * + * {
+    margin-top: 1rem;
+  }
+
+  .kb-prose h2,
+  .kb-prose h3,
+  .kb-prose h4 {
+    font-weight: 600;
+    line-height: 1.35;
+    margin-top: 2rem;
+  }
+
+  .kb-prose h2 {
+    font-size: 1.25rem;
+  }
+
+  .kb-prose h3 {
+    font-size: 1.05rem;
+  }
+
+  .kb-prose h4 {
+    font-size: 0.95rem;
+  }
+
+  .kb-prose a {
+    color: var(--color-brand);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .kb-prose ul,
+  .kb-prose ol {
+    padding-left: 1.35rem;
+  }
+
+  .kb-prose ul {
+    list-style: disc;
+  }
+
+  .kb-prose ol {
+    list-style: decimal;
+  }
+
+  .kb-prose li + li {
+    margin-top: 0.35rem;
+  }
+
+  .kb-prose code {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+    padding: 0.1em 0.35em;
+  }
+
+  .kb-prose pre {
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-control);
+    overflow-x: auto;
+    padding: 0.9rem 1rem;
+  }
+
+  .kb-prose pre code {
+    background: none;
+    border: 0;
+    font-size: 0.85rem;
+    padding: 0;
+  }
+
+  .kb-prose blockquote {
+    border-left: 3px solid var(--color-brand-ring);
+    color: var(--color-ink-muted);
+    padding-left: 1rem;
+  }
+
+  .kb-prose hr {
+    border: 0;
+    border-top: 1px solid var(--color-border);
+  }
+}

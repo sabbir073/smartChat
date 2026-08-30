@@ -2,6 +2,8 @@ import type {
   Account,
   AccountMember,
   Contact,
+  KbArticle,
+  KbCategory,
   Property,
   PropertyDomain,
   Session,
@@ -275,5 +277,57 @@ export function toContactDto(
     propertyIds: [...new Set(visitors.map((visitor) => visitor.propertyId))],
     firstSeenAt: contact.firstSeenAt.toISOString(),
     lastSeenAt: contact.lastSeenAt.toISOString(),
+  };
+}
+
+export interface KbCategoryDto {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  position: number;
+}
+
+export function toCategoryDto(category: KbCategory): KbCategoryDto {
+  return {
+    id: category.id,
+    name: category.name,
+    slug: category.slug,
+    description: category.description,
+    position: category.position,
+  };
+}
+
+export interface KbArticleDto {
+  id: string;
+  propertyId: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  body: string;
+  status: string;
+  category: { id: string; name: string; slug: string } | null;
+  publishedAt: string | null;
+  viewCount: number;
+  updatedAt: string;
+}
+
+export function toArticleDto(
+  article: KbArticle & { category?: KbCategory | null },
+): KbArticleDto {
+  return {
+    id: article.id,
+    propertyId: article.propertyId,
+    title: article.title,
+    slug: article.slug,
+    excerpt: article.excerpt,
+    body: article.body,
+    status: article.status,
+    category: article.category
+      ? { id: article.category.id, name: article.category.name, slug: article.category.slug }
+      : null,
+    publishedAt: article.publishedAt?.toISOString() ?? null,
+    viewCount: article.viewCount,
+    updatedAt: article.updatedAt.toISOString(),
   };
 }

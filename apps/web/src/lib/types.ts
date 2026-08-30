@@ -197,3 +197,45 @@ export interface ContactHistoryDto {
     createdAt: string;
   }[];
 }
+
+export interface KbCategoryDto {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  position: number;
+}
+
+export interface KbArticleDto {
+  id: string;
+  propertyId: string;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  body: string;
+  status: 'draft' | 'published';
+  category: { id: string; name: string; slug: string } | null;
+  publishedAt: string | null;
+  viewCount: number;
+  updatedAt: string;
+}
+
+/** The public help centre's shapes: no ids, no author, no counters. */
+export interface PublicArticleSummary {
+  slug: string;
+  title: string;
+  excerpt: string | null;
+  category: { slug: string; name: string } | null;
+  publishedAt: string | null;
+  updatedAt: string;
+}
+
+export interface PublicArticleDto extends PublicArticleSummary {
+  body: string;
+}
+
+export interface PublicKbIndexDto {
+  property: { name: string };
+  categories: { slug: string; name: string; description: string | null; articleCount: number }[];
+  articles: PublicArticleSummary[];
+}

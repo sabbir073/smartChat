@@ -14,7 +14,7 @@ previous one is green.
 | **5 — Team** ✅ | Invitations, roles, permissions, property membership, departments, agent availability | Invite an agent, scope them to a property, verify they see only that property |
 | **6 — Automation** ✅ | Rule engine, triggers, shortcuts, pre-chat form, offline form | A trigger fires on a real visit; `/shortcut` expands; offline capture works |
 | **7 — Files & contacts** ✅ | Signed uploads, validation, attachment rendering, contacts, custom fields | Upload from both sides; contact history assembled |
-| **8 — Knowledge base** | Categories, articles, editor, search, public KB | A published article is reachable publicly and searchable |
+| **8 — Knowledge base** ✅ | Categories, articles, editor, search, public KB | A published article is reachable publicly and searchable |
 | **9 — Tickets & email** | Tickets, ticket messages, email abstraction, notifications | Offline message becomes a ticket and sends mail (visible in Mailpit) |
 | **10 — Analytics** | Event tables, rollup jobs, reports | Metrics match hand-computed values on seeded data |
 | **11 — Integrations** | Webhooks with signing/retry/logs, public API, API keys | Webhook delivered and verified; API key scoped and revocable |

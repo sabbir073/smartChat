@@ -5,6 +5,7 @@ import {
   AuthService,
   AutomationService,
   ContactService,
+  KbService,
   ConversationService,
   EmailJob,
   EntitlementService,
@@ -46,6 +47,7 @@ export interface Container {
   team: TeamService;
   automation: AutomationService;
   contacts: ContactService;
+  kb: KbService;
   storage: StorageService;
   attachments: AttachmentService;
   properties: PropertyService;
@@ -165,6 +167,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   });
   const automation = new AutomationService({ db, clock });
   const contacts = new ContactService({ db, clock });
+  const kb = new KbService({ db, clock });
 
   /**
    * Object storage.
@@ -214,6 +217,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     team,
     automation,
     contacts,
+    kb,
     storage,
     attachments,
     properties,

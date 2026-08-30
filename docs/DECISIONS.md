@@ -721,3 +721,99 @@ column with no constraint.
 messages and its attachments together, so an attachment cannot outlive the message it belongs to.
 The unique index would buy a guarantee we already have, at a cost measured in gigabytes.
 **Date** 2026-08-27
+
+---
+## ADR-049 — The public help centre is a separate scope with no auth hook
+**Context** The reading side of the knowledge base has to be reachable by somebody with no account,
+no session and no cookie. The obvious implementation is one set of routes with the authentication
+hook made optional on three of them.
+**Chosen** Two functions in two Fastify scopes. `kbRoutes` adds `authenticateTenant` as a
+`preHandler`; `publicKbRoutes` has no authentication hook at all and is registered separately.
+**Reason** "Authentication that usually passes" is one edit away from "authentication that always
+passes". If the public routes lived in the authenticated scope with per-route exemptions, then the
+day somebody adds a route and forgets the exemption, a public page 401s - annoying but safe - and
+the day somebody restructures the hook, every public route inherits a tenant context derived from
+an identifier that authorises nothing. Separating the scopes makes the dangerous mistake
+structurally impossible rather than merely unlikely.
+**What the public scope may do** Read `published` rows for one property, resolved from its public
+id through the same lookup the widget uses. It has no write path, and the shapes it returns are
+built by hand so nothing internal can be added to them by adding a column.
+**Date** 2026-08-30
+
+---
+## ADR-050 — Article bodies are escaped at render, not sanitised at write
+**Context** Authors write markdown. Markdown permits raw HTML, and an author is a person we trust
+to write documentation, not a person we should trust to run code in a stranger's browser.
+**Rejected** Sanitising on the way in with a tag allow-list. It destroys the record of what the
+author actually wrote, it has to be re-run over stored rows whenever the allow-list changes, and
+every sanitiser is a block-list wearing a better hat - the bypasses are found in the parser, not in
+the list.
+**Chosen** Store the body byte-for-byte. Render it through a small renderer that escapes **every**
+character of the author's text first, and only then inserts our own tags around the escaped text.
+**Reason** By the time any tag exists in the output, the author's angle brackets are already
+entities. There is no allow-list to get wrong because no author-supplied tag is ever constructed.
+The attack surface shrinks to one place - our own tag construction - which is a hundred lines and
+is unit-tested against the attacks.
+**The one place author input reaches an attribute** A link target. That goes through an allow-list
+(`http:`, `https:`, `mailto:`, relative), never a `javascript:` block-list: a block-list loses to a
+leading tab, to mixed case and to an entity mid-word, and none of those start with `https`.
+**Date** 2026-08-30
+
+---
+## ADR-051 — A publication date records the first publication, not the last edit
+**Context** An article is published in March, corrected in August, and published again.
+**Chosen** `published_at` is set on the first transition into `published` and never moved.
+`updated_at` records the correction, and the article page shows both when they differ.
+**Reason** A reader who sees "published in March" is being told something true and useful: this
+guidance is five months old. Resetting the date on every correction would make a five-year-old
+article look new after a typo fix, and a help centre accumulates enough of those that nobody trusts
+any date on it. Two facts need two columns.
+**Date** 2026-08-30
+
+---
+## ADR-052 — Deleting a section keeps its articles
+**Context** Categories group articles. The referential-integrity default for a parent row that goes
+away is to take its children with it.
+**Chosen** Deleting a category nulls `category_id` on its articles inside the same transaction and
+soft-deletes the category. The articles stay published, at their own addresses.
+**Reason** A section is a filing decision, not ownership. Nobody who tidies up their sections
+expects a month of writing to disappear with them, and the recovery from that mistake - restore
+from backup, in a hurry, with an audience - is out of proportion to the tidying. The confirmation
+dialog states the outcome and counts the surviving articles, so the safe behaviour is also the
+visible one.
+**Date** 2026-08-30
+
+---
+## ADR-053 — The help centre is server-rendered; the dashboard is not
+**Context** Every other page in `apps/web` is a client component that fetches from the browser,
+because every request carries the reader's session.
+**Chosen** The two `/help` routes are server components that fetch through `INTERNAL_API_URL`.
+**Reason** A help centre has no reader identity to carry, so the reason for client fetching does
+not apply - and three things follow from rendering on the server that matter for this page in
+particular: it arrives complete, it works with JavaScript switched off, and a search engine can
+read it. Publishing help articles that a search engine cannot read defeats most of the point of
+publishing them.
+**Consequence** The web container needs an address for the API that exists inside the network,
+because `localhost` there is the web container. `INTERNAL_API_URL` defaults to `http://api:3001`
+and falls back to the browser-facing `API_URL` so `next dev` on a laptop is unaffected.
+**Date** 2026-08-30
+
+---
+## ADR-054 — A dialog holds its close handler in a ref, not in a dependency array
+**Context** `Modal` runs one effect on open: it remembers what was focused, locks background
+scrolling, installs the Escape and Tab-trap handler, and moves focus to the first field. The effect
+listed `onClose` among its dependencies, which is what the lint rule asks for.
+**The bug** Every caller passes an inline arrow - `onClose={() => setDraft(null)}` - so `onClose`
+is a new function on every render, and every keystroke in a dialog re-renders the parent. The
+effect therefore tore down and set up again on each character, and its setup moves focus to the
+first field. Typing into the third field of a dialog put two characters there and the rest of the
+sentence into the first one. Every modal in the dashboard had it.
+**Chosen** Keep the latest `onClose` in a ref that a tiny unconditional effect refreshes, and
+depend only on `open`.
+**Rejected** Asking every caller to wrap its handler in `useCallback`. That moves a correctness
+requirement onto ten call sites and is one forgotten wrapper away from returning, silently.
+**How it was found, and how it stays fixed** In a browser, by typing a long article body into the
+editor and watching it land in the title field. No server-side test could see it. It is pinned by
+`modal.test.tsx`, which was confirmed to fail on the old dependency array before the fix was
+restored.
+**Date** 2026-08-30
