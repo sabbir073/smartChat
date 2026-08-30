@@ -373,7 +373,9 @@ export default function KnowledgeBasePage() {
                             <Badge tone={article.status === 'published' ? 'success' : 'neutral'}>
                               {article.status}
                             </Badge>
-                            {article.category && <Badge tone="brand">{article.category.name}</Badge>}
+                            {article.category && (
+                              <Badge tone="brand">{article.category.name}</Badge>
+                            )}
                           </div>
                           <p className="mt-1 text-[13px] text-ink-subtle">
                             <span className="font-mono">/{article.slug}</span>
@@ -392,7 +394,10 @@ export default function KnowledgeBasePage() {
 
                         {canManage && (
                           <div className="flex shrink-0 gap-2">
-                            <Button variant="secondary" onClick={() => void togglePublished(article)}>
+                            <Button
+                              variant="secondary"
+                              onClick={() => void togglePublished(article)}
+                            >
                               {article.status === 'published' ? 'Unpublish' : 'Publish'}
                             </Button>
                             <Button

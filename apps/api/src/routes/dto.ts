@@ -320,9 +320,7 @@ export interface KbArticleDto {
   updatedAt: string;
 }
 
-export function toArticleDto(
-  article: KbArticle & { category?: KbCategory | null },
-): KbArticleDto {
+export function toArticleDto(article: KbArticle & { category?: KbCategory | null }): KbArticleDto {
   return {
     id: article.id,
     propertyId: article.propertyId,

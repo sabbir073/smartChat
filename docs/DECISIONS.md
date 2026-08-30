@@ -1191,3 +1191,76 @@ credential in the system only as strong as an inbox; a thirty-day session makes 
 as the laptop it is on. The console is used rarely and deliberately, so the inconvenience is
 cheap.
 **Date** 2026-08-30
+
+---
+## ADR-079 — `dataRetentionDays` was a promise nothing kept
+**Context** The column has been in the schema since phase 1, the setting has been in the product's
+API since phase 1, and the job that was supposed to honour it logged
+`retention job: nothing to apply yet` for twelve phases.
+**Why this is worse than an obvious gap** Nobody could see it. An account that set 90 days believed
+its customers' transcripts were being deleted; they were not. A missing feature is a disappointment;
+a feature that reports success and does nothing is a false statement about somebody else's data.
+**Chosen** `RetentionService`, applied nightly and on demand from the console.
+**What it deletes** Conversations past the window and everything hanging off them - messages,
+attachments, read markers - plus the objects behind those attachments, and visitors left with no
+conversations and no contact.
+**What it deliberately does not** Tickets, because a ticket is a commercial record of what was
+asked and promised, and deleting it because a chat aged out would destroy the account's own history
+of its obligations. The audit log, because a policy that erased the record of its own operation
+would be self-defeating. Contacts, because a person is not a conversation and erasing an individual
+is a separate, deliberate act.
+**The ordering that matters** Object keys are collected *before* the rows are deleted. Afterwards
+nothing knows which files belonged to them, and an object store full of unreferenced files is a
+bill nobody can explain and personal data nobody can find. Rows go first and objects second, so a
+storage failure leaves an orphaned file rather than a retained transcript - and the count of
+orphans is logged as a warning, because the alternative is discovering it from an invoice.
+**Date** 2026-08-30
+
+---
+## ADR-080 — The restore rehearsal asks the restored copy questions
+**Context** "A backup that has never been restored is not considered reliable."
+**The problem with checking a backup exists** Every intermediate failure produces a file. A
+truncated dump is a file. A dump of an empty database is a file. A dump taken before the last
+migration is a file that restores cleanly and breaks the application on its first query.
+**Chosen** `scripts/restore-rehearsal.mjs` takes a real dump, restores it into a scratch database,
+and then interrogates the result: row counts table by table against the source, a tenant-scoped
+join, a substring search that needs a trigram index, the presence of the enum types, and - the one
+that matters most - an insert that **must be refused**, proving the composite foreign keys came
+back rather than merely appearing in a listing.
+**Base64 in the pipe** `docker compose exec` mangles binary output often enough on some platforms
+to make the rehearsal fail intermittently, and a test that fails half the time is one people learn
+to re-run. A third more bytes buys exact reproducibility everywhere.
+**Date** 2026-08-30
+
+---
+## ADR-081 — Metrics are opt-in and behind a constant-time token
+**Context** A `/metrics` endpoint is standard, and standard practice is to leave it open on an
+internal port.
+**Chosen** No `METRICS_TOKEN` means the endpoint returns **404 and does not exist**. With one, the
+Authorization header is compared in constant time, and a wrong token also gets 404 - an endpoint
+that answers "wrong token" has confirmed it exists.
+**Reason** These numbers say how many customers this installation has and whether its queues are
+backing up. "We forgot to set a token" is a far more common failure than "we forgot to enable
+metrics", so the safe state is the default one. The edge proxy denies the path as well; two
+independent refusals, because "it is only on the internal network" has been the last words of many
+exposed dashboards.
+**Counted at scrape time, not in the process** The API runs as several replicas. A process-local
+counter answers "what did this container see since its last restart", which is a question nobody
+has and whose answer looks like an outage every time a container is replaced.
+**Date** 2026-08-30
+
+---
+## ADR-082 — The widget gets its own origin in production
+**Context** The edge proxy could serve everything from one hostname with paths.
+**Chosen** Four hostnames: the dashboard, the API, the gateway, and the widget - each with its own
+certificate.
+**Reason** The widget runs inside other people's pages, and its panel renders content those pages
+supply. Serving it from the dashboard's origin would put customer-controlled content one
+same-origin bug away from a signed-in session and its cookies. Separate origins make that a
+cross-origin problem for an attacker rather than a same-origin one.
+**What follows** The realtime hostname gets a 3600-second proxy read timeout, because a chat socket
+is idle far more often than it is busy and the default 60 seconds would drop every conversation in
+which nobody typed for a minute. Sign-in paths get their own far stricter rate-limit bucket at the
+edge, in addition to the application's own per-account limiter - the edge one knows nothing and is
+therefore still standing when the application is the thing being overwhelmed.
+**Date** 2026-08-30

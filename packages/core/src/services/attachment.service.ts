@@ -279,7 +279,10 @@ export class AttachmentService {
       propertyId: input.propertyId,
       attachmentId: attachment.id,
     });
-    await this.options.db.attachment.update({ where: { id: attachment.id }, data: { storageKey: key } });
+    await this.options.db.attachment.update({
+      where: { id: attachment.id },
+      data: { storageKey: key },
+    });
 
     return {
       attachmentId: attachment.id,
@@ -301,7 +304,10 @@ export class AttachmentService {
       throw new AppError(ErrorCode.FILE_TYPE_NOT_ALLOWED, attachment.rejectionReason ?? undefined);
     }
 
-    const stored = await this.options.storage.read(attachment.storageKey, this.options.maxBytes + 1);
+    const stored = await this.options.storage.read(
+      attachment.storageKey,
+      this.options.maxBytes + 1,
+    );
     if (!stored) {
       await this.repo.markRejected(attachment.id, 'Nothing was uploaded');
       throw new AppError(ErrorCode.UPLOAD_FAILED, 'That upload did not arrive');
@@ -343,4 +349,3 @@ export class AttachmentService {
     });
   }
 }
-

@@ -50,10 +50,7 @@ export async function automationRoutes(app: FastifyInstance, container: Containe
 
   app.get('/automation/triggers', async (request, reply) => {
     const tenant = requireTenant(request);
-    const query = parseQuery(
-      z.object({ propertyId: z.string().uuid().optional() }),
-      request.query,
-    );
+    const query = parseQuery(z.object({ propertyId: z.string().uuid().optional() }), request.query);
     const triggers = await container.automation.listTriggers(tenant, query);
     return ok(reply, triggers.map(toTriggerDto));
   });

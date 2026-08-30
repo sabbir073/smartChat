@@ -25,8 +25,7 @@ const range = z
     path: ['from'],
   })
   .refine(
-    (value) =>
-      (Date.parse(value.to) - Date.parse(value.from)) / 86_400_000 + 1 <= MAX_RANGE_DAYS,
+    (value) => (Date.parse(value.to) - Date.parse(value.from)) / 86_400_000 + 1 <= MAX_RANGE_DAYS,
     { message: `A report covers at most ${MAX_RANGE_DAYS} days`, path: ['to'] },
   );
 

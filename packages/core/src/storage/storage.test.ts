@@ -10,7 +10,9 @@ const PNG = bytes(0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13);
 describe('identifyFile', () => {
   it('recognises the formats a support conversation actually uses', () => {
     expect(identifyFile(PNG, 'shot.png')?.contentType).toBe('image/png');
-    expect(identifyFile(bytes(0xff, 0xd8, 0xff, 0xe0), 'photo.jpg')?.contentType).toBe('image/jpeg');
+    expect(identifyFile(bytes(0xff, 0xd8, 0xff, 0xe0), 'photo.jpg')?.contentType).toBe(
+      'image/jpeg',
+    );
     expect(identifyFile(text('GIF89a...'), 'a.gif')?.contentType).toBe('image/gif');
     expect(identifyFile(text('%PDF-1.7\n'), 'invoice.pdf')?.contentType).toBe('application/pdf');
   });

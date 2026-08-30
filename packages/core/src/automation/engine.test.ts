@@ -162,7 +162,9 @@ describe('dedupeKeyFor', () => {
     expect(dedupeKeyFor('once_per_session', identity)).not.toBe(
       dedupeKeyFor('once_per_session', later),
     );
-    expect(dedupeKeyFor('once_per_visitor', identity)).toBe(dedupeKeyFor('once_per_visitor', later));
+    expect(dedupeKeyFor('once_per_visitor', identity)).toBe(
+      dedupeKeyFor('once_per_visitor', later),
+    );
   });
 
   it('falls back to the visitor when there is no session, erring quiet', () => {

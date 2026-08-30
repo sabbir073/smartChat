@@ -1,6 +1,12 @@
 import type { Job } from 'bullmq';
 import type { Database } from '@smartchat/database';
-import { MaintenanceJob, SessionRepository, TokenRepository } from '@smartchat/core';
+import {
+  MaintenanceJob,
+  RetentionService,
+  SessionRepository,
+  TokenRepository,
+  type StorageService,
+} from '@smartchat/core';
 import type { Logger } from '@smartchat/logger';
 
 /**
@@ -9,7 +15,12 @@ import type { Logger } from '@smartchat/logger';
  * Every task here is idempotent and bounded: running it twice changes nothing, and running it on
  * a large table deletes by an indexed predicate rather than scanning.
  */
-export async function processMaintenanceJob(job: Job, db: Database, logger: Logger): Promise<void> {
+export async function processMaintenanceJob(
+  job: Job,
+  db: Database,
+  logger: Logger,
+  storage?: StorageService,
+): Promise<void> {
   const now = new Date();
 
   switch (job.name) {
@@ -29,9 +40,23 @@ export async function processMaintenanceJob(job: Job, db: Database, logger: Logg
     }
 
     case MaintenanceJob.APPLY_RETENTION: {
-      // Per-account retention arrives with the conversation model in a later phase; the job exists
-      // now so the schedule is in place and its absence is visible rather than forgotten.
-      logger.debug('retention job: nothing to apply yet');
+      /**
+       * Honour `Account.dataRetentionDays`.
+       *
+       * This job logged "nothing to apply yet" for twelve phases while the column sat in the
+       * schema and the setting sat in the product. An account that set 90 days believed its
+       * customers' transcripts were being deleted; they were not. That is the worst kind of
+       * unimplemented feature - not a visible gap, but a promise quietly unkept.
+       */
+      const outcome = await new RetentionService({ db, ...(storage ? { storage } : {}) }).apply();
+      logger.info(outcome, 'retention applied');
+      if (outcome.objectsOrphaned > 0) {
+        // Said loudly, because the alternative is discovering it from a storage bill.
+        logger.warn(
+          { orphaned: outcome.objectsOrphaned },
+          'retention deleted attachment rows whose objects could not be removed',
+        );
+      }
       return;
     }
 

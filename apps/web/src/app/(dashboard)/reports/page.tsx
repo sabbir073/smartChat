@@ -5,21 +5,8 @@ import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { PageHeader } from '@/components/layout/page-header';
 import { BarChart } from '@/components/reports/bar-chart';
-import {
-  Alert,
-  Card,
-  CardBody,
-  CardHeader,
-  EmptyState,
-  Select,
-  Spinner,
-} from '@/components/ui';
-import type {
-  PropertyDto,
-  ReportAgentDto,
-  ReportArticleDto,
-  ReportOverviewDto,
-} from '@/lib/types';
+import { Alert, Card, CardBody, CardHeader, EmptyState, Select, Spinner } from '@/components/ui';
+import type { PropertyDto, ReportAgentDto, ReportArticleDto, ReportOverviewDto } from '@/lib/types';
 
 const RANGES = [
   { key: '7', label: 'Last 7 days' },
@@ -299,8 +286,8 @@ export default function ReportsPage() {
           </Card>
 
           <p className="text-[13px] text-ink-subtle">
-            Figures are rebuilt from the underlying conversations every fifteen minutes, so the
-            last few minutes of today may not be counted yet.
+            Figures are rebuilt from the underlying conversations every fifteen minutes, so the last
+            few minutes of today may not be counted yet.
           </p>
         </div>
       )}

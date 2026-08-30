@@ -452,8 +452,7 @@ export function TriggerEditor({
                     value={
                       (
                         draft.actions.find((a) => a.type === 'add_tag') as
-                          | { tag: string }
-                          | undefined
+                          { tag: string } | undefined
                       )?.tag ?? ''
                     }
                     onChange={(event) => patchAction('add_tag', { tag: event.target.value })}
@@ -476,8 +475,7 @@ export function TriggerEditor({
                     value={
                       (
                         draft.actions.find((a) => a.type === 'set_priority') as
-                          | { priority: string }
-                          | undefined
+                          { priority: string } | undefined
                       )?.priority ?? 'high'
                     }
                     onChange={(event) =>
@@ -514,8 +512,7 @@ export function TriggerEditor({
                     value={
                       (
                         draft.actions.find((a) => a.type === 'route_to_department') as
-                          | { departmentId: string }
-                          | undefined
+                          { departmentId: string } | undefined
                       )?.departmentId ?? ''
                     }
                     onChange={(event) =>

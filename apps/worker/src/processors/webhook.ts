@@ -17,11 +17,7 @@ import type { Logger } from '@smartchat/logger';
  * the job is only an optimisation, and this is the code that makes that claim true rather than
  * aspirational.
  */
-export async function processWebhookJob(
-  job: Job,
-  db: Database,
-  logger: Logger,
-): Promise<void> {
+export async function processWebhookJob(job: Job, db: Database, logger: Logger): Promise<void> {
   const webhooks = new WebhookService({ db });
 
   if (job.name === WebhookJob.DELIVER) {

@@ -140,7 +140,10 @@ export interface SignedRequestInput extends Omit<PresignInput, 'expiresInSeconds
  * Used for the server-side half of an upload: reading the object back to find out what it actually
  * is, and deleting it when it turns out to be something we will not accept.
  */
-export function signS3Request(input: SignedRequestInput): { url: string; headers: Record<string, string> } {
+export function signS3Request(input: SignedRequestInput): {
+  url: string;
+  headers: Record<string, string>;
+} {
   const url = new URL(input.endpoint);
   const host = url.host;
   const basePath = url.pathname.replace(/\/+$/, '');

@@ -18,11 +18,7 @@ function Harness() {
 
   return (
     <Modal open onClose={() => setOpen(false)} title="Edit">
-      <input
-        aria-label="first"
-        value={first}
-        onChange={(event) => setFirst(event.target.value)}
-      />
+      <input aria-label="first" value={first} onChange={(event) => setFirst(event.target.value)} />
       <textarea
         aria-label="second"
         value={second}

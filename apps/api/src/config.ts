@@ -42,6 +42,14 @@ const apiEnvSchema = baseEnvSchema
        * though, and in development that somewhere is this machine. Defaults to **false**: the
        * unsafe behaviour is opted into by configuration, never inherited.
        */
+      /**
+       * Enables `/metrics`. Absent means the endpoint returns 404 and does not exist.
+       *
+       * Opt-in rather than opt-out: an unauthenticated metrics endpoint tells a stranger how many
+       * customers you have and whether your queues are backing up, and "we forgot to set a token"
+       * is a much more common failure than "we forgot to enable metrics".
+       */
+      METRICS_TOKEN: z.string().min(16).optional(),
       ALLOW_PRIVATE_WEBHOOK_URLS: z
         .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])
         .default(false)

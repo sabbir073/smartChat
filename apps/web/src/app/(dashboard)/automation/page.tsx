@@ -16,7 +16,17 @@ import {
   shortcutDraftFrom,
   type ShortcutDraft,
 } from '@/components/automation/shortcut-editor';
-import { Alert, Badge, Button, Card, CardBody, EmptyState, Spinner, cn, useToast } from '@/components/ui';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardBody,
+  EmptyState,
+  Spinner,
+  cn,
+  useToast,
+} from '@/components/ui';
 import type {
   AutomationSchemaDto,
   PropertyDto,
@@ -130,10 +140,7 @@ export default function AutomationPage() {
     };
     try {
       if (triggerDraft.id) {
-        const result = await api.patch<TriggerDto>(
-          `/automation/triggers/${triggerDraft.id}`,
-          body,
-        );
+        const result = await api.patch<TriggerDto>(`/automation/triggers/${triggerDraft.id}`, body);
         setTriggers((current) =>
           current.map((entry) => (entry.id === result.data.id ? result.data : entry)),
         );
@@ -339,7 +346,11 @@ export default function AutomationPage() {
 
                     {canManageTriggers && (
                       <div className="flex shrink-0 gap-1">
-                        <Button size="sm" variant="ghost" onClick={() => void toggleTrigger(trigger)}>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void toggleTrigger(trigger)}
+                        >
                           {trigger.enabled ? 'Pause' : 'Activate'}
                         </Button>
                         <Button
@@ -405,7 +416,11 @@ export default function AutomationPage() {
                       >
                         Edit
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => void deleteShortcut(shortcut)}>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => void deleteShortcut(shortcut)}
+                      >
                         Delete
                       </Button>
                     </div>

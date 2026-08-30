@@ -246,7 +246,10 @@ export function ticketReceivedTemplate(context: TicketMailContext, body: string)
   ].join('');
 
   return {
-    to: { email: context.requesterEmail, ...(context.requesterName ? { name: context.requesterName } : {}) },
+    to: {
+      email: context.requesterEmail,
+      ...(context.requesterName ? { name: context.requesterName } : {}),
+    },
     subject: `[#${context.ticketNumber}] ${context.subject}`,
     html: ticketLayout(context.accountName, heading, html, replyFooter(context)),
     text: `${greeting(context.requesterName)}\n\nThanks for getting in touch with ${context.accountName}. Somebody will read this and reply to you at this address.\n\nThis is what we received:\n\n${body}\n\n${replyFooter(context)}`,
@@ -266,7 +269,10 @@ export function ticketReplyTemplate(
   ].join('');
 
   return {
-    to: { email: context.requesterEmail, ...(context.requesterName ? { name: context.requesterName } : {}) },
+    to: {
+      email: context.requesterEmail,
+      ...(context.requesterName ? { name: context.requesterName } : {}),
+    },
     subject: `[#${context.ticketNumber}] ${context.subject}`,
     html: ticketLayout(context.accountName, heading, html, replyFooter(context)),
     text: `${greeting(context.requesterName)}\n\n${input.reply}\n\n- ${input.agentName}, ${context.accountName}\n\n${replyFooter(context)}`,
@@ -284,7 +290,10 @@ export function ticketResolvedTemplate(context: TicketMailContext): MailMessage 
   ].join('');
 
   return {
-    to: { email: context.requesterEmail, ...(context.requesterName ? { name: context.requesterName } : {}) },
+    to: {
+      email: context.requesterEmail,
+      ...(context.requesterName ? { name: context.requesterName } : {}),
+    },
     subject: `[#${context.ticketNumber}] ${context.subject}`,
     html: ticketLayout(context.accountName, heading, html, replyFooter(context)),
     text: `${greeting(context.requesterName)}\n\nWe have marked "${context.subject}" as resolved. If that is not right, say so and we will pick it up again.\n\n${replyFooter(context)}`,

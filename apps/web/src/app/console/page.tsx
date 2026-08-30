@@ -297,8 +297,8 @@ export default function ConsolePage() {
             bad={health.failedWebhookDeliveries > 0}
           />
           <p className="text-[13px] text-ink-inverted/40 sm:col-span-2">
-            Counts, not verdicts. How many pending deliveries is too many depends on the hour, and
-            a threshold guessed here would either cry wolf or stay quiet during the outage.
+            Counts, not verdicts. How many pending deliveries is too many depends on the hour, and a
+            threshold guessed here would either cry wolf or stay quiet during the outage.
           </p>
         </div>
       )}
@@ -314,7 +314,9 @@ export default function ConsolePage() {
                 {new Date(entry.createdAt).toLocaleString()}
               </span>
               {entry.accountId && (
-                <span className="font-mono text-ink-inverted/40">{entry.accountId.slice(0, 8)}</span>
+                <span className="font-mono text-ink-inverted/40">
+                  {entry.accountId.slice(0, 8)}
+                </span>
               )}
             </div>
           ))}

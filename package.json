@@ -16,7 +16,6 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
-    "test:integration": "turbo run test:integration",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
     "clean": "turbo run clean && rimraf node_modules",
@@ -37,7 +36,14 @@
     "e2e:realtime": "node scripts/e2e-realtime.mjs",
     "e2e:team": "node scripts/e2e-team.mjs",
     "e2e:automation": "node scripts/e2e-automation.mjs",
-    "e2e:files": "node scripts/e2e-files.mjs"
+    "e2e:files": "node scripts/e2e-files.mjs",
+    "e2e:kb": "node scripts/e2e-kb.mjs",
+    "e2e:tickets": "node scripts/e2e-tickets.mjs",
+    "e2e:reports": "node scripts/e2e-reports.mjs",
+    "e2e:integrations": "node scripts/e2e-integrations.mjs",
+    "e2e:platform": "node scripts/e2e-platform.mjs",
+    "e2e:retention": "node scripts/e2e-retention.mjs",
+    "backup:rehearse": "node scripts/restore-rehearsal.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

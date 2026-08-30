@@ -83,9 +83,11 @@ export default function IntegrationsPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [keyDraft, setKeyDraft] = useState<{ name: string; scopes: string[] } | null>(null);
-  const [hookDraft, setHookDraft] = useState<{ name: string; url: string; events: string[] } | null>(
-    null,
-  );
+  const [hookDraft, setHookDraft] = useState<{
+    name: string;
+    url: string;
+    events: string[];
+  } | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [revealed, setRevealed] = useState<{ title: string; secret: string } | null>(null);
@@ -120,10 +122,10 @@ export default function IntegrationsPage() {
     setSaving(true);
     setFormError(null);
     try {
-      const result = await api.post<ApiKeyDto & { secretShownOnce: string }>(
-        '/integrations/keys',
-        { name: keyDraft.name, scopes: keyDraft.scopes },
-      );
+      const result = await api.post<ApiKeyDto & { secretShownOnce: string }>('/integrations/keys', {
+        name: keyDraft.name,
+        scopes: keyDraft.scopes,
+      });
       setKeys((current) => [result.data, ...current]);
       setKeyDraft(null);
       setRevealed({ title: 'Your new API key', secret: result.data.secretShownOnce });
@@ -352,7 +354,10 @@ export default function IntegrationsPage() {
                       <li className="text-[13px] text-ink-subtle">Nothing sent yet.</li>
                     )}
                     {deliveries[webhook.id]?.map((delivery) => (
-                      <li key={delivery.id} className="flex flex-wrap items-center gap-2 text-[13px]">
+                      <li
+                        key={delivery.id}
+                        className="flex flex-wrap items-center gap-2 text-[13px]"
+                      >
                         <Badge
                           tone={
                             delivery.status === 'delivered'
@@ -489,7 +494,11 @@ export default function IntegrationsPage() {
                 />
               )}
             </Field>
-            <Field label="Endpoint" hint="https only, on an address the internet can reach." required>
+            <Field
+              label="Endpoint"
+              hint="https only, on an address the internet can reach."
+              required
+            >
               {({ id }) => (
                 <TextInput
                   id={id}

@@ -126,7 +126,10 @@ export const triggerActionSchema = z.discriminatedUnion('type', [
       .trim()
       .min(1)
       .max(40)
-      .regex(/^[a-z0-9][a-z0-9 _-]*$/i, 'Tags are letters, numbers, spaces, hyphens and underscores'),
+      .regex(
+        /^[a-z0-9][a-z0-9 _-]*$/i,
+        'Tags are letters, numbers, spaces, hyphens and underscores',
+      ),
   }),
   z.object({
     type: z.literal('set_priority'),
@@ -252,10 +255,9 @@ export const createTriggerSchema = triggerBodySchema.superRefine(refineTrigger);
  * stored trigger and re-parses the whole thing with `createTriggerSchema`. This schema only checks
  * the shape of what was sent.
  */
-export const updateTriggerSchema = triggerBodySchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  'Nothing to update',
-);
+export const updateTriggerSchema = triggerBodySchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
 
 export type CreateTriggerInput = z.infer<typeof createTriggerSchema>;
 export type UpdateTriggerInput = z.infer<typeof updateTriggerSchema>;
@@ -288,10 +290,9 @@ export const createShortcutSchema = z.object({
   body: z.string().trim().min(1).max(2000),
 });
 
-export const updateShortcutSchema = createShortcutSchema.partial().refine(
-  (value) => Object.keys(value).length > 0,
-  'Nothing to update',
-);
+export const updateShortcutSchema = createShortcutSchema
+  .partial()
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
 
 export type CreateShortcutInput = z.infer<typeof createShortcutSchema>;
 export type UpdateShortcutInput = z.infer<typeof updateShortcutSchema>;

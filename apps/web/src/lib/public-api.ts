@@ -56,8 +56,7 @@ export async function publicApiGet<T>(
   }
 
   const envelope = payload as
-    | { success: true; data: T }
-    | { success: false; error: { code: string } };
+    { success: true; data: T } | { success: false; error: { code: string } };
 
   if (!response.ok || envelope.success === false) {
     throw new PublicApiError(

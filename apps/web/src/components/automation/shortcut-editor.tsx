@@ -69,7 +69,11 @@ export function ShortcutEditor({
           </p>
         )}
 
-        <Field label="Shortcut" hint="Lowercase letters, numbers, hyphens and underscores." required>
+        <Field
+          label="Shortcut"
+          hint="Lowercase letters, numbers, hyphens and underscores."
+          required
+        >
           {({ id, describedBy }) => (
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm text-ink-subtle">/</span>

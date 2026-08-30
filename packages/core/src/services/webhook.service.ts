@@ -161,11 +161,7 @@ export class WebhookService {
     return webhook;
   }
 
-  async deliveries(
-    context: TenantContext,
-    id: string,
-    limit: number,
-  ): Promise<WebhookDelivery[]> {
+  async deliveries(context: TenantContext, id: string, limit: number): Promise<WebhookDelivery[]> {
     requirePermission(context, Permission.ACCOUNT_VIEW);
     await this.find(context, id);
     return this.options.db.webhookDelivery.findMany({
@@ -369,7 +365,10 @@ export class WebhookService {
       }),
     ]);
 
-    return { status: exhausted ? 'failed' : 'pending', ...(responseStatus ? { responseStatus } : {}) };
+    return {
+      status: exhausted ? 'failed' : 'pending',
+      ...(responseStatus ? { responseStatus } : {}),
+    };
   }
 }
 
@@ -381,9 +380,5 @@ export class WebhookService {
  * quietly widening.
  */
 export interface WebhookEmitter {
-  queue(
-    accountId: string,
-    event: WebhookEvent,
-    data: Record<string, unknown>,
-  ): Promise<unknown>;
+  queue(accountId: string, event: WebhookEvent, data: Record<string, unknown>): Promise<unknown>;
 }

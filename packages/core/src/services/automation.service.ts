@@ -64,14 +64,12 @@ export class AutomationService {
     const trigger = await this.triggers.findById(context, id);
     if (!trigger) throw new AppError(ErrorCode.TRIGGER_NOT_FOUND);
     // A restricted member must not be able to read a rule belonging to a website they cannot see.
-    if (trigger.propertyId) requirePropertyAccess(context, trigger.propertyId, ErrorCode.TRIGGER_NOT_FOUND);
+    if (trigger.propertyId)
+      requirePropertyAccess(context, trigger.propertyId, ErrorCode.TRIGGER_NOT_FOUND);
     return trigger;
   }
 
-  async createTrigger(
-    context: TenantContext,
-    input: CreateTriggerInput,
-  ): Promise<ResolvedTrigger> {
+  async createTrigger(context: TenantContext, input: CreateTriggerInput): Promise<ResolvedTrigger> {
     requirePermission(context, Permission.TRIGGER_MANAGE);
     await this.assertPropertyUsable(context, input.propertyId);
     await this.assertDepartmentsExist(context, input);
@@ -242,7 +240,8 @@ export class AutomationService {
       body: parsed.body,
       createdByMemberId: context.memberId ?? null,
     });
-    if (!created) throw new AppError(ErrorCode.SHORTCUT_KEY_TAKEN, 'That shortcut is already taken');
+    if (!created)
+      throw new AppError(ErrorCode.SHORTCUT_KEY_TAKEN, 'That shortcut is already taken');
 
     await this.audit.record({
       accountId: context.accountId,

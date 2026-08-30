@@ -119,9 +119,7 @@ export class AutomationSession {
     // runs considers both.
     const waits = [
       ...new Set(
-        candidates
-          .map((trigger) => trigger.afterSeconds - elapsed)
-          .filter((wait) => wait > -3_600),
+        candidates.map((trigger) => trigger.afterSeconds - elapsed).filter((wait) => wait > -3_600),
       ),
     ]
       .sort((a, b) => a - b)

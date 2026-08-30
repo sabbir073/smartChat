@@ -83,7 +83,10 @@ export const widgetApi = {
   pageView: (token: string, page: { url: string; title?: string }) =>
     request<void>('/widget/page-view', { method: 'POST', body: page, token }),
 
-  signUpload: (token: string, input: { conversationId: string; fileName: string; byteSize: number }) =>
+  signUpload: (
+    token: string,
+    input: { conversationId: string; fileName: string; byteSize: number },
+  ) =>
     request<{ attachmentId: string; uploadUrl: string; expiresInSeconds: number }>(
       '/widget/uploads/sign',
       { method: 'POST', body: input, token },

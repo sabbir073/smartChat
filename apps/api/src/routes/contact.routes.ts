@@ -28,11 +28,7 @@ export async function contactRoutes(app: FastifyInstance, container: Container):
     const tenant = requireTenant(request);
     const query = parseQuery(listContactsSchema, request.query);
     const page = await container.contacts.list(tenant, query);
-    return ok(
-      reply,
-      page.items.map(toContactDto),
-      page.meta as unknown as Record<string, unknown>,
-    );
+    return ok(reply, page.items.map(toContactDto), page.meta as unknown as Record<string, unknown>);
   });
 
   app.get('/contacts/:id', async (request, reply) => {

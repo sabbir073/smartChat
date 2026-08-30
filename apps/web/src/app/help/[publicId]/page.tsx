@@ -128,7 +128,9 @@ export default async function HelpCentrePage({ params, searchParams }: PageProps
           <Link
             href={`/help/${publicId}${query ? `?q=${encodeURIComponent(query)}` : ''}`}
             className={`rounded-full border px-3.5 py-1.5 text-[13px] font-medium ${
-              category ? 'border-border bg-surface text-ink-muted' : 'border-ink bg-ink text-ink-inverted'
+              category
+                ? 'border-border bg-surface text-ink-muted'
+                : 'border-ink bg-ink text-ink-inverted'
             }`}
           >
             All
@@ -170,9 +172,7 @@ export default async function HelpCentrePage({ params, searchParams }: PageProps
       ) : (
         <>
           <h2 className="mb-3 text-[13px] font-medium uppercase tracking-wide text-ink-subtle">
-            {searching
-              ? `${shown.length} result${shown.length === 1 ? '' : 's'}`
-              : 'All articles'}
+            {searching ? `${shown.length} result${shown.length === 1 ? '' : 's'}` : 'All articles'}
           </h2>
           <ul className="space-y-2.5">
             {shown.map((article) => (

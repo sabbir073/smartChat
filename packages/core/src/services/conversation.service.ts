@@ -161,7 +161,8 @@ export class ConversationService {
      * help because they skipped a field is the wrong failure direction for a support product; the
      * agent sees exactly what was answered. See ADR-036.
      */
-    const preChat = input.preChat && !reusable ? await this.sanitisePreChat(identity, input.preChat) : null;
+    const preChat =
+      input.preChat && !reusable ? await this.sanitisePreChat(identity, input.preChat) : null;
 
     const conversation =
       reusable ??
@@ -247,7 +248,10 @@ export class ConversationService {
     );
     if (!config) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
     if (!config.behaviour.offlineFormEnabled) {
-      throw new AppError(ErrorCode.FEATURE_NOT_AVAILABLE, 'This site does not take offline messages');
+      throw new AppError(
+        ErrorCode.FEATURE_NOT_AVAILABLE,
+        'This site does not take offline messages',
+      );
     }
 
     const collected = collectFormValues(config.forms.offlineFields, submitted);
@@ -296,7 +300,10 @@ export class ConversationService {
       }),
     );
 
-    const dto = toMessageDto(persisted.message, collected.values['name'] ?? identity.visitorName ?? null);
+    const dto = toMessageDto(
+      persisted.message,
+      collected.values['name'] ?? identity.visitorName ?? null,
+    );
 
     await this.options.events.publish({
       type: ServerEvent.CONVERSATION_CREATED,

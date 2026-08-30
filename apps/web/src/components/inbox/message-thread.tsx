@@ -1,13 +1,6 @@
 'use client';
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-  type KeyboardEvent,
-} from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { MESSAGE_MAX_LENGTH, expandShortcut } from '@smartchat/validation';
 import { cn } from '@/components/ui';
 import type { AgentMessage } from '@/lib/realtime';

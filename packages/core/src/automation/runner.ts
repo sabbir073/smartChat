@@ -1,9 +1,6 @@
 import type { Database } from '@smartchat/database';
 import type { TriggerEventName } from '@smartchat/validation';
-import {
-  TriggerRepository,
-  type ResolvedTrigger,
-} from '../repositories/automation.repository.js';
+import { TriggerRepository, type ResolvedTrigger } from '../repositories/automation.repository.js';
 import type { MessageDto } from '../realtime/events.js';
 import type { ConversationService, VisitorIdentity } from '../services/conversation.service.js';
 import { systemClock, type Clock } from '../time.js';
@@ -75,11 +72,7 @@ export class AutomationRunner {
     facts: TriggerFacts,
     options: { agentDisplayName?: string | null } = {},
   ): Promise<TriggerRunResult | null> {
-    const candidates = await this.listCandidates(
-      identity.accountId,
-      identity.propertyId,
-      event,
-    );
+    const candidates = await this.listCandidates(identity.accountId, identity.propertyId, event);
 
     for (const trigger of candidates) {
       if (!matchesConditions(trigger.match, trigger.conditions, facts)) continue;

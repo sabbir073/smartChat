@@ -302,7 +302,10 @@ export class KbService {
       select: { id: true },
     });
     if (!category) {
-      throw new AppError(ErrorCode.VALIDATION_FAILED, 'That section does not exist on this website');
+      throw new AppError(
+        ErrorCode.VALIDATION_FAILED,
+        'That section does not exist on this website',
+      );
     }
   }
 
@@ -316,7 +319,9 @@ export class KbService {
    * The same lookup the widget uses, and for the same reason: a public id identifies a property
    * and authorises nothing, so everything downstream of it must be safe to serve to anybody.
    */
-  private async resolvePublic(publicId: string): Promise<{ accountId: string; propertyId: string; name: string }> {
+  private async resolvePublic(
+    publicId: string,
+  ): Promise<{ accountId: string; propertyId: string; name: string }> {
     const property = await this.widgets.findPublishedByPublicId(publicId);
     if (!property) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
     await this.options.flags?.assertEnabled('public_help_centre', property.accountId);

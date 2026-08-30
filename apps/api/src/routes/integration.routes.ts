@@ -38,10 +38,7 @@ function webhookSchemas(allowPrivate: boolean) {
  * scope refuses API-key authentication outright rather than relying on scopes never being wide
  * enough to reach it.
  */
-export async function integrationRoutes(
-  app: FastifyInstance,
-  container: Container,
-): Promise<void> {
+export async function integrationRoutes(app: FastifyInstance, container: Container): Promise<void> {
   const schemas = webhookSchemas(container.config.ALLOW_PRIVATE_WEBHOOK_URLS);
 
   app.addHook('preHandler', app.authenticateTenant);

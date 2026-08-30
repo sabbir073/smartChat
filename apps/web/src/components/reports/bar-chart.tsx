@@ -115,10 +115,7 @@ export function BarChart({
       </div>
 
       <p
-        className={cn(
-          'mt-2 h-5 text-[13px]',
-          active ? 'text-ink-muted' : 'text-ink-subtle',
-        )}
+        className={cn('mt-2 h-5 text-[13px]', active ? 'text-ink-muted' : 'text-ink-subtle')}
         aria-live="polite"
       >
         {active

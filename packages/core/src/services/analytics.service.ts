@@ -521,17 +521,16 @@ export class AnalyticsService {
     const responseSeconds = series.reduce((sum, point) => sum + point.firstResponseSeconds, 0);
     const resolutionSeconds = series.reduce((sum, point) => sum + point.resolutionSeconds, 0);
     totals.averageFirstResponseSeconds =
-      totals.firstResponseCount > 0 ? Math.round(responseSeconds / totals.firstResponseCount) : null;
+      totals.firstResponseCount > 0
+        ? Math.round(responseSeconds / totals.firstResponseCount)
+        : null;
     totals.averageResolutionSeconds =
       totals.resolutionCount > 0 ? Math.round(resolutionSeconds / totals.resolutionCount) : null;
 
     return { from: fromDay, to: toDay, timezone, totals, series };
   }
 
-  async agents(
-    context: TenantContext,
-    input: { from: Date; to: Date },
-  ): Promise<AgentRow[]> {
+  async agents(context: TenantContext, input: { from: Date; to: Date }): Promise<AgentRow[]> {
     requirePermission(context, Permission.REPORT_VIEW);
     const fromDay = toDayString(input.from);
     const toDay = toDayString(input.to);

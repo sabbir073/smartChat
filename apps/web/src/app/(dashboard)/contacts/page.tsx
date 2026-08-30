@@ -25,28 +25,25 @@ export default function ContactsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(
-    async (term: string, after?: string | null) => {
-      if (after) setLoadingMore(true);
-      else setLoading(true);
-      setError(null);
-      try {
-        const params = new URLSearchParams({ limit: '25' });
-        if (term) params.set('search', term);
-        if (after) params.set('cursor', after);
-        const result = await api.get<ContactDto[]>(`/contacts?${params.toString()}`);
-        const meta = result.meta as { cursor?: string | null } | undefined;
-        setContacts((current) => (after ? [...current, ...result.data] : result.data));
-        setCursor(meta?.cursor ?? null);
-      } catch (caught) {
-        setError(caught instanceof ApiError ? caught.message : 'Contacts could not be loaded.');
-      } finally {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    },
-    [],
-  );
+  const load = useCallback(async (term: string, after?: string | null) => {
+    if (after) setLoadingMore(true);
+    else setLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({ limit: '25' });
+      if (term) params.set('search', term);
+      if (after) params.set('cursor', after);
+      const result = await api.get<ContactDto[]>(`/contacts?${params.toString()}`);
+      const meta = result.meta as { cursor?: string | null } | undefined;
+      setContacts((current) => (after ? [...current, ...result.data] : result.data));
+      setCursor(meta?.cursor ?? null);
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'Contacts could not be loaded.');
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!canView) {
@@ -126,7 +123,10 @@ export default function ContactsPage() {
               {contacts.map((contact) => (
                 <tr key={contact.id} className="transition-colors hover:bg-surface-raised">
                   <td className="px-4 py-2.5">
-                    <Link href={`/contacts/${contact.id}`} className="font-medium text-ink hover:text-brand">
+                    <Link
+                      href={`/contacts/${contact.id}`}
+                      className="font-medium text-ink hover:text-brand"
+                    >
                       {contact.name ?? 'Unnamed'}
                     </Link>
                   </td>
@@ -147,7 +147,11 @@ export default function ContactsPage() {
 
       {cursor && (
         <div className="mt-4 flex justify-center">
-          <Button variant="secondary" loading={loadingMore} onClick={() => void load(search, cursor)}>
+          <Button
+            variant="secondary"
+            loading={loadingMore}
+            onClick={() => void load(search, cursor)}
+          >
             Load more
           </Button>
         </div>

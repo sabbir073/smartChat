@@ -58,6 +58,9 @@ x-app-env: &app-env
   ALLOW_LOCALHOST_ORIGINS: ${ALLOW_LOCALHOST_ORIGINS:-true}
   # Development only. The production compose file does not set it, and it defaults to false.
   ALLOW_PRIVATE_WEBHOOK_URLS: ${ALLOW_PRIVATE_WEBHOOK_URLS:-false}
+  # Optional. Absent means /metrics returns 404 and does not exist - opt-in, because an
+  # unauthenticated metrics endpoint tells a stranger how many customers you have.
+  METRICS_TOKEN: ${METRICS_TOKEN:-}
 
 x-infra-ready: &infra-ready
   postgres:

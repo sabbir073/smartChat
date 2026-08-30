@@ -4,12 +4,31 @@
 # Usage on the server:
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml docker compose up -d
 #
-# Infrastructure ports are deliberately NOT published to the host: only the
-# reverse proxy is reachable from the internet. See docs/PRODUCTION_DEPLOYMENT.md
+# Two properties this file is responsible for, and neither is optional:
+#
+#  1. **Only the edge is reachable.** No infrastructure port is published. The
+#     base file publishes nothing either; the development overlay is what opens
+#     ports, and it is not used here.
+#  2. **Nothing runs with more privilege than it needs.** Every service drops
+#     new-privilege escalation, and the ones that can run on a read-only root
+#     filesystem do.
+#
+# See docs/DEPLOYMENT.md for the certificate and first-boot procedure.
 # =============================================================================
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  restart: unless-stopped
+  logging:
+    driver: json-file
+    options:
+      max-size: '20m'
+      max-file: '5'
 
 services:
   postgres:
+    <<: *hardening
     command:
       - postgres
       - -c
@@ -18,15 +37,141 @@ services:
       - shared_buffers=512MB
       - -c
       - effective_cache_size=1536MB
+      # Slow queries are logged; every statement is not. A production log of every
+      # SELECT is both a performance problem and a pile of personal data in a file
+      # nobody has thought about who can read.
       - -c
       - log_min_duration_statement=1000
+      - -c
+      - log_statement=none
     deploy:
       resources:
         limits:
           memory: 2g
 
   redis:
+    <<: *hardening
     deploy:
       resources:
         limits:
           memory: 768m
+
+  minio:
+    <<: *hardening
+
+  api:
+    <<: *hardening
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Production must never accept a webhook pointed at the private network, and
+      # must never wave through a widget request from localhost.
+      ALLOW_PRIVATE_WEBHOOK_URLS: 'false'
+      ALLOW_LOCALHOST_ORIGINS: 'false'
+      AUTO_VERIFY_EMAIL: 'false'
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  realtime:
+    <<: *hardening
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  worker:
+    <<: *hardening
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  web:
+    <<: *hardening
+    environment:
+      NODE_ENV: production
+      # Browser-facing addresses. These end up in the page, so they are the public
+      # hostnames rather than the names on the private network.
+      API_URL: https://${API_HOST:?API_HOST is required}
+      REALTIME_URL: https://${WS_HOST:?WS_HOST is required}
+      WIDGET_URL: https://${CDN_HOST:?CDN_HOST is required}
+      # Server-rendered pages call the API from inside the network, where
+      # localhost is this container rather than the API.
+      INTERNAL_API_URL: http://api:3001
+    read_only: true
+    tmpfs:
+      - /tmp
+      # Next writes its image cache here even in standalone mode.
+      - /app/apps/web/.next/cache
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+
+  widget:
+    <<: *hardening
+
+  # ---------------------------------------------------------------------------
+  # The edge: the only container the internet can reach.
+  # ---------------------------------------------------------------------------
+  edge:
+    <<: *hardening
+    image: nginx:1.27-alpine
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    ports:
+      - '80:80'
+      - '443:443'
+    environment:
+      APP_HOST: ${APP_HOST:?APP_HOST is required}
+      API_HOST: ${API_HOST:?API_HOST is required}
+      WS_HOST: ${WS_HOST:?WS_HOST is required}
+      CDN_HOST: ${CDN_HOST:?CDN_HOST is required}
+    volumes:
+      # Templated, so the hostnames come from the environment rather than from a
+      # file somebody has to remember to edit. nginx substitutes them at start.
+      - ./infrastructure/nginx/edge.conf:/etc/nginx/templates/edge.conf.template:ro
+      - ./infrastructure/nginx/certs:/etc/letsencrypt:ro
+      - ./infrastructure/nginx/acme:/var/www/certbot
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1/.well-known/acme-challenge/ || exit 0']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # Certificates. Renews and exits; a timer or cron runs it, not a daemon that
+  # sits idle for ninety days waiting to matter.
+  # ---------------------------------------------------------------------------
+  certbot:
+    image: certbot/certbot:latest
+    profiles: ['certs']
+    volumes:
+      - ./infrastructure/nginx/certs:/etc/letsencrypt
+      - ./infrastructure/nginx/acme:/var/www/certbot
+    entrypoint: >
+      sh -c "certbot certonly --webroot -w /var/www/certbot
+      --non-interactive --agree-tos --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL is required}
+      -d ${APP_HOST} -d ${API_HOST} -d ${WS_HOST} -d ${CDN_HOST}"
+    networks: [smartchat]

@@ -28,11 +28,7 @@ export async function ticketRoutes(app: FastifyInstance, container: Container): 
     const tenant = requireTenant(request);
     const query = parseQuery(listTicketsSchema, request.query);
     const page = await container.tickets.list(tenant, query);
-    return ok(
-      reply,
-      page.items.map(toTicketDto),
-      page.meta as unknown as Record<string, unknown>,
-    );
+    return ok(reply, page.items.map(toTicketDto), page.meta as unknown as Record<string, unknown>);
   });
 
   app.post('/tickets', async (request, reply) => {

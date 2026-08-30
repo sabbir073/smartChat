@@ -72,9 +72,7 @@ const NAV: NavItem[] = [
     href: '/automation',
     label: 'Automation',
     available: true,
-    icon: icon(
-      'M13 3 4 14h6l-1 7 9-11h-6l1-7Z',
-    ),
+    icon: icon('M13 3 4 14h6l-1 7 9-11h-6l1-7Z'),
   },
   {
     href: '/tickets',

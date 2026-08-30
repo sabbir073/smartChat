@@ -100,7 +100,12 @@ export class TicketService {
     requirePermission(context, Permission.TICKET_VIEW);
 
     if (query.propertyId) {
-      await assertPropertyInAccount(this.options.db, context, query.propertyId, ErrorCode.NOT_FOUND);
+      await assertPropertyInAccount(
+        this.options.db,
+        context,
+        query.propertyId,
+        ErrorCode.NOT_FOUND,
+      );
     }
     const restriction =
       context.propertyIds && context.propertyIds.size > 0
@@ -373,7 +378,8 @@ export class TicketService {
         where: { accountId: context.accountId, id: input.assignedMemberId, deletedAt: null },
         select: { id: true },
       });
-      if (!member) throw new AppError(ErrorCode.VALIDATION_FAILED, 'That person is not on this team');
+      if (!member)
+        throw new AppError(ErrorCode.VALIDATION_FAILED, 'That person is not on this team');
     }
 
     const now = this.clock.now();

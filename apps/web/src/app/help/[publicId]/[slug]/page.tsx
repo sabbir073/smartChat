@@ -31,9 +31,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const { publicId, slug } = await params;
   if (!PUBLIC_ID.test(publicId) || !SLUG.test(slug)) return { title: 'Help centre' };
   try {
-    const article = await publicApiGet<PublicArticleDto>(
-      `/public/kb/${publicId}/articles/${slug}`,
-    );
+    const article = await publicApiGet<PublicArticleDto>(`/public/kb/${publicId}/articles/${slug}`);
     return {
       title: article.title,
       ...(article.excerpt ? { description: article.excerpt } : {}),
@@ -70,7 +68,8 @@ export default async function HelpArticlePage({ params }: PageProps) {
         <p className="mt-2 text-[13px] text-ink-subtle">
           {published && (
             <>
-              Published <time dateTime={article.publishedAt ?? ''}>{published.toLocaleDateString()}</time>
+              Published{' '}
+              <time dateTime={article.publishedAt ?? ''}>{published.toLocaleDateString()}</time>
             </>
           )}
           {published && updated.getTime() - published.getTime() > 60_000 && ' · '}

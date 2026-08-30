@@ -132,7 +132,10 @@ export default function ContactPage() {
               ) : (
                 <ul className="divide-y divide-border">
                   {conversations.map((conversation) => (
-                    <li key={conversation.id} className="flex items-center justify-between gap-3 py-2.5">
+                    <li
+                      key={conversation.id}
+                      className="flex items-center justify-between gap-3 py-2.5"
+                    >
                       <div className="min-w-0">
                         <Link
                           href={`/inbox?conversation=${conversation.id}`}
@@ -168,7 +171,9 @@ export default function ContactPage() {
                 <ul className="divide-y divide-border">
                   {files.map((file) => (
                     <li key={file.id} className="flex items-center justify-between gap-3 py-2.5">
-                      <span className="min-w-0 truncate text-[13.5px] text-ink">{file.fileName}</span>
+                      <span className="min-w-0 truncate text-[13.5px] text-ink">
+                        {file.fileName}
+                      </span>
                       <span className="shrink-0 text-[12px] text-ink-subtle">
                         {formatBytes(file.byteSize)} ·{' '}
                         {new Date(file.createdAt).toLocaleDateString()}
@@ -268,7 +273,13 @@ export default function ContactPage() {
                         <TextInput
                           id={id}
                           disabled={!canEdit}
-                          type={field.type === 'date' ? 'date' : field.type === 'number' ? 'number' : 'text'}
+                          type={
+                            field.type === 'date'
+                              ? 'date'
+                              : field.type === 'number'
+                                ? 'number'
+                                : 'text'
+                          }
                           value={draft[field.key] ?? ''}
                           onChange={(event) =>
                             setDraft((current) => ({ ...current, [field.key]: event.target.value }))

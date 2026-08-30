@@ -73,18 +73,69 @@ function refineRiff(bytes: Uint8Array): FileKind | null {
 }
 
 const SIGNATURES: Signature[] = [
-  { magic: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], offset: 0, contentType: 'image/png', extension: 'png', isImage: true },
-  { magic: [0xff, 0xd8, 0xff], offset: 0, contentType: 'image/jpeg', extension: 'jpg', isImage: true },
+  {
+    magic: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+    offset: 0,
+    contentType: 'image/png',
+    extension: 'png',
+    isImage: true,
+  },
+  {
+    magic: [0xff, 0xd8, 0xff],
+    offset: 0,
+    contentType: 'image/jpeg',
+    extension: 'jpg',
+    isImage: true,
+  },
   { magic: ascii('GIF87a'), offset: 0, contentType: 'image/gif', extension: 'gif', isImage: true },
   { magic: ascii('GIF89a'), offset: 0, contentType: 'image/gif', extension: 'gif', isImage: true },
   { magic: [0x42, 0x4d], offset: 0, contentType: 'image/bmp', extension: 'bmp', isImage: true },
-  { magic: ascii('RIFF'), offset: 0, contentType: 'image/webp', extension: 'webp', isImage: true, refine: refineRiff },
-  { magic: ascii('%PDF-'), offset: 0, contentType: 'application/pdf', extension: 'pdf', isImage: false },
-  { magic: [0x50, 0x4b, 0x03, 0x04], offset: 0, contentType: 'application/zip', extension: 'zip', isImage: false, refine: refineZip },
-  { magic: [0x50, 0x4b, 0x05, 0x06], offset: 0, contentType: 'application/zip', extension: 'zip', isImage: false, refine: refineZip },
-  { magic: [0x1f, 0x8b], offset: 0, contentType: 'application/gzip', extension: 'gz', isImage: false },
+  {
+    magic: ascii('RIFF'),
+    offset: 0,
+    contentType: 'image/webp',
+    extension: 'webp',
+    isImage: true,
+    refine: refineRiff,
+  },
+  {
+    magic: ascii('%PDF-'),
+    offset: 0,
+    contentType: 'application/pdf',
+    extension: 'pdf',
+    isImage: false,
+  },
+  {
+    magic: [0x50, 0x4b, 0x03, 0x04],
+    offset: 0,
+    contentType: 'application/zip',
+    extension: 'zip',
+    isImage: false,
+    refine: refineZip,
+  },
+  {
+    magic: [0x50, 0x4b, 0x05, 0x06],
+    offset: 0,
+    contentType: 'application/zip',
+    extension: 'zip',
+    isImage: false,
+    refine: refineZip,
+  },
+  {
+    magic: [0x1f, 0x8b],
+    offset: 0,
+    contentType: 'application/gzip',
+    extension: 'gz',
+    isImage: false,
+  },
   // Legacy Office. One signature covers .doc, .xls and .ppt; the generic type is honest about that.
-  { magic: [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1], offset: 0, contentType: 'application/x-ole-storage', extension: 'bin', isImage: false },
+  {
+    magic: [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
+    offset: 0,
+    contentType: 'application/x-ole-storage',
+    extension: 'bin',
+    isImage: false,
+  },
 ];
 
 function matches(bytes: Uint8Array, signature: Signature): boolean {
@@ -123,15 +174,21 @@ export function identifyFile(bytes: Uint8Array, declaredName: string): FileKind 
       if (refined) return refined;
       continue;
     }
-    return { contentType: signature.contentType, extension: signature.extension, isImage: signature.isImage };
+    return {
+      contentType: signature.contentType,
+      extension: signature.extension,
+      isImage: signature.isImage,
+    };
   }
 
   if (looksLikeText(bytes)) {
     // The name is allowed to pick between text flavours, because it cannot pick anything unsafe:
     // every branch here is served as text/plain and never executed by anything.
     const lower = declaredName.toLowerCase();
-    if (lower.endsWith('.csv')) return { contentType: 'text/csv', extension: 'csv', isImage: false };
-    if (lower.endsWith('.json')) return { contentType: 'application/json', extension: 'json', isImage: false };
+    if (lower.endsWith('.csv'))
+      return { contentType: 'text/csv', extension: 'csv', isImage: false };
+    if (lower.endsWith('.json'))
+      return { contentType: 'application/json', extension: 'json', isImage: false };
     return { contentType: 'text/plain', extension: 'txt', isImage: false };
   }
 

@@ -5,6 +5,7 @@ import {
   QueueName,
   QueueProducer,
   SmtpMailProvider,
+  StorageService,
   createRedisClient,
   type MailProvider,
   type SendEmailPayload,
@@ -53,6 +54,23 @@ async function main(): Promise<void> {
           logger.info({ to: message.to.email, subject: message.subject }, 'email (log driver)'),
         );
 
+  /**
+   * The object store, for the retention job.
+   *
+   * The worker reaches it by its name on the private network, the same as the API does. There is
+   * no browser here, so the public endpoint is irrelevant and is set to the same value rather than
+   * left to imply a second address that this process would never use.
+   */
+  const storage = new StorageService({
+    endpoint: config.S3_ENDPOINT,
+    publicEndpoint: config.S3_ENDPOINT,
+    bucket: config.S3_BUCKET,
+    region: config.S3_REGION,
+    accessKey: config.S3_ACCESS_KEY,
+    secretKey: config.S3_SECRET_KEY,
+    forcePathStyle: config.S3_FORCE_PATH_STYLE,
+  });
+
   const workers: Worker[] = [
     new Worker(
       QueueName.EMAIL,
@@ -75,9 +93,7 @@ async function main(): Promise<void> {
     new Worker(
       QueueName.ANALYTICS,
       (job) =>
-        withLogContext({ jobId: job.id ?? undefined }, () =>
-          processAnalyticsJob(job, db, logger),
-        ),
+        withLogContext({ jobId: job.id ?? undefined }, () => processAnalyticsJob(job, db, logger)),
       // One at a time: the rollup walks every active account, and two overlapping runs would do
       // the same delete-and-rebuild twice for no benefit.
       { connection, concurrency: 1 },
@@ -87,7 +103,7 @@ async function main(): Promise<void> {
       QueueName.MAINTENANCE,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined }, () =>
-          processMaintenanceJob(job, db, logger),
+          processMaintenanceJob(job, db, logger, storage),
         ),
       { connection, concurrency: 1 },
     ),

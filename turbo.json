@@ -42,10 +42,6 @@
     "test:unit": {
       "dependsOn": ["^build"]
     },
-    "test:integration": {
-      "cache": false,
-      "dependsOn": ["^build"]
-    },
     "clean": {
       "cache": false
     }

@@ -10,7 +10,14 @@ import { emailSchema, paginationSchema, uuidSchema } from './common.js';
  * arbitrary data.
  */
 
-export const contactFieldTypeSchema = z.enum(['text', 'number', 'url', 'date', 'select', 'boolean']);
+export const contactFieldTypeSchema = z.enum([
+  'text',
+  'number',
+  'url',
+  'date',
+  'select',
+  'boolean',
+]);
 
 export type ContactFieldTypeName = z.infer<typeof contactFieldTypeSchema>;
 

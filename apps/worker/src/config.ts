@@ -4,6 +4,7 @@ import {
   loadConfigOrExit,
   mailEnvSchema,
   redisEnvSchema,
+  storageEnvSchema,
   urlsEnvSchema,
 } from '@smartchat/config';
 import { z } from 'zod';
@@ -13,6 +14,10 @@ const workerEnvSchema = baseEnvSchema
   .merge(databaseEnvSchema)
   .merge(redisEnvSchema)
   .merge(mailEnvSchema)
+  // The retention job deletes attachment objects as well as their rows, so the worker needs the
+  // object store. Without it the rows would go and the files would stay - a storage bill nobody
+  // can explain and a pile of personal data nobody can find.
+  .merge(storageEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('worker'),

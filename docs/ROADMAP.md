@@ -19,7 +19,7 @@ previous one is green.
 | **10 — Analytics** ✅ | Rollup tables, scheduled and on-demand rebuilds, reports | Metrics match hand-computed values on seeded data |
 | **11 — Integrations** ✅ | Webhooks with signing/retry/logs, scoped API keys on the same routes | Webhook delivered and verified; API key scoped and revocable |
 | **12 — Super admin** ✅ | Platform console: accounts, plans, entitlements, usage, health, audit, flags | Suspend an account and observe tenant access stop immediately |
-| **13 — Production** | Hardening, performance, backups, monitoring, CI/CD, prod compose, SSL | Production images build; restore rehearsal succeeds |
+| **13 — Production** ✅ | Hardening, data retention, backups + restore rehearsal, metrics, edge proxy with TLS, CI/CD | Production images build; restore rehearsal succeeds |
 | **14 — Final QA** | Regression, security audit, load test, full E2E, rollback rehearsal | Every item in the acceptance criteria passes; `SECURITY_AUDIT.md` complete |
 
 Deliberately **not** in scope for v1: payment processing (the entitlement model is built, the

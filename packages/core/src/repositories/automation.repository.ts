@@ -201,11 +201,7 @@ export class TriggerRepository {
   }
 
   /** The most recent firing for one visitor, which is what a cooldown is measured against. */
-  async lastFiredAt(
-    accountId: string,
-    triggerId: string,
-    visitorId: string,
-  ): Promise<Date | null> {
+  async lastFiredAt(accountId: string, triggerId: string, visitorId: string): Promise<Date | null> {
     const row = await this.db.triggerFiring.findFirst({
       where: { accountId, triggerId, visitorId },
       orderBy: { firedAt: 'desc' },

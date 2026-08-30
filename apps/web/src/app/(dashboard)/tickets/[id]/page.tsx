@@ -7,16 +7,7 @@ import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { PageHeader } from '@/components/layout/page-header';
 import { PriorityBadge, StatusBadge } from '@/components/tickets/badges';
-import {
-  Alert,
-  Button,
-  Card,
-  CardBody,
-  Select,
-  Spinner,
-  cn,
-  useToast,
-} from '@/components/ui';
+import { Alert, Button, Card, CardBody, Select, Spinner, cn, useToast } from '@/components/ui';
 import type { MemberDto, TicketDto, TicketMessageDto } from '@/lib/types';
 
 const STATUSES = ['open', 'pending', 'resolved', 'closed'] as const;
@@ -197,9 +188,7 @@ export default function TicketPage() {
                 <Select
                   aria-label="Assignee"
                   value={ticket.assignedMemberId ?? ''}
-                  onChange={(event) =>
-                    void patch({ assignedMemberId: event.target.value || null })
-                  }
+                  onChange={(event) => void patch({ assignedMemberId: event.target.value || null })}
                 >
                   <option value="">Unassigned</option>
                   {members.map((member) => (
@@ -227,9 +216,7 @@ export default function TicketPage() {
         {messages.map((message) => (
           <Card
             key={message.id}
-            className={cn(
-              message.visibility === 'internal' && 'border-warning/40 bg-warning-soft',
-            )}
+            className={cn(message.visibility === 'internal' && 'border-warning/40 bg-warning-soft')}
           >
             <CardBody>
               <div className="mb-1.5 flex flex-wrap items-center gap-2 text-[12px] text-ink-subtle">
@@ -247,9 +234,7 @@ export default function TicketPage() {
                   </span>
                 )}
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">
-                {message.body}
-              </p>
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">{message.body}</p>
             </CardBody>
           </Card>
         ))}
@@ -292,7 +277,9 @@ export default function TicketPage() {
               }
               className={cn(
                 'w-full resize-y rounded-[var(--radius-control)] border bg-surface px-3 py-2 text-sm leading-relaxed text-ink placeholder:text-ink-subtle',
-                visibility === 'internal' ? 'border-warning/50 bg-warning-soft' : 'border-border-strong',
+                visibility === 'internal'
+                  ? 'border-warning/50 bg-warning-soft'
+                  : 'border-border-strong',
               )}
             />
 

@@ -49,7 +49,12 @@ describe('renderMarkdown', () => {
   });
 
   it('refuses the variants a block-list would miss', () => {
-    for (const href of ['  JaVaScRiPt:alert(1)', 'data:text/html,<b>', 'vbscript:x', '//evil.example']) {
+    for (const href of [
+      '  JaVaScRiPt:alert(1)',
+      'data:text/html,<b>',
+      'vbscript:x',
+      '//evil.example',
+    ]) {
       expect(renderMarkdown(`[x](${href})`)).not.toContain('<a href');
     }
   });
@@ -59,7 +64,9 @@ describe('renderMarkdown', () => {
       '<a href="https://example.com/a?b=1&amp;c=2" target="_blank" rel="noopener noreferrer nofollow">docs</a>',
     );
     expect(renderMarkdown('[more](/help/pricing)')).toContain('<a href="/help/pricing">more</a>');
-    expect(renderMarkdown('[mail](mailto:help@example.com)')).toContain('href="mailto:help@example.com"');
+    expect(renderMarkdown('[mail](mailto:help@example.com)')).toContain(
+      'href="mailto:help@example.com"',
+    );
   });
 
   it('keeps markup literal inside code', () => {

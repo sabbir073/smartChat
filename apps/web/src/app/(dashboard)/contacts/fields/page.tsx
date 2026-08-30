@@ -168,9 +168,7 @@ export default function ContactFieldsPage() {
                     </div>
                     <p className="mt-0.5 font-mono text-[12px] text-ink-subtle">{field.key}</p>
                     {field.options.length > 0 && (
-                      <p className="mt-1 text-[13px] text-ink-muted">
-                        {field.options.join(' · ')}
-                      </p>
+                      <p className="mt-1 text-[13px] text-ink-muted">{field.options.join(' · ')}</p>
                     )}
                   </div>
                   {canManage && (
@@ -234,7 +232,11 @@ export default function ContactFieldsPage() {
               )}
             </Field>
 
-            <Field label="Key" hint="Used in exports and the API. Cannot be changed later." required>
+            <Field
+              label="Key"
+              hint="Used in exports and the API. Cannot be changed later."
+              required
+            >
               {({ id }) => (
                 <TextInput
                   id={id}

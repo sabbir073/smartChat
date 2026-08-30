@@ -120,7 +120,9 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       },
     });
 
-    void automation.start(currentPage.url ? { url: currentPage.url, title: currentPage.title } : null);
+    void automation.start(
+      currentPage.url ? { url: currentPage.url, title: currentPage.title } : null,
+    );
 
     logger.debug({ visitorId: identity.visitorId, socketId: socket.id }, 'visitor connected');
 

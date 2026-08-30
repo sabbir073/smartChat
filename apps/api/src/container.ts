@@ -5,6 +5,7 @@ import {
   ApiKeyService,
   FeatureFlagService,
   PlatformService,
+  RetentionService,
   WebhookService,
   AttachmentService,
   AuthService,
@@ -60,6 +61,7 @@ export interface Container {
   analytics: AnalyticsService;
   apiKeys: ApiKeyService;
   platform: PlatformService;
+  retention: RetentionService;
   flags: FeatureFlagService;
   webhooks: WebhookService;
   storage: StorageService;
@@ -194,8 +196,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     db,
     clock,
     flags,
-    notify: (deliveryId) =>
-      queue.enqueue(WebhookJob.DELIVER, { deliveryId }).then(() => undefined),
+    notify: (deliveryId) => queue.enqueue(WebhookJob.DELIVER, { deliveryId }).then(() => undefined),
   });
 
   /**
@@ -269,6 +270,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     clock,
   });
 
+  const retention = new RetentionService({ db, storage, clock });
+
   const attachments = new AttachmentService({
     db,
     storage,
@@ -305,6 +308,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     apiKeys,
     platform,
     flags,
+    retention,
     webhooks,
     storage,
     attachments,

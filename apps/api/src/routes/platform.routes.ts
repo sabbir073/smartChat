@@ -187,6 +187,23 @@ export async function platformRoutes(app: FastifyInstance, container: Container)
       return ok(reply, await container.platform.setFlag(principal, key, input, request.clientIp));
     });
 
+    /**
+     * Apply data retention now.
+     *
+     * The nightly job does this on a schedule. This exists because the schedule is a promise, and
+     * an operator who has just changed a policy - or who is answering a deletion request with a
+     * deadline on it - needs to be able to say "and it has been applied", not "it will be, at four
+     * tomorrow morning".
+     */
+    guarded.post('/platform/maintenance/retention', async (request, reply) => {
+      const principal = requirePlatform(request);
+      if (!principal.permissions.has('platform:settings:manage')) {
+        throw new AppError(ErrorCode.FORBIDDEN, 'Your platform role does not include that');
+      }
+      const outcome = await container.retention.apply();
+      return ok(reply, outcome);
+    });
+
     guarded.get('/platform/audit', async (request, reply) => {
       const principal = requirePlatform(request);
       const query = parseQuery(

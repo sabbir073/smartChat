@@ -222,10 +222,7 @@ export class ApiKeyService {
 
     // Written at most once a minute: "when was this key last used" is worth knowing, and worth
     // nowhere near a write on every request.
-    if (
-      !key.lastUsedAt ||
-      now.getTime() - key.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS
-    ) {
+    if (!key.lastUsedAt || now.getTime() - key.lastUsedAt.getTime() > LAST_USED_RESOLUTION_MS) {
       await this.options.db.apiKey
         .update({ where: { id: key.id }, data: { lastUsedAt: now } })
         .catch(() => undefined);
