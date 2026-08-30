@@ -34,7 +34,7 @@ type VisitorSocket = Socket & { data: VisitorSocketData };
  * client cannot ask to listen to a conversation that is not theirs.
  */
 export function registerVisitorNamespace(namespace: Namespace, container: RealtimeContainer): void {
-  const { logger, presence, conversations, tickets } = container;
+  const { logger, presence, conversations, connectionTickets } = container;
   const guard = new SocketAbuseGuard(container.redis, (error) =>
     logger.error({ err: error }, 'rate limiter unavailable'),
   );
@@ -42,7 +42,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
   namespace.use(async (socket, next) => {
     try {
       const ticket = String(socket.handshake.auth?.['ticket'] ?? '');
-      const claims = await tickets.redeem(ticket);
+      const claims = await connectionTickets.redeem(ticket);
 
       if (!claims || claims.kind !== 'visitor' || !claims.propertyId) {
         // Deliberately uniform: a used, expired, forged or wrong-kind ticket all look identical.

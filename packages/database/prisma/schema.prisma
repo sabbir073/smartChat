@@ -203,6 +203,55 @@ enum ContactFieldType {
   @@map("contact_field_type")
 }
 
+enum TicketStatus {
+  /// Waiting on us.
+  open
+  /// Waiting on the person who asked. The clock that matters to an agent stops here.
+  pending
+  /// We believe it is answered. Still reopenable by anybody, and it stays that way.
+  resolved
+  /// Finished and filed. Reopening makes a new ticket rather than reviving this one.
+  closed
+
+  @@map("ticket_status")
+}
+
+enum TicketPriority {
+  low
+  normal
+  high
+  urgent
+
+  @@map("ticket_priority")
+}
+
+enum TicketAuthorType {
+  /// The person who asked, whether they typed it in the widget or we transcribed it.
+  contact
+  agent
+  /// Written by the product itself: "opened from an offline message", "resolved automatically".
+  system
+
+  @@map("ticket_author_type")
+}
+
+enum TicketMessageVisibility {
+  /// Sent to the requester by email.
+  public
+  /// Never leaves the account. The one property this whole feature has to get right.
+  internal
+
+  @@map("ticket_message_visibility")
+}
+
+enum EmailDeliveryStatus {
+  queued
+  sent
+  failed
+
+  @@map("email_delivery_status")
+}
+
 enum TriggerFrequency {
   once_per_session
   once_per_visitor
@@ -382,28 +431,37 @@ model Account {
   suspendedReason   String?       @map("suspended_reason")
   /// null = keep forever. Drives the retention cleanup job.
   dataRetentionDays Int?          @map("data_retention_days")
+  /**
+   * The last ticket number handed out in this account.
+   * Incremented inside the transaction that inserts the ticket, so numbers are gapless and unique
+   * per account - a person quoting "ticket 412" is quoting something that exists exactly once.
+   */
+  ticketSeq         Int           @default(0) @map("ticket_seq")
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
 
-  owner         User?                    @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  members       AccountMember[]
-  roles         Role[]
-  departments   Department[]
-  properties    Property[]
-  visitors      Visitor[]
-  conversations Conversation[]
-  auditLogs     AuditLog[]
-  tokens        VerificationToken[]
-  subscription  Subscription?
-  usage         UsageRecord[]
-  triggers      Trigger[]
-  shortcuts     Shortcut[]
-  attachments   Attachment[]
-  kbCategories  KbCategory[]
-  kbArticles    KbArticle[]
-  contacts      Contact[]
-  contactFields ContactFieldDefinition[]
+  owner           User?                    @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  members         AccountMember[]
+  roles           Role[]
+  departments     Department[]
+  properties      Property[]
+  visitors        Visitor[]
+  conversations   Conversation[]
+  auditLogs       AuditLog[]
+  tokens          VerificationToken[]
+  subscription    Subscription?
+  usage           UsageRecord[]
+  triggers        Trigger[]
+  shortcuts       Shortcut[]
+  attachments     Attachment[]
+  kbCategories    KbCategory[]
+  kbArticles      KbArticle[]
+  contacts        Contact[]
+  contactFields   ContactFieldDefinition[]
+  tickets         Ticket[]
+  ticketMessages  TicketMessage[]
+  emailDeliveries EmailDelivery[]
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -429,17 +487,19 @@ model AccountMember {
   updatedAt              DateTime          @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt              DateTime?         @map("deleted_at") @db.Timestamptz(6)
 
-  account               Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  user                  User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  role                  Role?              @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  invitedBy             User?              @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
-  properties            PropertyMember[]
-  departments           DepartmentMember[]
-  assignedConversations Conversation[]     @relation("ConversationAssignee")
-  sentMessages          Message[]
-  reads                 ConversationRead[]
-  authoredTriggers      Trigger[]          @relation("TriggerAuthor")
-  authoredShortcuts     Shortcut[]         @relation("ShortcutAuthor")
+  account                Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  user                   User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role                   Role?              @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  invitedBy              User?              @relation("MemberInviter", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  properties             PropertyMember[]
+  departments            DepartmentMember[]
+  assignedConversations  Conversation[]     @relation("ConversationAssignee")
+  sentMessages           Message[]
+  reads                  ConversationRead[]
+  authoredTriggers       Trigger[]          @relation("TriggerAuthor")
+  authoredShortcuts      Shortcut[]         @relation("ShortcutAuthor")
+  assignedTickets        Ticket[]           @relation("TicketAssignee")
+  authoredTicketMessages TicketMessage[]    @relation("TicketMessageAuthor")
 
   @@unique([accountId, userId])
   @@unique([accountId, id])
@@ -487,6 +547,13 @@ model Property {
   /// When false, unknown origins are recorded instead of blocked, so a misconfigured
   /// install surfaces in the dashboard rather than silently failing.
   enforceDomains      Boolean        @default(false) @map("enforce_domains")
+  /**
+   * Where a requester's email reply should go.
+   * SmartChat does not receive mail, so this is the customer's own mailbox and it is used as
+   * `Reply-To` on ticket email. When it is not set, no `Reply-To` is written and the message says
+   * plainly that the address is not monitored - a reply-to nobody reads is worse than none.
+   */
+  supportEmail        String?        @map("support_email") @db.Citext
   installedAt         DateTime?      @map("installed_at") @db.Timestamptz(6)
   lastWidgetRequestAt DateTime?      @map("last_widget_request_at") @db.Timestamptz(6)
   createdAt           DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -504,6 +571,7 @@ model Property {
   attachments   Attachment[]
   kbCategories  KbCategory[]
   kbArticles    KbArticle[]
+  tickets       Ticket[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -564,6 +632,7 @@ model Department {
   account       Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
   members       DepartmentMember[]
   conversations Conversation[]
+  tickets       Ticket[]
 
   @@unique([accountId, id])
   @@unique([accountId, key])
@@ -870,6 +939,7 @@ model Conversation {
   reads          ConversationRead[]
   triggerFirings TriggerFiring[]
   attachments    Attachment[]
+  tickets        Ticket[]
 
   @@unique([accountId, id])
   // Drives the inbox list.
@@ -1182,6 +1252,7 @@ model Contact {
 
   account  Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
   visitors Visitor[]
+  tickets  Ticket[]
 
   @@unique([accountId, id])
   /// One contact per address per account. Citext, so casing cannot create a second person.
@@ -1297,4 +1368,153 @@ model KbArticle {
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
   @@index([body(ops: raw("gin_trgm_ops"))], type: Gin)
   @@map("kb_articles")
+}
+
+// -----------------------------------------------------------------------------
+// Tickets
+//
+// A conversation is a moment; a ticket is a commitment. The difference that drives the model is
+// the channel: a conversation is answered in a widget the person has open, and a ticket is
+// answered by email to somebody who has closed the tab and gone to lunch. Everything below
+// follows from that - a stable human number to quote, a requester address captured at creation
+// rather than followed through a join, and a hard line between what is sent and what is not.
+// -----------------------------------------------------------------------------
+
+model Ticket {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  /// Which website it came in through. Tickets are scoped like everything else a restricted agent
+  /// can see.
+  propertyId String @map("property_id") @db.Uuid
+
+  /// Per-account, gapless, and what everybody quotes. Allocated under the account row's lock.
+  number Int
+
+  /// The person, when we know them. Null is normal: somebody can write in before they are anybody.
+  contactId      String? @map("contact_id") @db.Uuid
+  /// Where it came from, when it came from a chat. Kept as a link, not as ownership.
+  conversationId String? @map("conversation_id") @db.Uuid
+
+  /**
+   * The address the answer goes to, copied at creation rather than read through the contact.
+   * A contact's address can be corrected later, and an email that has already gone out went to
+   * the address that was true at the time; a ticket that silently rewrites its own history makes
+   * "who did we tell" unanswerable.
+   */
+  requesterEmail String  @map("requester_email") @db.Citext
+  requesterName  String? @map("requester_name")
+
+  subject  String
+  status   TicketStatus   @default(open)
+  priority TicketPriority @default(normal)
+  tags     String[]       @default([])
+
+  assignedMemberId String? @map("assigned_member_id") @db.Uuid
+  departmentId     String? @map("department_id") @db.Uuid
+
+  /// Gapless per-ticket counter, incremented with every message insert. Same reasoning as
+  /// `Conversation.messageSeq`: timestamps are ambiguous, counters are not.
+  messageSeq Int @default(0) @map("message_seq")
+
+  /// First *public* agent reply. Recorded once and never overwritten - an internal note is not a
+  /// response to anybody, and counting it would make the response-time report a lie.
+  firstResponseAt DateTime? @map("first_response_at") @db.Timestamptz(6)
+  lastMessageAt   DateTime  @default(now()) @map("last_message_at") @db.Timestamptz(6)
+  resolvedAt      DateTime? @map("resolved_at") @db.Timestamptz(6)
+  closedAt        DateTime? @map("closed_at") @db.Timestamptz(6)
+
+  createdByMemberId String? @map("created_by_member_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account        Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property       Property        @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  contact        Contact?        @relation(fields: [accountId, contactId], references: [accountId, id], onDelete: SetNull)
+  conversation   Conversation?   @relation(fields: [accountId, conversationId], references: [accountId, id], onDelete: SetNull)
+  assignedMember AccountMember?  @relation("TicketAssignee", fields: [accountId, assignedMemberId], references: [accountId, id], onDelete: SetNull)
+  department     Department?     @relation(fields: [accountId, departmentId], references: [accountId, id], onDelete: SetNull)
+  messages       TicketMessage[]
+  emails         EmailDelivery[]
+
+  @@unique([accountId, id])
+  /// The number a person quotes has to resolve to exactly one ticket.
+  @@unique([accountId, number])
+  /// The queue: one account's open work, most recently touched first.
+  @@index([accountId, status, lastMessageAt(sort: Desc)])
+  @@index([accountId, propertyId, status])
+  @@index([accountId, assignedMemberId, status])
+  @@index([accountId, contactId])
+  @@index([accountId, conversationId])
+  /// "Where is that ticket about the broken invoice" - substring search over the subject.
+  @@index([subject(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("tickets")
+}
+
+model TicketMessage {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  ticketId  String @map("ticket_id") @db.Uuid
+
+  /// Position in the ticket. Gapless, allocated with the insert.
+  seq Int
+
+  authorType     TicketAuthorType
+  /// Set for `agent`. Null for a contact or for the system, which have no membership.
+  authorMemberId String?          @map("author_member_id") @db.Uuid
+
+  visibility TicketMessageVisibility @default(public)
+  body       String
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account      Account         @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ticket       Ticket          @relation(fields: [accountId, ticketId], references: [accountId, id], onDelete: Cascade)
+  authorMember AccountMember?  @relation("TicketMessageAuthor", fields: [accountId, authorMemberId], references: [accountId, id], onDelete: SetNull)
+  emails       EmailDelivery[]
+
+  @@unique([accountId, id])
+  @@unique([ticketId, seq])
+  @@index([accountId, ticketId, createdAt])
+  @@map("ticket_messages")
+}
+
+/**
+ * What we tried to send, and what happened.
+ * Enqueuing an email is not sending one. Without a record, "did the customer ever hear back" is
+ * answerable only by asking the customer - and a provider that silently rejects every message to a
+ * domain looks exactly like a quiet week. The row is written when the job is queued and updated by
+ * the worker, so a `queued` row that never moved is itself the alarm.
+ */
+model EmailDelivery {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Null for platform mail that belongs to no tenant.
+  accountId String? @map("account_id") @db.Uuid
+
+  /// Which message this was, for grouping and for "resend the last one".
+  template String
+  toEmail  String @map("to_email") @db.Citext
+  subject  String
+
+  status   EmailDeliveryStatus @default(queued)
+  /// The provider's own words when it refused. Never shown to a visitor.
+  error    String?
+  attempts Int                 @default(0)
+
+  ticketId        String? @map("ticket_id") @db.Uuid
+  ticketMessageId String? @map("ticket_message_id") @db.Uuid
+
+  queuedAt DateTime  @default(now()) @map("queued_at") @db.Timestamptz(6)
+  sentAt   DateTime? @map("sent_at") @db.Timestamptz(6)
+
+  account       Account?       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  ticket        Ticket?        @relation(fields: [accountId, ticketId], references: [accountId, id], onDelete: Cascade)
+  ticketMessage TicketMessage? @relation(fields: [accountId, ticketMessageId], references: [accountId, id], onDelete: SetNull)
+
+  @@index([accountId, queuedAt(sort: Desc)])
+  @@index([status, queuedAt])
+  @@index([accountId, ticketId])
+  @@map("email_deliveries")
 }

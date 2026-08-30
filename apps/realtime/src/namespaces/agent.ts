@@ -37,12 +37,12 @@ type AgentSocket = Socket & { data: AgentSocketData };
  * connection instead of whenever a token happens to expire.
  */
 export function registerAgentNamespace(namespace: Namespace, container: RealtimeContainer): void {
-  const { logger, presence, conversations, tickets, db } = container;
+  const { logger, presence, conversations, connectionTickets, db } = container;
 
   namespace.use(async (socket, next) => {
     try {
       const ticket = String(socket.handshake.auth?.['ticket'] ?? '');
-      const claims = await tickets.redeem(ticket);
+      const claims = await connectionTickets.redeem(ticket);
 
       if (!claims || claims.kind !== 'agent' || !claims.memberId) {
         next(new Error('unauthorised'));

@@ -40,6 +40,7 @@ export default function PropertyDetailPage() {
   const [copied, setCopied] = useState(false);
   const [domain, setDomain] = useState('');
   const [domainError, setDomainError] = useState<string | null>(null);
+  const [supportEmailError, setSupportEmailError] = useState<string | null>(null);
   const [addingDomain, setAddingDomain] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -88,6 +89,26 @@ export default function PropertyDetailPage() {
       toast.success(enforce ? 'Domain enforcement enabled' : 'Domain enforcement disabled');
     } catch (error) {
       toast.error(error instanceof ApiError ? error.message : 'Could not update the setting.');
+    }
+  }
+
+  /**
+   * Where a customer's reply to a ticket email should land.
+   *
+   * Saved on blur rather than behind a Save button, like the other single settings on this page.
+   * The empty string is a real choice - it means "no monitored mailbox" - so it is sent as null
+   * rather than skipped.
+   */
+  async function saveSupportEmail(value: string) {
+    const next = value.trim() === '' ? null : value.trim();
+    if (next === (property.data?.supportEmail ?? null)) return;
+    setSupportEmailError(null);
+    try {
+      await api.patch(`/properties/${id}`, { supportEmail: next });
+      property.reload();
+      toast.success(next ? 'Reply address saved' : 'Reply address cleared');
+    } catch (error) {
+      setSupportEmailError(error instanceof ApiError ? error.message : 'Could not save that.');
     }
   }
 
@@ -258,6 +279,36 @@ export default function PropertyDetailPage() {
               {data.enforceDomains ? 'Disable enforcement' : 'Enable enforcement'}
             </Button>
           </CardFooter>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Ticket replies"
+            description="Where a customer's reply to a ticket email goes. SmartChat does not receive mail, so this is your own mailbox."
+          />
+          <CardBody>
+            <Field
+              label="Reply-to address"
+              error={supportEmailError ?? undefined}
+              hint={
+                data.supportEmail
+                  ? 'Ticket emails tell the customer they can reply, and their reply goes here.'
+                  : 'With no address, ticket emails say plainly that the mailbox is not monitored. A reply-to nobody reads is worse than none.'
+              }
+            >
+              {({ id: fieldId, describedBy, invalid }) => (
+                <TextInput
+                  id={fieldId}
+                  type="email"
+                  aria-describedby={describedBy}
+                  invalid={invalid}
+                  defaultValue={data.supportEmail ?? ''}
+                  placeholder="support@yourcompany.com"
+                  onBlur={(event) => void saveSupportEmail(event.target.value)}
+                />
+              )}
+            </Field>
+          </CardBody>
         </Card>
 
         <Card className="border-danger/30">

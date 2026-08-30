@@ -114,7 +114,12 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
     );
 
     reply.header('cache-control', 'no-store');
-    return ok(reply, { conversationId: result.conversationId });
+    // The ticket number is the one thing a visitor can quote back later, so it goes to them. It is
+    // absent when no address was collected, because there is then nothing to quote it against.
+    return ok(reply, {
+      conversationId: result.conversationId,
+      ...(result.ticketNumber === undefined ? {} : { ticketNumber: result.ticketNumber }),
+    });
   });
 
   /**
@@ -129,7 +134,7 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
     await app.rateLimit(request, 'widgetSession');
     const identity = await container.visitors.authenticate(token);
 
-    const ticket = await container.tickets.issue({
+    const ticket = await container.connectionTickets.issue({
       kind: 'visitor',
       accountId: identity.accountId,
       subjectId: identity.visitorId,

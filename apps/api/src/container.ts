@@ -20,11 +20,13 @@ import {
   StorageService,
   TeamService,
   TicketService,
+  ConnectionTicketService,
   VisitorService,
   WidgetService,
   createRedisClient,
   systemClock,
   type Clock,
+  type MailDeliver,
   type MailProvider,
   type RedisClient,
 } from '@smartchat/core';
@@ -48,6 +50,7 @@ export interface Container {
   automation: AutomationService;
   contacts: ContactService;
   kb: KbService;
+  tickets: TicketService;
   storage: StorageService;
   attachments: AttachmentService;
   properties: PropertyService;
@@ -55,7 +58,7 @@ export interface Container {
   visitors: VisitorService;
   conversations: ConversationService;
   presence: PresenceService;
-  tickets: TicketService;
+  connectionTickets: ConnectionTicketService;
   entitlements: EntitlementService;
   shutdown(): Promise<void>;
 }
@@ -142,7 +145,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   });
   const widgets = new WidgetService(db, clock);
   const presence = new PresenceService(redis);
-  const tickets = new TicketService(redis);
+  const connectionTickets = new ConnectionTicketService(redis);
 
   const visitors = new VisitorService({
     db,
@@ -152,6 +155,46 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     maxUploadBytes: config.UPLOAD_MAX_BYTES,
     clock,
   });
+
+  const automation = new AutomationService({ db, clock });
+  const contacts = new ContactService({ db, clock });
+  const kb = new KbService({ db, clock });
+
+  /**
+   * How a ticket email actually leaves the building.
+   *
+   * The delivery row is written first and the job carries its id, so the sequence is: a row that
+   * says `queued`, then a worker that turns it into `sent` or `failed`. A row that stays `queued`
+   * is therefore a real signal - the queue is down, or the worker is not running - rather than a
+   * silence indistinguishable from a quiet day.
+   */
+  const deliverTicketMail: MailDeliver = async ({
+    message,
+    template,
+    accountId,
+    ticketId,
+    ticketMessageId,
+  }) => {
+    const delivery = await db.emailDelivery.create({
+      data: {
+        accountId,
+        template,
+        toEmail: message.to.email,
+        subject: message.subject,
+        ticketId: ticketId ?? null,
+        ticketMessageId: ticketMessageId ?? null,
+      },
+      select: { id: true },
+    });
+    await queue.enqueue(EmailJob.SEND, {
+      message,
+      requestId: template,
+      accountId,
+      deliveryId: delivery.id,
+    });
+  };
+
+  const tickets = new TicketService({ db, brand, deliver: deliverTicketMail, clock });
 
   /**
    * The API publishes domain events to the same Redis channel the gateway fans out from, rather
@@ -163,11 +206,10 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     events: new RedisEventPublisher(redis, (error) =>
       logger.error({ err: error }, 'failed to publish domain event'),
     ),
+    // An offline message is a request nobody was there to answer, so it becomes a ticket.
+    tickets,
     clock,
   });
-  const automation = new AutomationService({ db, clock });
-  const contacts = new ContactService({ db, clock });
-  const kb = new KbService({ db, clock });
 
   /**
    * Object storage.
@@ -218,6 +260,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     automation,
     contacts,
     kb,
+    tickets,
     storage,
     attachments,
     properties,
@@ -225,7 +268,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     visitors,
     conversations,
     presence,
-    tickets,
+    connectionTickets,
     entitlements,
     async shutdown() {
       await queue.close().catch(() => {});

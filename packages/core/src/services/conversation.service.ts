@@ -44,9 +44,34 @@ export interface VisitorIdentity {
   visitorName?: string | null;
 }
 
+/**
+ * The narrow slice of the ticket service this one needs.
+ *
+ * An interface rather than the class: a conversation does not need to know that tickets have
+ * numbers, statuses or email templates, and stating the one method keeps the dependency from
+ * quietly widening into "conversations can do ticket things".
+ */
+export interface OfflineTicketOpener {
+  openFromOfflineMessage(input: {
+    accountId: string;
+    propertyId: string;
+    conversationId: string;
+    visitorId: string;
+    body: string;
+    requesterEmail: string | null;
+    requesterName: string | null;
+  }): Promise<{ id: string; number: number } | null>;
+}
+
 export interface ConversationServiceOptions {
   db: Database;
   events: EventPublisher;
+  /**
+   * Optional, and absent in the realtime gateway.
+   * Only the offline form opens tickets, and the offline form is an HTTP request; wiring a mail
+   * path into the socket process would give it a dependency it never exercises.
+   */
+  tickets?: OfflineTicketOpener;
   clock?: Clock;
 }
 
@@ -195,7 +220,7 @@ export class ConversationService {
   async submitOfflineMessage(
     identity: VisitorIdentity,
     submitted: Record<string, unknown>,
-  ): Promise<{ conversationId: string; message: MessageDto }> {
+  ): Promise<{ conversationId: string; message: MessageDto; ticketNumber?: number }> {
     const config = await this.widgets.liveConfigForProperty(
       identity.accountId,
       identity.propertyId,
@@ -270,7 +295,37 @@ export class ConversationService {
       payload: { message: dto, room: room.conversation(conversation.id) },
     });
 
-    return { conversationId: conversation.id, message: dto };
+    /**
+     * The offline message becomes a ticket.
+     *
+     * This is the whole point of the channel: somebody wrote in with nobody there to answer, so
+     * the answer has to reach them by email later. It happens after the conversation and message
+     * are committed and after the events are published - a failure to open the ticket must never
+     * lose the message itself, which is already safely in the inbox either way.
+     */
+    let ticketNumber: number | null = null;
+    if (this.options.tickets) {
+      try {
+        const ticket = await this.options.tickets.openFromOfflineMessage({
+          accountId: identity.accountId,
+          propertyId: identity.propertyId,
+          conversationId: conversation.id,
+          visitorId: identity.visitorId,
+          body,
+          requesterEmail: traits.email ?? null,
+          requesterName: traits.name ?? identity.visitorName ?? null,
+        });
+        ticketNumber = ticket?.number ?? null;
+      } catch {
+        // Deliberately not fatal. See the note above.
+      }
+    }
+
+    return {
+      conversationId: conversation.id,
+      message: dto,
+      ...(ticketNumber === null ? {} : { ticketNumber }),
+    };
   }
 
   async sendVisitorMessage(

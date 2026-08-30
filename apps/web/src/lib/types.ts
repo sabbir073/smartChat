@@ -15,6 +15,8 @@ export interface PropertyDto {
   timezone: string;
   locale: string;
   enforceDomains: boolean;
+  /** The customer's own mailbox for ticket replies. Null means "not monitored", and we say so. */
+  supportEmail: string | null;
   installed: boolean;
   installedAt: string | null;
   lastWidgetRequestAt: string | null;
@@ -238,4 +240,36 @@ export interface PublicKbIndexDto {
   property: { name: string };
   categories: { slug: string; name: string; description: string | null; articleCount: number }[];
   articles: PublicArticleSummary[];
+}
+
+export interface TicketDto {
+  id: string;
+  number: number;
+  propertyId: string;
+  contactId: string | null;
+  conversationId: string | null;
+  subject: string;
+  status: 'open' | 'pending' | 'resolved' | 'closed';
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  tags: string[];
+  requesterEmail: string;
+  requesterName: string | null;
+  assignedMemberId: string | null;
+  assignedMemberName: string | null;
+  departmentId: string | null;
+  firstResponseAt: string | null;
+  lastMessageAt: string;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+}
+
+export interface TicketMessageDto {
+  id: string;
+  seq: number;
+  authorType: 'contact' | 'agent' | 'system';
+  authorMemberId: string | null;
+  visibility: 'public' | 'internal';
+  body: string;
+  createdAt: string;
 }

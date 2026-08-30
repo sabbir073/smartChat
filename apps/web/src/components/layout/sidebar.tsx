@@ -77,6 +77,14 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/tickets',
+    label: 'Tickets',
+    available: true,
+    icon: icon(
+      'M4 8.5A1.5 1.5 0 0 1 5.5 7h13A1.5 1.5 0 0 1 20 8.5v2a2 2 0 0 0 0 3v2A1.5 1.5 0 0 1 18.5 17h-13A1.5 1.5 0 0 1 4 15.5v-2a2 2 0 0 0 0-3v-2Z',
+    ),
+  },
+  {
     href: '/kb',
     label: 'Help centre',
     available: true,
@@ -125,7 +133,7 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       })}
 
       <div className="mt-auto rounded-[var(--radius-control)] bg-surface-raised p-3 text-[12px] leading-relaxed text-ink-subtle">
-        Tickets and reporting arrive in later phases. Nothing is listed here before it works.
+        Reporting arrives in a later phase. Nothing is listed here before it works.
       </div>
     </nav>
   );

@@ -56,7 +56,7 @@ async function main(): Promise<void> {
       QueueName.EMAIL,
       (job: Job<SendEmailPayload>) =>
         withLogContext({ jobId: job.id ?? undefined, requestId: job.data.requestId }, () =>
-          processEmailJob(job, mailer, logger),
+          processEmailJob(job, mailer, db, logger),
         ),
       { connection, concurrency: config.WORKER_CONCURRENCY },
     ),

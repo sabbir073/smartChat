@@ -3,7 +3,7 @@ import {
   ConversationService,
   PresenceService,
   RedisEventPublisher,
-  TicketService,
+  ConnectionTicketService,
   createRedisClient,
   systemClock,
   type Clock,
@@ -18,7 +18,7 @@ export interface RealtimeContainer {
   logger: Logger;
   db: Database;
   clock: Clock;
-  /** Command client: presence, tickets, publishing. */
+  /** Command client: presence, connection tickets, publishing. */
   redis: RedisClient;
   /** Socket.IO's adapter needs its own pub and sub connections. */
   pubClient: RedisClient;
@@ -26,7 +26,7 @@ export interface RealtimeContainer {
   /** A fourth connection, because a subscribed client cannot run ordinary commands. */
   eventSubscriber: RedisClient;
   presence: PresenceService;
-  tickets: TicketService;
+  connectionTickets: ConnectionTicketService;
   conversations: ConversationService;
   automation: AutomationRunner;
   shutdown(): Promise<void>;
@@ -58,7 +58,7 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
 
   const clock = systemClock;
   const presence = new PresenceService(redis);
-  const tickets = new TicketService(redis);
+  const connectionTickets = new ConnectionTicketService(redis);
 
   const conversations = new ConversationService({
     db,
@@ -87,7 +87,7 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
     subClient,
     eventSubscriber,
     presence,
-    tickets,
+    connectionTickets,
     conversations,
     automation,
     async shutdown() {

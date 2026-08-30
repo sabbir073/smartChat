@@ -817,3 +817,107 @@ editor and watching it land in the title field. No server-side test could see it
 `modal.test.tsx`, which was confirmed to fail on the old dependency array before the fix was
 restored.
 **Date** 2026-08-30
+
+---
+## ADR-055 — Ticket message visibility has no default, anywhere
+**Context** A ticket message is either sent to the customer or kept inside the account. Every
+schema in this codebase gives sensible defaults to optional fields.
+**Chosen** `visibility` is required in `replyToTicketSchema`, in the service signature and in the
+route. There is no default at any layer.
+**Reason** Both possible defaults are unacceptable in different directions. Defaulting to `public`
+means the day a caller forgets the field, an agent's private note about a customer is emailed to
+that customer - a failure no apology repairs, and one that is invisible until it has happened.
+Defaulting to `internal` means replies silently never leave, and support quietly stops working
+while every screen says it is fine. When both defaults are wrong, the field is not optional.
+**Supporting decisions** The send branch sits four lines below the insert in one method, so nobody
+changes one without seeing the other. The composer is a permanently visible two-button choice
+rather than a checkbox. The e2e suite asserts *absence* - it counts the mailbox before and after a
+note and greps every delivered message for its words - because a test that trusts the flag tests
+nothing.
+**Date** 2026-08-30
+
+---
+## ADR-056 — Ticket numbers come from a counter on the account row
+**Context** Tickets need a short number people can quote. UUIDs cannot be read down a phone.
+**Rejected** `SELECT max(number) + 1`: two simultaneous creations read the same maximum and both
+insert it. The unique index then fails one of them, so the visible symptom is an intermittent 500
+under exactly the load where support matters most.
+**Rejected** A Postgres sequence per account: sequences are not transactional, so a rolled-back
+ticket burns a number - and "gapless" is the property that makes a missing number worth
+investigating rather than shrugging at.
+**Chosen** `UPDATE accounts SET ticket_seq = ticket_seq + 1 ... RETURNING`, inside the ticket's own
+transaction. The row lock serialises concurrent creations in the same account, and a rollback
+returns the number.
+**Cost, stated plainly** Ticket creation in one account is serialised on one row. For a support
+queue that is nothing; if an account ever creates thousands of tickets a second, this is the line
+to revisit, and it is one function.
+**Date** 2026-08-30
+
+---
+## ADR-057 — No Reply-To unless there is a mailbox behind it
+**Context** Ticket email invites a reply. SmartChat has no inbound mail path, and building one is
+not in this phase.
+**Rejected** A `Reply-To` at an address we own but do not read. Every reply a worried customer
+writes vanishes, and they conclude they were ignored. That is worse than telling them not to reply.
+**Rejected** Faking it - a reply address that silently forwards nowhere, or a "we'll get back to
+you" that nothing implements.
+**Chosen** A per-website `support_email` that the account sets to *their own* mailbox. When it is
+set, ticket email carries it as `Reply-To` and the footer says replies reach them there - true,
+because it is their inbox. When it is not set, no `Reply-To` header is written and the footer says
+the mailbox is not monitored.
+**The extension point** Every ticket email carries `X-SmartChat-Ticket` and a `[#number]` subject
+prefix, so inbound ingestion, when it exists, resolves a reply to its ticket without guessing.
+**Date** 2026-08-30
+
+---
+## ADR-058 — Every ticket email gets a delivery row, written before the job
+**Context** "Did the customer ever hear back?" was answerable only by asking the customer. A queued
+job that fails is a line in a log nobody reads, and a provider silently rejecting a whole domain
+looks exactly like a quiet week.
+**Chosen** An `email_deliveries` row written *before* the job is enqueued, carrying its id; the
+worker updates it to `sent` or `failed`.
+**Reason** The row is created by the same request that created the ticket, so a queue that is down
+produces a `queued` row that never moves - a visible, greppable alarm - rather than nothing at all.
+**Ordering, inside the worker** Send first, then record. A crash between the two leaves a row
+saying `queued` for a message that was sent, which somebody can investigate; the opposite order
+leaves a row saying `sent` for a message that never left, which nobody would ever think to check.
+And recording never throws: the email has already gone, so failing the job would retry a delivered
+message and send it twice.
+**What is deliberately excluded** Password resets and verification emails get no row. Their
+subjects carry tokens, and a table people browse is not where tokens belong.
+**Date** 2026-08-30
+
+---
+## ADR-059 — Ticket email wears the account's name, not ours
+**Context** These are the only messages this product sends to somebody who is not its user.
+**Chosen** Ticket email carries the account's name and its own layout. The product's own shell is
+used only for the assignment notification, which goes to an agent.
+**Reason** The recipient is a customer of our customer. They have never heard of SmartChat, and a
+support reply arriving under an unfamiliar name reads as phishing - which is both a worse
+experience and a worse security posture, because it teaches people that odd-looking support mail is
+normal.
+**A related restriction** The assignment notification carries the subject and the requester but not
+the customer's message. A notification that reproduces customer data into a mailbox we do not
+control is a copy of that data somewhere nobody is auditing.
+**Date** 2026-08-30
+
+---
+## ADR-060 — An offline message with no address does not become a ticket
+**Context** The offline form's fields are configurable, so an account can remove the email field.
+**Chosen** No address, no ticket. The conversation is still created and still lands in the inbox.
+**Reason** A ticket exists to be answered by email. One with nowhere to send an answer can only
+ever be closed unanswered, and a queue padded with rows nobody can act on is a queue people stop
+trusting. The message is not lost - it is in the inbox, which is where a message from somebody we
+cannot email has to be handled.
+**Date** 2026-08-30
+
+---
+## ADR-061 — `TicketService` for the domain; `ConnectionTicketService` for handshakes
+**Context** A class called `TicketService` already existed - it issues single-use WebSocket
+connection tickets - and this phase introduced support tickets.
+**Chosen** Rename the realtime one to `ConnectionTicketService`, and `container.tickets` to
+`container.connectionTickets`.
+**Reason** Two unrelated meanings of "ticket" in one codebase is a trap laid for whoever reads it
+next, and the one that had to move was the one whose name was already an abbreviation of what it
+does. Ten lines across six files, done before either name had a chance to spread.
+**Date** 2026-08-30

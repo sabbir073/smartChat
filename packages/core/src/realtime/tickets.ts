@@ -23,7 +23,13 @@ export interface TicketClaims {
   actorName?: string;
 }
 
-export class TicketService {
+/**
+ * Named for what it issues, not for the word "ticket".
+ *
+ * A support ticket is a different thing entirely and now exists in this product; a class called
+ * `TicketService` that hands out WebSocket handshake tokens is a trap for whoever reads this next.
+ */
+export class ConnectionTicketService {
   constructor(private readonly redis: RedisClient) {}
 
   async issue(claims: TicketClaims): Promise<{ ticket: string; expiresInSeconds: number }> {

@@ -103,7 +103,13 @@ export class PropertyRepository {
   async update(
     context: TenantContext,
     propertyId: string,
-    data: Partial<CreatePropertyData & { status: 'active' | 'paused'; enforceDomains: boolean }>,
+    data: Partial<
+      CreatePropertyData & {
+        status: 'active' | 'paused';
+        enforceDomains: boolean;
+        supportEmail: string | null;
+      }
+    >,
   ): Promise<Property | null> {
     const result = await this.db.property.updateMany({
       where: { id: propertyId, ...this.scope(context) },

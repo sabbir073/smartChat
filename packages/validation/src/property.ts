@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   domainPatternSchema,
+  emailSchema,
   localeSchema,
   paginationSchema,
   timezoneSchema,
@@ -21,6 +22,14 @@ export const updatePropertySchema = z.object({
   locale: localeSchema.optional(),
   status: z.enum(['active', 'paused']).optional(),
   enforceDomains: z.boolean().optional(),
+  /**
+   * Where a customer's reply to a ticket email should land.
+   *
+   * Nullable on purpose, and empty is a real choice rather than a missing value: with no address
+   * we set no `Reply-To` and the email says the mailbox is not monitored, which is honest. A
+   * `Reply-To` pointing at a mailbox nobody reads is worse than none at all.
+   */
+  supportEmail: emailSchema.nullable().optional(),
 });
 
 export const listPropertiesSchema = paginationSchema.extend({

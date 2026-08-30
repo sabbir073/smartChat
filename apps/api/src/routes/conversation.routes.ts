@@ -170,7 +170,7 @@ export async function conversationRoutes(
    */
   app.post('/realtime/ticket', async (request, reply) => {
     const tenant = requireTenant(request);
-    const ticket = await container.tickets.issue({
+    const ticket = await container.connectionTickets.issue({
       kind: 'agent',
       accountId: tenant.accountId,
       subjectId: tenant.memberId ?? '',

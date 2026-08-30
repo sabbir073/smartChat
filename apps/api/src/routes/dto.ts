@@ -8,6 +8,8 @@ import type {
   PropertyDomain,
   Session,
   Shortcut,
+  Ticket,
+  TicketMessage,
   User,
 } from '@smartchat/database';
 import type { ResolvedTrigger } from '@smartchat/core';
@@ -99,6 +101,8 @@ export interface PropertyDto {
   timezone: string;
   locale: string;
   enforceDomains: boolean;
+  /** The customer's own mailbox for ticket replies. Null means "not monitored", and we say so. */
+  supportEmail: string | null;
   installed: boolean;
   installedAt: string | null;
   lastWidgetRequestAt: string | null;
@@ -116,6 +120,7 @@ export function toPropertyDto(property: Property & { domains?: PropertyDomain[] 
     timezone: property.timezone,
     locale: property.locale,
     enforceDomains: property.enforceDomains,
+    supportEmail: property.supportEmail,
     installed: property.installedAt !== null,
     installedAt: property.installedAt?.toISOString() ?? null,
     lastWidgetRequestAt: property.lastWidgetRequestAt?.toISOString() ?? null,
@@ -329,5 +334,78 @@ export function toArticleDto(
     publishedAt: article.publishedAt?.toISOString() ?? null,
     viewCount: article.viewCount,
     updatedAt: article.updatedAt.toISOString(),
+  };
+}
+
+export interface TicketDto {
+  id: string;
+  number: number;
+  propertyId: string;
+  contactId: string | null;
+  conversationId: string | null;
+  subject: string;
+  status: string;
+  priority: string;
+  tags: string[];
+  requesterEmail: string;
+  requesterName: string | null;
+  assignedMemberId: string | null;
+  assignedMemberName: string | null;
+  departmentId: string | null;
+  firstResponseAt: string | null;
+  lastMessageAt: string;
+  resolvedAt: string | null;
+  closedAt: string | null;
+  createdAt: string;
+}
+
+export function toTicketDto(
+  ticket: Ticket & {
+    assignedMember?: { displayName: string | null; user?: { name: string | null } | null } | null;
+  },
+): TicketDto {
+  return {
+    id: ticket.id,
+    number: ticket.number,
+    propertyId: ticket.propertyId,
+    contactId: ticket.contactId,
+    conversationId: ticket.conversationId,
+    subject: ticket.subject,
+    status: ticket.status,
+    priority: ticket.priority,
+    tags: ticket.tags,
+    requesterEmail: ticket.requesterEmail,
+    requesterName: ticket.requesterName,
+    assignedMemberId: ticket.assignedMemberId,
+    assignedMemberName:
+      ticket.assignedMember?.displayName ?? ticket.assignedMember?.user?.name ?? null,
+    departmentId: ticket.departmentId,
+    firstResponseAt: ticket.firstResponseAt?.toISOString() ?? null,
+    lastMessageAt: ticket.lastMessageAt.toISOString(),
+    resolvedAt: ticket.resolvedAt?.toISOString() ?? null,
+    closedAt: ticket.closedAt?.toISOString() ?? null,
+    createdAt: ticket.createdAt.toISOString(),
+  };
+}
+
+export interface TicketMessageDto {
+  id: string;
+  seq: number;
+  authorType: string;
+  authorMemberId: string | null;
+  visibility: string;
+  body: string;
+  createdAt: string;
+}
+
+export function toTicketMessageDto(message: TicketMessage): TicketMessageDto {
+  return {
+    id: message.id,
+    seq: message.seq,
+    authorType: message.authorType,
+    authorMemberId: message.authorMemberId,
+    visibility: message.visibility,
+    body: message.body,
+    createdAt: message.createdAt.toISOString(),
   };
 }

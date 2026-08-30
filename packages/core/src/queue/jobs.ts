@@ -25,6 +25,14 @@ export interface SendEmailPayload {
   /** Correlates the job back to the request that created it. */
   requestId?: string;
   accountId?: string;
+  /**
+   * The `email_deliveries` row this job is the attempt for.
+   *
+   * Present for anything worth answering "did it actually go?" about - ticket mail, notifications.
+   * Absent for platform mail such as a password reset, where the row would carry a token-bearing
+   * subject line into a table people browse.
+   */
+  deliveryId?: string;
 }
 
 export type JobPayloadMap = {
