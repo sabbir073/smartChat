@@ -7,6 +7,7 @@ import { contactRoutes } from './contact.routes.js';
 import { conversationRoutes } from './conversation.routes.js';
 import { integrationRoutes } from './integration.routes.js';
 import { kbRoutes, publicKbRoutes } from './kb.routes.js';
+import { platformRoutes } from './platform.routes.js';
 import { propertyRoutes } from './property.routes.js';
 import { reportRoutes } from './report.routes.js';
 import { teamRoutes } from './team.routes.js';
@@ -37,6 +38,9 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       await v1.register(async (scoped) => ticketRoutes(scoped, container));
       await v1.register(async (scoped) => reportRoutes(scoped, container));
       await v1.register(async (scoped) => integrationRoutes(scoped, container));
+      // The platform console: its own scope, its own cookie, its own principal. It must not
+      // inherit the tenant authentication hook, and a tenant session must never reach it.
+      await v1.register(async (scoped) => platformRoutes(scoped, container));
       // The public help centre gets its own scope with no auth hook. Registering it alongside the
       // authenticated routes and relying on the hook to be skipped would be one edit away from
       // exposing drafts.

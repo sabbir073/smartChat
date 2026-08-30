@@ -3,6 +3,8 @@ import {
   AccountService,
   AnalyticsService,
   ApiKeyService,
+  FeatureFlagService,
+  PlatformService,
   WebhookService,
   AttachmentService,
   AuthService,
@@ -57,6 +59,8 @@ export interface Container {
   tickets: TicketService;
   analytics: AnalyticsService;
   apiKeys: ApiKeyService;
+  platform: PlatformService;
+  flags: FeatureFlagService;
   webhooks: WebhookService;
   storage: StorageService;
   attachments: AttachmentService;
@@ -163,11 +167,21 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     clock,
   });
 
+  /**
+   * The platform kill switches, read on ordinary requests.
+   *
+   * Constructed before anything that consults them, and deliberately fail-open: a flag row that
+   * does not exist, or a database that will not answer, means the capability is on. A hiccup must
+   * not silently turn off uploads for every customer.
+   */
+  const flags = new FeatureFlagService(db);
+
   const automation = new AutomationService({ db, clock });
   const contacts = new ContactService({ db, clock });
-  const kb = new KbService({ db, clock });
+  const kb = new KbService({ db, flags, clock });
   const analytics = new AnalyticsService({ db, clock });
   const apiKeys = new ApiKeyService({ db, clock });
+  const platform = new PlatformService({ db, clock });
 
   /**
    * Webhooks.
@@ -179,6 +193,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const webhooks = new WebhookService({
     db,
     clock,
+    flags,
     notify: (deliveryId) =>
       queue.enqueue(WebhookJob.DELIVER, { deliveryId }).then(() => undefined),
   });
@@ -259,6 +274,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     storage,
     conversations,
     maxBytes: config.UPLOAD_MAX_BYTES,
+    flags,
     clock,
   });
   const properties = new PropertyService({
@@ -287,6 +303,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     tickets,
     analytics,
     apiKeys,
+    platform,
+    flags,
     webhooks,
     storage,
     attachments,

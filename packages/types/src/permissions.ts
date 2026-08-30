@@ -187,3 +187,33 @@ export function permissionsForScopes(scopes: readonly string[]): Set<Permission>
   }
   return resolved;
 }
+
+/**
+ * The capabilities a platform operator can switch off.
+ *
+ * A **closed** list, and every key here is genuinely read in exactly one place in the code. A flag
+ * nothing consults is worse than no flag: somebody will flip it during an incident, watch nothing
+ * change, and lose the minutes it takes to work out why.
+ *
+ * These are kill switches, not experiments. Each is something an operator might really need to
+ * take away from one account at three in the morning - the one filling the object store, the one
+ * whose webhook endpoint is amplifying an outage.
+ */
+export const PlatformFlag = {
+  /** Signing new upload targets. Existing files stay readable. */
+  UPLOADS: 'uploads',
+  /** Queueing new webhook deliveries. Ones already queued still go. */
+  WEBHOOKS: 'webhooks',
+  /** The public help centre. The dashboard side keeps working. */
+  PUBLIC_HELP_CENTRE: 'public_help_centre',
+} as const;
+export type PlatformFlag = (typeof PlatformFlag)[keyof typeof PlatformFlag];
+
+export const PLATFORM_FLAG_VALUES: readonly PlatformFlag[] = Object.values(PlatformFlag);
+
+export const PLATFORM_FLAG_DESCRIPTIONS: Record<PlatformFlag, string> = {
+  [PlatformFlag.UPLOADS]: 'Signing new upload targets. Existing files stay readable.',
+  [PlatformFlag.WEBHOOKS]: 'Queueing new webhook deliveries. Ones already queued still go.',
+  [PlatformFlag.PUBLIC_HELP_CENTRE]:
+    'The public help centre. The dashboard side keeps working either way.',
+};

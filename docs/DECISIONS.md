@@ -1122,3 +1122,72 @@ one had been sitting there since phase 0.
 **No wildcard** `*` would silently start delivering a new event shape to an endpoint that has never
 seen it, on the day we add one. An explicit list means adding an event cannot break anybody.
 **Date** 2026-08-30
+
+---
+## ADR-075 — The platform console does not use TenantContext
+**Context** Every service in this codebase takes a `TenantContext` and every repository injects
+`accountId` from it. The console needs to read and change accounts.
+**Chosen** A separate `PlatformPrincipal`, a separate permission vocabulary, separate routes and a
+separate audit table. No `TenantContext` anywhere in the console path.
+**Reason** `TenantContext` exists to make tenant scoping impossible to forget. An operator
+suspending an account is deliberately not scoped to it, so using that object here would either be
+a lie - a context whose account id means nothing - or would have to be defeated, and a codebase in
+which the tenant guard is sometimes bypassed is one where nobody can say when.
+**Consequence** Two authorisation systems, which is normally a smell. Here it is the point: they
+protect different things, and the console's is smaller and stricter.
+**Date** 2026-08-30
+
+---
+## ADR-076 — Suspension is immediate because authorisation is never cached
+**Context** The exit criterion for this phase is that suspending an account stops access
+*immediately*, not at the next sign-in.
+**How it works** Nothing had to be built. `authenticateTenant` calls `requireMembership` on every
+request, which reads the account row and refuses a suspended one; API-key authentication checks the
+account is active; the widget's public lookup requires an active account. There is no cached
+authorisation decision anywhere, so there is nothing to expire.
+**Why that was the right design earlier** It costs one indexed read per request, which is the price
+of being able to answer "is this still allowed?" with "yes, as of now" rather than "yes, as of some
+point in the last few minutes". Suspension is the case that makes the difference visible, but the
+same property is what makes revoking a member, or an API key, actually work.
+**How it is tested** The e2e signs in first and suspends second, with the session still live. A
+test that suspends and *then* signs in would pass against a system where suspension only blocks new
+logins - which is the failure worth catching.
+**Date** 2026-08-30
+
+---
+## ADR-077 — Feature flags are a closed list, fail open, and never destroy data
+**Context** "Feature flags" usually means a general-purpose experiment framework with arbitrary
+keys.
+**Chosen** Three flags, each read in exactly one place, with the key set defined in code. A key
+that is not on the list is refused rather than created.
+**Reason** A flag nothing consults is worse than no flag. Somebody flips it during an incident,
+watches nothing change, and loses the minutes it takes to work out why - and those are the minutes
+that matter. Keeping the list closed means every switch in the console is a switch that does
+something.
+**Fail open** A missing row, or a database that will not answer, means the capability is on. The
+alternative is that a hiccup in a table nobody was thinking about silently turns off uploads for
+every customer. A kill switch should require a deliberate act to kill.
+**Pause, never destroy** `uploads` stops new targets being signed and leaves existing files
+readable; `webhooks` stops new deliveries being queued and lets queued ones go. That distinction is
+what makes a flag safe to use at three in the morning.
+**Not 402** The refusal is `TEMPORARILY_UNAVAILABLE` (503), not `FEATURE_NOT_AVAILABLE` (402). 402
+means "upgrade your plan", which is an infuriating thing to tell somebody during an incident on our
+side.
+**Date** 2026-08-30
+
+---
+## ADR-078 — The console has its own cookie, and no sign-in conveniences
+**Context** The dashboard's auth has registration, invitations, password reset by email, long
+sessions and "remember me".
+**Chosen** For the console: a separate cookie name (`sc_platform`), `SameSite=Strict`, an eight-hour
+session, and none of those conveniences. Administrators are created by somebody with database
+access.
+**Reason on the cookie** Two names make "a stolen tenant session cannot be used as a platform one"
+structural rather than a matter of remembering to check - and signing out of the dashboard stops
+being able to sign an operator out of the console by accident. `Strict` costs nothing here because
+there are no email links to arrive from.
+**Reason on the conveniences** Each is a door. Password reset by email makes the most privileged
+credential in the system only as strong as an inbox; a thirty-day session makes it only as strong
+as the laptop it is on. The console is used rarely and deliberately, so the inconvenience is
+cheap.
+**Date** 2026-08-30

@@ -60,6 +60,14 @@ export const ErrorCode = {
   // --- entitlements --------------------------------------------------------
   PLAN_LIMIT_REACHED: 'PLAN_LIMIT_REACHED',
   FEATURE_NOT_AVAILABLE: 'FEATURE_NOT_AVAILABLE',
+  /**
+   * Switched off by the platform, not by the plan.
+   *
+   * Distinct from FEATURE_NOT_AVAILABLE on purpose: that one is 402 and means "upgrade", which
+   * would be an infuriating thing to tell somebody during an incident on our side. This is 503,
+   * which is what it actually is - and it tells a client that retrying later is reasonable.
+   */
+  TEMPORARILY_UNAVAILABLE: 'TEMPORARILY_UNAVAILABLE',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -115,6 +123,7 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
 
   PLAN_LIMIT_REACHED: 402,
   FEATURE_NOT_AVAILABLE: 402,
+  TEMPORARILY_UNAVAILABLE: 503,
 };
 
 export interface ErrorDetail {
@@ -233,4 +242,5 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   UPLOAD_FAILED: 'The upload could not be completed',
   PLAN_LIMIT_REACHED: 'Your plan limit has been reached',
   FEATURE_NOT_AVAILABLE: 'This feature is not available on your plan',
+  TEMPORARILY_UNAVAILABLE: 'This is temporarily unavailable. Please try again shortly.',
 };

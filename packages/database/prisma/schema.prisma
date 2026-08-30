@@ -1762,3 +1762,52 @@ enum WebhookDeliveryStatus {
 
   @@map("webhook_delivery_status")
 }
+
+/**
+ * A kill switch, operated from the platform console.
+ * Deliberately not a general-purpose experiment framework. Each row corresponds to one capability
+ * that is genuinely checked in one place in the code, and the set of keys is closed - a flag whose
+ * key nothing reads is a switch that does nothing, which is worse than no switch at all because
+ * somebody will eventually flip it in an incident and believe it helped.
+ * `enabled` is the default for every account. `disabledAccountIds` turns it off for named accounts
+ * only, which is the shape an operator actually needs: something is on for everybody and has to be
+ * taken away from the one account melting the storage bill.
+ */
+model FeatureFlag {
+  id  String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  key String @unique
+
+  description        String
+  enabled            Boolean  @default(true)
+  /// Accounts this is off for, whatever `enabled` says.
+  disabledAccountIds String[] @default([]) @map("disabled_account_ids")
+
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedByAdminId String?  @map("updated_by_admin_id") @db.Uuid
+
+  @@map("feature_flags")
+}
+
+/**
+ * What a platform administrator did.
+ * Separate from `audit_logs`, which is tenant-scoped and readable by the account it belongs to.
+ * These are actions taken *on* accounts by people outside them - suspending, changing a plan - and
+ * an account must not be able to read them, nor a platform action be lost among a tenant's own.
+ */
+model PlatformAuditLog {
+  id      String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminId String @map("admin_id") @db.Uuid
+
+  action    String
+  /// The account acted upon, when there is one.
+  accountId String? @map("account_id") @db.Uuid
+
+  metadata Json    @default("{}")
+  ip       String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([accountId, createdAt(sort: Desc)])
+  @@map("platform_audit_logs")
+}

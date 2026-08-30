@@ -42,5 +42,6 @@ export * from './services/kb.service.js';
 export * from './services/ticket.service.js';
 export * from './services/analytics.service.js';
 export * from './services/api-key.service.js';
+export * from './services/platform.service.js';
 export * from './services/webhook.service.js';
 export * from './integrations/signature.js';

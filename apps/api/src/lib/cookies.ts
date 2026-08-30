@@ -77,3 +77,39 @@ export function clearAuthCookies(reply: FastifyReply, options: CookieOptions): v
     });
   }
 }
+
+export const PLATFORM_SESSION_COOKIE = 'sc_platform';
+
+/**
+ * The platform console's own cookie.
+ *
+ * A different name and a different path from the tenant session, which matters more than it looks:
+ * signing out of the dashboard must not sign an operator out of the console, and - far more
+ * importantly - a stolen tenant session must never be usable as a platform one. Two names make
+ * that structural rather than a matter of remembering to check.
+ *
+ * `SameSite=Strict` here, not `Lax`. The console has no email links to arrive from, so the
+ * looser setting buys nothing and costs the strongest CSRF protection available.
+ */
+export function setPlatformSessionCookie(
+  reply: FastifyReply,
+  token: string,
+  expiresAt: Date,
+  options: CookieOptions,
+): void {
+  reply.setCookie(PLATFORM_SESSION_COOKIE, token, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: options.secure,
+    path: '/',
+    expires: expiresAt,
+    ...(options.domain ? { domain: options.domain } : {}),
+  });
+}
+
+export function clearPlatformSessionCookie(reply: FastifyReply, options: CookieOptions): void {
+  reply.clearCookie(PLATFORM_SESSION_COOKIE, {
+    path: '/',
+    ...(options.domain ? { domain: options.domain } : {}),
+  });
+}

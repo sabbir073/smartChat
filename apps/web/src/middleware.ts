@@ -7,6 +7,9 @@ const PUBLIC_PATHS = [
   // must stay reachable for somebody who is *also* signed in, which is why it is listed below as
   // staying public when signed in too.
   '/help',
+  // The platform console has its own session cookie and its own sign-in. The tenant middleware
+  // must not redirect an operator to the account login page just because they have no account.
+  '/console',
   '/login',
   '/register',
   '/forgot-password',
@@ -43,6 +46,8 @@ export function middleware(request: NextRequest) {
   const staysPublicWhenSignedIn =
     pathname === '/help' ||
     pathname.startsWith('/help/') ||
+    pathname === '/console' ||
+    pathname.startsWith('/console/') ||
     pathname === '/verify-email' ||
     pathname === '/reset-password' ||
     pathname === '/accept-invitation';

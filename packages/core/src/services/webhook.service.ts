@@ -48,6 +48,12 @@ export interface WebhookServiceOptions {
   notify?: (deliveryId: string) => Promise<void>;
   /** Injectable for tests; the real one is `fetch`. */
   send?: typeof fetch;
+  /**
+   * The platform kill switch for webhooks. Optional so the dispatcher can be built without it.
+   * It stops new deliveries being *queued*; anything already queued still goes, because dropping
+   * a delivery somebody is waiting for is a different and much worse act than pausing new ones.
+   */
+  flags?: { isEnabled(flag: 'webhooks', accountId?: string): Promise<boolean> };
 }
 
 export type WebhookWithoutSecret = Omit<Webhook, 'secret'>;
@@ -198,6 +204,10 @@ export class WebhookService {
     event: WebhookEvent,
     data: Record<string, unknown>,
   ): Promise<WebhookDelivery[]> {
+    if (this.options.flags && !(await this.options.flags.isEnabled('webhooks', accountId))) {
+      return [];
+    }
+
     const subscribers = await this.options.db.webhook.findMany({
       where: {
         accountId,

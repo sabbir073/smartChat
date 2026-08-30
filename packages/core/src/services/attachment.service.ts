@@ -15,6 +15,12 @@ export interface AttachmentServiceOptions {
   storage: StorageService;
   conversations: ConversationService;
   maxBytes: number;
+  /**
+   * The platform kill switch for uploads. Optional so tests need not wire one.
+   * Checked in `sign`, which is the single point both the agent and the visitor path pass
+   * through - gating the two callers separately would be two places to forget.
+   */
+  flags?: { assertEnabled(flag: 'uploads', accountId?: string): Promise<void> };
   clock?: Clock;
 }
 
@@ -246,6 +252,10 @@ export class AttachmentService {
     fileName: string;
     byteSize: number;
   }): Promise<SignedUpload> {
+    // Nothing new is signed while the switch is off. Files already uploaded stay readable, which
+    // is the difference between a kill switch and data loss.
+    await this.options.flags?.assertEnabled('uploads', input.accountId);
+
     // A provisional name, so the row is readable in the database while the upload is in flight.
     // It is replaced at verification with one whose extension matches the real bytes.
     const fileName = safeFileName(input.fileName, 'bin');

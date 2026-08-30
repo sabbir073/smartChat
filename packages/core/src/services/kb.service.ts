@@ -31,6 +31,12 @@ export interface PublicArticle {
 
 export interface KbServiceOptions {
   db: Database;
+  /**
+   * The platform kill switch for the public help centre. Optional so tests need not wire one.
+   * Checked in `resolvePublic`, which every public read passes through; the authenticated side is
+   * deliberately unaffected, so an account can still edit while its public pages are paused.
+   */
+  flags?: { assertEnabled(flag: 'public_help_centre', accountId?: string): Promise<void> };
   clock?: Clock;
 }
 
@@ -313,6 +319,7 @@ export class KbService {
   private async resolvePublic(publicId: string): Promise<{ accountId: string; propertyId: string; name: string }> {
     const property = await this.widgets.findPublishedByPublicId(publicId);
     if (!property) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
+    await this.options.flags?.assertEnabled('public_help_centre', property.accountId);
     return {
       accountId: property.accountId,
       propertyId: property.propertyId,
