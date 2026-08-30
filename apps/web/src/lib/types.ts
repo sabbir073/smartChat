@@ -273,3 +273,58 @@ export interface TicketMessageDto {
   body: string;
   createdAt: string;
 }
+
+export interface ReportDayPoint {
+  day: string;
+  conversationsStarted: number;
+  conversationsClosed: number;
+  messagesFromVisitors: number;
+  messagesFromAgents: number;
+  newVisitors: number;
+  engagedVisitors: number;
+  ticketsOpened: number;
+  ticketsResolved: number;
+  firstResponseCount: number;
+  firstResponseSeconds: number;
+  resolutionCount: number;
+  resolutionSeconds: number;
+}
+
+export interface ReportOverviewDto {
+  from: string;
+  to: string;
+  timezone: string;
+  totals: {
+    conversationsStarted: number;
+    conversationsClosed: number;
+    messagesFromVisitors: number;
+    messagesFromAgents: number;
+    newVisitors: number;
+    engagedVisitors: number;
+    ticketsOpened: number;
+    ticketsResolved: number;
+    firstResponseCount: number;
+    resolutionCount: number;
+    averageFirstResponseSeconds: number | null;
+    averageResolutionSeconds: number | null;
+  };
+  series: ReportDayPoint[];
+}
+
+export interface ReportAgentDto {
+  memberId: string;
+  name: string;
+  messagesSent: number;
+  conversationsClosed: number;
+  ticketRepliesSent: number;
+  firstResponseCount: number;
+  averageFirstResponseSeconds: number | null;
+}
+
+export interface ReportArticleDto {
+  id: string;
+  title: string;
+  slug: string;
+  status: string;
+  viewCount: number;
+}

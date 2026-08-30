@@ -14,6 +14,10 @@ export const EmailJob = {
   SEND: 'email.send',
 } as const;
 
+export const AnalyticsJob = {
+  ROLLUP: 'analytics.rollup',
+} as const;
+
 export const MaintenanceJob = {
   PURGE_EXPIRED_SESSIONS: 'maintenance.purge_expired_sessions',
   PURGE_EXPIRED_TOKENS: 'maintenance.purge_expired_tokens',
@@ -35,8 +39,21 @@ export interface SendEmailPayload {
   deliveryId?: string;
 }
 
+export interface AnalyticsRollupPayload {
+  /**
+   * How far back to recompute, in the account's own days.
+   *
+   * Two by default: today, because it is still happening, and yesterday, because a conversation
+   * that started at 23:58 and was answered at 00:03 changes yesterday's numbers after yesterday
+   * has ended. Anything older only changes when somebody edits history, which is what the manual
+   * rebuild is for.
+   */
+  days?: number;
+}
+
 export type JobPayloadMap = {
   [EmailJob.SEND]: SendEmailPayload;
+  [AnalyticsJob.ROLLUP]: AnalyticsRollupPayload;
   [MaintenanceJob.PURGE_EXPIRED_SESSIONS]: Record<string, never>;
   [MaintenanceJob.PURGE_EXPIRED_TOKENS]: Record<string, never>;
   [MaintenanceJob.APPLY_RETENTION]: Record<string, never>;

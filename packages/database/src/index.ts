@@ -8,6 +8,8 @@ export type {
   Contact,
   ContactFieldDefinition,
   Conversation,
+  DailyAgentMetric,
+  DailyMetric,
   Department,
   EmailDelivery,
   KbArticle,

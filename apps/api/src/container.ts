@@ -1,6 +1,7 @@
 import { createPrismaClient, type Database } from '@smartchat/database';
 import {
   AccountService,
+  AnalyticsService,
   AttachmentService,
   AuthService,
   AutomationService,
@@ -51,6 +52,7 @@ export interface Container {
   contacts: ContactService;
   kb: KbService;
   tickets: TicketService;
+  analytics: AnalyticsService;
   storage: StorageService;
   attachments: AttachmentService;
   properties: PropertyService;
@@ -159,6 +161,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const automation = new AutomationService({ db, clock });
   const contacts = new ContactService({ db, clock });
   const kb = new KbService({ db, clock });
+  const analytics = new AnalyticsService({ db, clock });
 
   /**
    * How a ticket email actually leaves the building.
@@ -261,6 +264,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     contacts,
     kb,
     tickets,
+    analytics,
     storage,
     attachments,
     properties,

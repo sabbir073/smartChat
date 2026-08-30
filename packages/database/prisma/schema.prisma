@@ -441,27 +441,29 @@ model Account {
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
 
-  owner           User?                    @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  members         AccountMember[]
-  roles           Role[]
-  departments     Department[]
-  properties      Property[]
-  visitors        Visitor[]
-  conversations   Conversation[]
-  auditLogs       AuditLog[]
-  tokens          VerificationToken[]
-  subscription    Subscription?
-  usage           UsageRecord[]
-  triggers        Trigger[]
-  shortcuts       Shortcut[]
-  attachments     Attachment[]
-  kbCategories    KbCategory[]
-  kbArticles      KbArticle[]
-  contacts        Contact[]
-  contactFields   ContactFieldDefinition[]
-  tickets         Ticket[]
-  ticketMessages  TicketMessage[]
-  emailDeliveries EmailDelivery[]
+  owner             User?                    @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  members           AccountMember[]
+  roles             Role[]
+  departments       Department[]
+  properties        Property[]
+  visitors          Visitor[]
+  conversations     Conversation[]
+  auditLogs         AuditLog[]
+  tokens            VerificationToken[]
+  subscription      Subscription?
+  usage             UsageRecord[]
+  triggers          Trigger[]
+  shortcuts         Shortcut[]
+  attachments       Attachment[]
+  kbCategories      KbCategory[]
+  kbArticles        KbArticle[]
+  contacts          Contact[]
+  contactFields     ContactFieldDefinition[]
+  tickets           Ticket[]
+  ticketMessages    TicketMessage[]
+  emailDeliveries   EmailDelivery[]
+  dailyMetrics      DailyMetric[]
+  dailyAgentMetrics DailyAgentMetric[]
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -500,6 +502,7 @@ model AccountMember {
   authoredShortcuts      Shortcut[]         @relation("ShortcutAuthor")
   assignedTickets        Ticket[]           @relation("TicketAssignee")
   authoredTicketMessages TicketMessage[]    @relation("TicketMessageAuthor")
+  dailyAgentMetrics      DailyAgentMetric[]
 
   @@unique([accountId, userId])
   @@unique([accountId, id])
@@ -572,6 +575,7 @@ model Property {
   kbCategories  KbCategory[]
   kbArticles    KbArticle[]
   tickets       Ticket[]
+  dailyMetrics  DailyMetric[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -975,7 +979,7 @@ model Message {
    */
   clientMessageId String? @map("client_message_id")
 
-  senderType      SenderType
+  senderType      SenderType @map("sender_type")
   senderMemberId  String?    @map("sender_member_id") @db.Uuid
   senderVisitorId String?    @map("sender_visitor_id") @db.Uuid
 
@@ -1460,7 +1464,7 @@ model TicketMessage {
   /// Position in the ticket. Gapless, allocated with the insert.
   seq Int
 
-  authorType     TicketAuthorType
+  authorType     TicketAuthorType @map("author_type")
   /// Set for `agent`. Null for a contact or for the system, which have no membership.
   authorMemberId String?          @map("author_member_id") @db.Uuid
 
@@ -1517,4 +1521,89 @@ model EmailDelivery {
   @@index([status, queuedAt])
   @@index([accountId, ticketId])
   @@map("email_deliveries")
+}
+
+// -----------------------------------------------------------------------------
+// Analytics
+//
+// Rollups, not an event stream. Every number below is derivable from tables this product already
+// keeps - conversations, messages, tickets, visitors - so a parallel event log would be a second
+// copy of the truth that can disagree with the first. What these tables buy is speed: a report
+// over ninety days reads ninety rows instead of aggregating millions of messages, and it can be
+// rebuilt from the source at any time, which is what makes a wrong number fixable rather than
+// permanent.
+// -----------------------------------------------------------------------------
+
+/**
+ * One day of one website, in the account's own timezone.
+ * The timezone matters more than it looks: "yesterday" for a team in Auckland is not the window a
+ * UTC `date_trunc` would give them, and a daily report whose days do not match the days people
+ * worked is worse than no report.
+ */
+model DailyMetric {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+
+  /// Midnight of the day, in the account's timezone, stored as a date.
+  day DateTime @db.Date
+
+  conversationsStarted Int @default(0) @map("conversations_started")
+  conversationsClosed  Int @default(0) @map("conversations_closed")
+  messagesFromVisitors Int @default(0) @map("messages_from_visitors")
+  messagesFromAgents   Int @default(0) @map("messages_from_agents")
+
+  /**
+   * Sum and count rather than an average.
+   * Averages of averages are wrong, and a week's figure has to be computable from seven days'
+   * rows. Keeping the numerator and the denominator makes that arithmetic honest.
+   */
+  firstResponseCount   Int @default(0) @map("first_response_count")
+  firstResponseSeconds Int @default(0) @map("first_response_seconds")
+  resolutionCount      Int @default(0) @map("resolution_count")
+  resolutionSeconds    Int @default(0) @map("resolution_seconds")
+
+  /// Visitors whose first-ever sight of this website was on this day.
+  newVisitors     Int @default(0) @map("new_visitors")
+  /// Distinct visitors who started a conversation on this day.
+  engagedVisitors Int @default(0) @map("engaged_visitors")
+
+  ticketsOpened   Int @default(0) @map("tickets_opened")
+  ticketsResolved Int @default(0) @map("tickets_resolved")
+
+  /// When this row was last derived from the source tables.
+  computedAt DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  account  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([accountId, propertyId, day])
+  @@index([accountId, day])
+  @@map("daily_metrics")
+}
+
+/// The same day, cut by who did the work. Separate table because the questions are different:
+/// one is "how is this website doing", the other is "how is this person doing", and joining them
+/// into one wide row would make every query carry columns it does not want.
+model DailyAgentMetric {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @map("account_id") @db.Uuid
+  memberId  String @map("member_id") @db.Uuid
+
+  day DateTime @db.Date
+
+  messagesSent         Int @default(0) @map("messages_sent")
+  conversationsClosed  Int @default(0) @map("conversations_closed")
+  firstResponseCount   Int @default(0) @map("first_response_count")
+  firstResponseSeconds Int @default(0) @map("first_response_seconds")
+  ticketRepliesSent    Int @default(0) @map("ticket_replies_sent")
+
+  computedAt DateTime @default(now()) @map("computed_at") @db.Timestamptz(6)
+
+  account Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  member  AccountMember @relation(fields: [accountId, memberId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([accountId, memberId, day])
+  @@index([accountId, day])
+  @@map("daily_agent_metrics")
 }

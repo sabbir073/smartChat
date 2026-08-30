@@ -921,3 +921,111 @@ connection tickets - and this phase introduced support tickets.
 next, and the one that had to move was the one whose name was already an abbreviation of what it
 does. Ten lines across six files, done before either name had a chance to spread.
 **Date** 2026-08-30
+
+---
+## ADR-062 — Reports are derived from the source tables, not from an event stream
+**Context** The conventional analytics design is an append-only event log written alongside every
+domain write, rolled up into reporting tables.
+**Rejected** The event log. It is a second copy of the truth, written at the same moment as the
+first and free to drift from it - a message inserted whose event was dropped, a retry that wrote
+the event twice. When the two disagree nobody can say which is right, and the report becomes a
+thing people argue about instead of act on.
+**Chosen** `DailyMetric` and `DailyAgentMetric`, derived from conversations, messages, tickets and
+visitors by a rollup that can be run again at any time.
+**Reason** A derived table is a cache, and a cache can be thrown away. A wrong number is fixable
+in one command rather than being a permanent scar in an append-only log. What is bought is speed
+alone: ninety days of report reads ninety rows instead of aggregating millions of messages, so the
+report does not get slower as an account gets busier.
+**The cost, stated plainly** Anything not reconstructible from the source cannot be reported on.
+"How many people clicked the launcher and did not write" needs an event, and when that question is
+asked, an event table is the right answer for that question - not a reason to log everything now
+against questions nobody has yet.
+**Date** 2026-08-30
+
+---
+## ADR-063 — Rollups store sums and counts; averages are computed at read time
+**Context** The obvious column is `average_first_response_seconds`.
+**Chosen** `first_response_count` and `first_response_seconds`. The division happens once, in the
+reader, from the summed numerator and the summed denominator.
+**Reason** An average of averages is wrong. A day with one 10-second reply and a day with a
+hundred 600-second replies do not average to 305 seconds, and any report spanning more than one
+day would be quietly incorrect in a direction nobody can see. Storing both parts makes a week's
+figure computable from seven days' rows.
+**A related rule** An average over nothing is `null`, never `0`. Zero means "answered instantly",
+which is the opposite of "not answered at all", and a dashboard reading `0s` next to a quiet week
+is a lie that flatters.
+**Date** 2026-08-30
+
+---
+## ADR-064 — Days are the account's days
+**Context** Bucketing by `date_trunc('day', started_at)` is simpler and uses UTC.
+**Chosen** Every bucket is cut with `AT TIME ZONE` using the account's own timezone.
+**Reason** "Yesterday" for a team in Auckland is thirteen hours off a UTC day, so half their
+morning lands in the wrong bucket. A daily report whose days do not match the days people worked is
+worse than no report, because it is wrong in a way that looks right - the totals are plausible, the
+shape is plausible, and only somebody reconciling against their own memory would ever notice.
+**Consequence** The rollup takes a timezone parameter and the scheduled job asks each account what
+"today" means to it, rather than assuming one midnight for everybody.
+**Date** 2026-08-30
+
+---
+## ADR-065 — Rebuild deletes the range before inserting it
+**Context** `INSERT ... ON CONFLICT DO UPDATE` is the usual shape for an idempotent rollup and
+avoids a delete.
+**Problem** Upsert only touches rows it recomputes. A day whose source data has since gone - a
+conversation removed under a retention policy, a website deleted - keeps its old row forever. A
+metric that outlives the thing it counted can never be corrected, only explained.
+**Chosen** Delete the range, then insert what the source currently says, in one transaction.
+**Reason** It makes the rollup a pure function of the source data at the time it runs, which is
+the property that makes "run it again" a complete answer to any doubt about a number.
+**Date** 2026-08-30
+
+---
+## ADR-066 — The chart is hand-drawn SVG
+**Context** The reports page needs a daily bar chart.
+**Chosen** About fifty lines of SVG: two rectangles per day, a baseline, and a hover target.
+**Reason** A charting library brings a layout engine, an animation system and its own event
+handling to draw two rectangles - a large amount of third-party surface, and one more thing to keep
+current, for a picture we can describe exactly. It also keeps the chart a real element in the page:
+selectable, printable and inspectable, rather than a canvas nobody can read.
+**When to revisit** The first time somebody asks for a chart type that needs real scales, axes and
+tick logic. That is the point where writing it ourselves stops being cheaper.
+**Date** 2026-08-30
+
+---
+## ADR-067 — Permission is not existence: a filtering property id must be checked against the account
+**Context** `requirePropertyAccess` answers one question - "is this member restricted, and if so is
+this website on their list". For an unrestricted owner the answer is always yes, for *any* id.
+**The bug it hid** That is sufficient when the id comes from a row already loaded under the tenant
+predicate: the row proves the property is ours. It is not sufficient when the id is itself the
+filter. `WHERE account_id = mine AND property_id = theirs` matches nothing, so a cross-tenant id
+produced a cheerful, entirely empty answer - a report of zeros, an empty article list, an empty
+ticket queue - with a 200.
+**Why it mattered** Nothing leaked; the response is identical to one for an id that never existed.
+But the rule this codebase holds everywhere else is that a resource which is not yours answers 404,
+and "your report is empty" is a much worse answer than an error for the far more common case:
+somebody pasted the wrong id.
+**Chosen** `assertPropertyInAccount(db, context, propertyId)` - one lookup for existence in this
+account, then the permission check - used at every entry point where a property id arrives as a
+filter rather than as a field of a row we already hold: reports, the knowledge base, the ticket
+queue.
+**How it was found** By an e2e assertion written for the reports phase that expected 404 and got
+200. It had been true in two earlier phases and no test had asked.
+**Date** 2026-08-30
+
+---
+## ADR-068 — Two enum columns were quoted into the database in camelCase
+**Context** `Message.senderType` and `TicketMessage.authorType` were declared without `@map`, so
+Prisma created `"senderType"` and `"authorType"` while every other column in the schema is
+snake_case.
+**How it surfaced** Not through Prisma, which quotes its own names and never noticed - but through
+the first piece of raw SQL to touch those tables. The analytics rollup failed with
+`column "sender_type" does not exist` against a table that plainly has a sender type.
+**Chosen** Add the `@map`s and rename the columns.
+**Written by hand as a RENAME.** Prisma's own diff expresses a rename as a DROP and an ADD, which
+would have silently discarded every existing message's sender. `prisma migrate diff` confirms no
+drift afterwards.
+**The general lesson** An inconsistency that only one access path can see is not harmless; it is a
+trap with a delay on it. The check that would have caught it years earlier is one query:
+`SELECT ... FROM information_schema.columns WHERE column_name ~ '[A-Z]'`.
+**Date** 2026-08-30

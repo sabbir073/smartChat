@@ -14,6 +14,7 @@ import { AuditRepository } from '../repositories/audit.repository.js';
 import { WidgetRepository } from '../repositories/widget.repository.js';
 import { notDeleted, tenantScope } from '../repositories/scope.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
+import { assertPropertyInAccount } from '../tenancy/property-access.js';
 import { systemClock, type Clock } from '../time.js';
 
 export type ArticleWithCategory = KbArticle & { category: KbCategory | null };
@@ -58,7 +59,7 @@ export class KbService {
 
   async listCategories(context: TenantContext, propertyId: string): Promise<KbCategory[]> {
     requirePermission(context, Permission.KB_VIEW);
-    requirePropertyAccess(context, propertyId);
+    await assertPropertyInAccount(this.options.db, context, propertyId);
     return this.options.db.kbCategory.findMany({
       where: { ...tenantScope(context), ...notDeleted(), propertyId },
       orderBy: [{ position: 'asc' }, { name: 'asc' }],
@@ -71,7 +72,7 @@ export class KbService {
     input: CreateCategoryInput,
   ): Promise<KbCategory> {
     requirePermission(context, Permission.KB_MANAGE);
-    requirePropertyAccess(context, propertyId);
+    await assertPropertyInAccount(this.options.db, context, propertyId);
     const slug = input.slug ?? slugifyTitle(input.name);
     await this.assertCategorySlugFree(propertyId, slug, null);
 
@@ -152,7 +153,7 @@ export class KbService {
     query: ListArticlesInput,
   ): Promise<ArticleWithCategory[]> {
     requirePermission(context, Permission.KB_VIEW);
-    requirePropertyAccess(context, propertyId);
+    await assertPropertyInAccount(this.options.db, context, propertyId);
 
     return this.options.db.kbArticle.findMany({
       where: {
@@ -193,7 +194,7 @@ export class KbService {
     input: CreateArticleInput,
   ): Promise<ArticleWithCategory> {
     requirePermission(context, Permission.KB_MANAGE);
-    requirePropertyAccess(context, propertyId);
+    await assertPropertyInAccount(this.options.db, context, propertyId);
 
     const slug = input.slug ?? slugifyTitle(input.title);
     await this.assertArticleSlugFree(propertyId, slug, null);

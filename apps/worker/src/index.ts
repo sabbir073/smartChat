@@ -9,10 +9,11 @@ import {
   type MailProvider,
   type SendEmailPayload,
 } from '@smartchat/core';
-import { MaintenanceJob } from '@smartchat/core';
+import { AnalyticsJob, MaintenanceJob } from '@smartchat/core';
 import { createPrismaClient } from '@smartchat/database';
 import { createLogger, withLogContext } from '@smartchat/logger';
 import { loadWorkerConfig } from './config.js';
+import { processAnalyticsJob } from './processors/analytics.js';
 import { processEmailJob } from './processors/email.js';
 import { processMaintenanceJob } from './processors/maintenance.js';
 
@@ -62,6 +63,17 @@ async function main(): Promise<void> {
     ),
 
     new Worker(
+      QueueName.ANALYTICS,
+      (job) =>
+        withLogContext({ jobId: job.id ?? undefined }, () =>
+          processAnalyticsJob(job, db, logger),
+        ),
+      // One at a time: the rollup walks every active account, and two overlapping runs would do
+      // the same delete-and-rebuild twice for no benefit.
+      { connection, concurrency: 1 },
+    ),
+
+    new Worker(
       QueueName.MAINTENANCE,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined }, () =>
@@ -88,6 +100,9 @@ async function main(): Promise<void> {
   await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_SESSIONS, {}, '0 3 * * *');
   await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_TOKENS, {}, '30 3 * * *');
   await scheduler.schedule(MaintenanceJob.APPLY_RETENTION, {}, '0 4 * * *');
+  // Every quarter of an hour. Frequent enough that a report opened after lunch reflects the
+  // morning; cheap enough that it is two days of aggregate per account, not the whole history.
+  await scheduler.schedule(AnalyticsJob.ROLLUP, {}, '*/15 * * * *');
 
   /**
    * A minimal health server.

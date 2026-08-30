@@ -32,6 +32,7 @@ import {
 import { AuditRepository } from '../repositories/audit.repository.js';
 import { afterCursor, encodeCursor, notDeleted, tenantScope } from '../repositories/scope.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
+import { assertPropertyInAccount } from '../tenancy/property-access.js';
 import { systemClock, type Clock } from '../time.js';
 
 export type TicketWithRelations = Ticket & {
@@ -94,7 +95,9 @@ export class TicketService {
   async list(context: TenantContext, query: ListTicketsInput): Promise<CursorPage<Ticket>> {
     requirePermission(context, Permission.TICKET_VIEW);
 
-    if (query.propertyId) requirePropertyAccess(context, query.propertyId, ErrorCode.NOT_FOUND);
+    if (query.propertyId) {
+      await assertPropertyInAccount(this.options.db, context, query.propertyId, ErrorCode.NOT_FOUND);
+    }
     const restriction =
       context.propertyIds && context.propertyIds.size > 0
         ? { propertyId: { in: [...context.propertyIds] } }
@@ -208,7 +211,7 @@ export class TicketService {
 
   async create(context: TenantContext, input: CreateTicketInput): Promise<Ticket> {
     requirePermission(context, Permission.TICKET_MANAGE);
-    requirePropertyAccess(context, input.propertyId, ErrorCode.NOT_FOUND);
+    await assertPropertyInAccount(this.options.db, context, input.propertyId, ErrorCode.NOT_FOUND);
 
     const now = this.clock.now();
     const contact = await this.options.db.contact.findFirst({

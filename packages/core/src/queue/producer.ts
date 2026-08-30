@@ -4,6 +4,7 @@ import { DEFAULT_JOB_OPTIONS, QueueName, type JobName, type JobPayloadMap } from
 
 const QUEUE_FOR_JOB: Record<string, QueueName> = {
   'email.send': QueueName.EMAIL,
+  'analytics.rollup': QueueName.ANALYTICS,
   'maintenance.purge_expired_sessions': QueueName.MAINTENANCE,
   'maintenance.purge_expired_tokens': QueueName.MAINTENANCE,
   'maintenance.apply_retention': QueueName.MAINTENANCE,

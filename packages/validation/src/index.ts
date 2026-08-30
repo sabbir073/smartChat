@@ -7,6 +7,7 @@ export * from './conversation.js';
 export * from './kb.js';
 export * from './password.js';
 export * from './property.js';
+export * from './report.js';
 export * from './ticket.js';
 export * from './visitor.js';
 export * from './widget.js';

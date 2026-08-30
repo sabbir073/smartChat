@@ -93,6 +93,12 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/reports',
+    label: 'Reports',
+    available: true,
+    icon: icon('M4 20V10m5 10V4m5 16v-7m5 7V8'),
+  },
+  {
     href: '/settings',
     label: 'Settings',
     available: true,
@@ -133,7 +139,8 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       })}
 
       <div className="mt-auto rounded-[var(--radius-control)] bg-surface-raised p-3 text-[12px] leading-relaxed text-ink-subtle">
-        Reporting arrives in a later phase. Nothing is listed here before it works.
+        Integrations and the platform console arrive in later phases. Nothing is listed here
+        before it works.
       </div>
     </nav>
   );
