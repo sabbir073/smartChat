@@ -17,8 +17,16 @@ import type { Logger } from '@smartchat/logger';
  * the job is only an optimisation, and this is the code that makes that claim true rather than
  * aspirational.
  */
-export async function processWebhookJob(job: Job, db: Database, logger: Logger): Promise<void> {
-  const webhooks = new WebhookService({ db });
+export async function processWebhookJob(
+  job: Job,
+  db: Database,
+  logger: Logger,
+  options: { allowPrivateTargets: boolean },
+): Promise<void> {
+  // This process is the one that opens the socket, so it is the one that has to re-check the
+  // address. See integrations/outbound.ts: the URL was validated when it was saved, but a name
+  // resolves at delivery time, and it can resolve somewhere else than it did yesterday.
+  const webhooks = new WebhookService({ db, allowPrivateTargets: options.allowPrivateTargets });
 
   if (job.name === WebhookJob.DELIVER) {
     const { deliveryId } = job.data as { deliveryId: string };

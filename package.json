@@ -43,7 +43,11 @@
     "e2e:integrations": "node scripts/e2e-integrations.mjs",
     "e2e:platform": "node scripts/e2e-platform.mjs",
     "e2e:retention": "node scripts/e2e-retention.mjs",
-    "backup:rehearse": "node scripts/restore-rehearsal.mjs"
+    "e2e:isolation": "node scripts/e2e-isolation.mjs",
+    "e2e:abuse": "node scripts/e2e-abuse.mjs",
+    "loadtest": "node scripts/loadtest.mjs",
+    "backup:rehearse": "node scripts/restore-rehearsal.mjs",
+    "rollback:rehearse": "node scripts/rollback-rehearsal.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.18.0",

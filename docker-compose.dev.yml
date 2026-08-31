@@ -79,6 +79,13 @@ services:
     environment:
       NODE_ENV: development
       LOG_LEVEL: ${LOG_LEVEL:-debug}
+      # The same relaxation the API gets, and it has to be the same value.
+      #
+      # The API decides whether a webhook URL may be *saved*; the worker decides whether it may be
+      # *delivered to*. When only the API had this, a developer could register a receiver on this
+      # machine, watch it be accepted, and then watch every delivery fail in a log they were not
+      # reading. Two processes disagreeing about one setting is worse than either answer.
+      ALLOW_PRIVATE_WEBHOOK_URLS: 'true'
       CHOKIDAR_USEPOLLING: '1'
     volumes:
       - ./apps/worker/src:/app/apps/worker/src:ro

@@ -25,11 +25,18 @@ isolation suite asserts this per resource type and blocks CI.
 grant a permission they do not hold; role edits are audit logged. Platform admins live in a separate
 table and a separate role space, unreachable from any tenant session.
 
-**XSS** — message bodies are stored raw and escaped at render. React escapes by default; the two
-places that must render rich content (knowledge base articles, formatted agent replies) run through
-an allowlist sanitiser server side, and the output is re-checked client side. `dangerouslySetInnerHTML`
-is banned outside that sanitiser. Strict CSP on dashboard and widget panel: no `unsafe-eval`, no
-inline scripts without a nonce.
+**XSS** — message bodies are stored raw and escaped at render. React escapes by default, and the one
+place that renders rich content (markdown in articles and formatted replies) escapes every character
+of the source *first* and then inserts its own tags, so no tag is ever built from author-supplied
+text; links go through an allow-list of schemes rather than a blocklist. `dangerouslySetInnerHTML`
+is used in exactly one place — the root layout, to publish the environment's public URLs onto
+`window`, from values the server read and never from anything a request supplied — and that script
+carries the nonce like any other. Behind that, a Content Security Policy: the dashboard's is built
+per request in middleware with a fresh nonce and `strict-dynamic`, so an injected script tag is
+refused whether it is inline or sourced; the widget panel gets its own from nginx, with the origins
+substituted at container start. `style-src` keeps `'unsafe-inline'` on both — Next and React emit
+un-nonceable styles, a style cannot execute, and pretending otherwise would be worse than saying so.
+See ADR-084.
 
 **CSRF** — dashboard sessions are `SameSite=Lax` httpOnly cookies plus a double-submit token on
 state-changing requests. The widget surface uses a bearer visitor token, not a cookie, so it is not
@@ -38,9 +45,13 @@ CSRF-reachable.
 **SQL injection** — Prisma parameterises everything. The rare `$queryRaw` uses tagged templates
 only; string-concatenated SQL is banned and caught in review.
 
-**SSRF** — webhook URLs are validated at save time and again at delivery: HTTPS only, public DNS
-resolution only, private/link-local/loopback/metadata ranges rejected after resolution, redirects
-not followed, hard timeout.
+**SSRF** — webhook URLs are validated at save time (https only, no private literal, no bare
+hostname) and again at delivery, where the check is on the address rather than the text: the host is
+resolved, **every** answer must be a public address, and the socket is then pinned to those vetted
+addresses so the name is not resolved a second time between the check and the connection. Redirects
+are not followed, the timeout is hard, and the response body is capped as it arrives. IPv4-mapped
+IPv6, 6to4, NAT64, carrier-grade NAT and the cloud metadata address are all refused. See ADR-085 and
+`packages/core/src/integrations/outbound.ts`.
 
 **Malicious upload** — extension allowlist, MIME allowlist, magic-byte sniffing of the real content,
 size cap, randomly generated storage keys (client filename never becomes a path), served from a
@@ -53,12 +64,20 @@ with exponential lockout, constant-time comparison, generic failure messages, an
 every failure. Password reset and email verification tokens are single-use, hashed at rest and
 short-lived.
 
-**WebSocket abuse** — authenticate before joining any room, origin-validate the handshake, rooms
-derived from server-side identity only, per-socket message and payload limits, strike-based
-disconnect and temporary ban.
+**WebSocket abuse** — a single-use ticket in the handshake is the only credential, every room is
+derived from the identity that ticket carried rather than from anything the client asks for, and
+payloads are schema-validated per event. A socket that keeps violating a limit is disconnected after
+ten strikes rather than merely throttled, because a rejected connection an attacker keeps open costs
+us and not them. The handshake is deliberately **not** origin-restricted: the widget runs on domains
+we cannot enumerate, a cross-origin page cannot obtain a ticket, and an origin check would break
+every customer while adding nothing.
 
-**Spam / flooding** — layered limits: per visitor, per property, per account, per IP. Configurable
-ban system (temporary and permanent) at visitor and IP level.
+**Spam / flooding** — layered limits: per visitor, per property, per session, per key and per IP,
+enforced in Redis so they hold across replicas. A visitor can be banned temporarily or permanently
+from the agent's panel; the ban is checked both when a token is used and when a new one is minted,
+so a reload does not clear it (ADR-083). There is no IP-level ban: IP addresses are shared and
+reassigned, blocking one is as likely to catch a network as a person, and the per-IP rate limits
+already bound what one address can do. See "Not implemented in v1" below.
 
 **Malicious uploads** — implemented in phase 7. The bytes never pass through the API: a signed URL
 authorises one PUT, to one key, for five minutes, with no read and no listing. What was actually
@@ -78,30 +97,81 @@ has a redaction list); the widget snippet contains no credential at all.
 
 ## 3. Rate limits (Redis-backed, per surface)
 
-| Surface | Limit |
-| --- | --- |
-| Login | 5 / 15 min per IP+email, then exponential lockout |
-| Register / forgot-password / resend-verification | 3 / hour per IP |
-| Widget session creation | 30 / min per IP |
-| Visitor messages | 20 / min per visitor, 300 / min per property |
-| File uploads | 10 / hour per visitor, 100 / hour per account |
-| Dashboard API | 600 / min per session |
-| Public API | per-key quota from the account's plan |
-| Webhook deliveries | per-endpoint concurrency cap + backoff |
+Every figure below is the value in `RATE_LIMITS` (`packages/core/src/redis/rate-limit.ts`). If the
+two ever disagree, the code is right and this table is a bug.
+
+| Surface | Limit | Keyed by |
+| --- | --- | --- |
+| Login | 5 / 15 min, then an escalating lockout | IP + email |
+| Register | 10 / hour, and 3 / hour for one email address | IP, then email |
+| Forgot password, resend verification | 3 / hour | IP |
+| Email token redemption | 10 / hour | IP |
+| Widget session creation | 30 / min | IP |
+| Visitor messages | 20 / min, and 300 / min across the whole website | visitor, then property |
+| Offline-form messages | 5 / hour | IP |
+| Visitor uploads | 10 / hour | visitor |
+| Everything behind a session or an API key | 600 / min | session, or key |
+| Expensive mutations (property writes, upload signing) | 120 / min | account or member |
+| Webhook deliveries | one attempt at a time per delivery, capped exponential backoff | delivery |
+
+Register is 10 rather than 3 per IP on purpose: an agency behind one NAT legitimately creates several
+accounts in an hour, and locking them out is a worse failure than the abuse it prevents — the
+per-email limit and email verification are what actually bound bulk signup.
+
+The 600/min budget is consumed in the authentication hook, so it covers every authenticated route
+including ones added later; the tighter limits above sit on top of it (ADR-086). An unauthenticated
+flood never reaches the limiter — it is refused before it, and bounding it is the edge proxy's job.
 
 ## 4. Privacy
 
-Configurable per account: data retention windows for conversations, visitors and sessions; visitor
-and contact erasure; conversation deletion; full account export. Location is derived to
-country/region granularity only. Consent mode can gate visitor tracking before a chat is started.
-Sensitive fields are minimised by default — we do not collect what we do not need.
+Each account sets its own retention window. A nightly job deletes conversations past it along with
+their messages, attachment rows and the objects behind them, and reports anything it could not
+remove from storage rather than dropping the row and leaving the file (see docs/BACKUPS.md). Tickets,
+contacts and the audit log are deliberately kept: a ticket is a commercial record, and an audit log
+that erased the record of its own operation would be self-defeating.
+
+We collect less than we could. Location is derived to country granularity only. The browser's
+`Origin`, `Referer`, `User-Agent` and the page URL and title the widget reports are stored as claims
+for the agent's sidebar and are never used for any authorisation decision. No third-party analytics
+or tracking script is loaded on any surface — the dashboard's CSP would refuse one.
+
+### Not implemented in v1
+
+Named here rather than described as though they exist. Each has a designed attachment point and none
+is faked in the interface:
+
+- **Consent mode** — gating visitor tracking behind an explicit opt-in before a chat starts. It
+  would attach at `VisitorService.bootstrap`, which is already the one place a visitor row is
+  created.
+- **Self-service erasure and account export** — a subject-access request is currently served by
+  operators against the database. `RetentionService` already knows how to delete a conversation and
+  everything under it, including storage objects; erasure on demand is that traversal driven by an
+  endpoint rather than by a schedule.
+- **On-demand conversation deletion** — the `conversation:delete` permission exists and no route
+  consumes it. Conversations are removed by the retention job only.
+- **IP-level bans** — see "Spam / flooding" above for why this is a considered omission rather than
+  an oversight.
 
 ## 5. Audit logging
 
-Append-only. Actor, action, resource type, resource id, IP, user agent, timestamp, before/after
-metadata. Covers login/logout, password and email changes, property and widget changes, member and
-role changes, API key and webhook lifecycle, data exports and deletions, and account
-suspension/activation.
+Append-only: nothing in the application updates or deletes an audit row, and retention keeps them
+when it deletes the conversations they describe. Each row carries the actor (user, API key or the
+system), the action, the resource type and id, the IP, the user agent, the timestamp, and a metadata
+bag.
+
+What is recorded today: account created and updated; sign-in, failed sign-in, sign-out, session
+revoked, password changed, password reset, email verified; property created, updated and deleted;
+allowed domains added and removed; widget published; member invited, invitation revoked, joined,
+updated and removed; trigger and shortcut created, updated and deleted; article created; contact
+updated; conversation assigned; ticket created, updated and opened from an offline message; API key
+created and revoked; webhook created; visitor banned and unbanned.
+
+Two honest qualifications. The metadata bag usually records *which* fields changed rather than their
+old and new values — enough to answer "who touched this and when", not enough to reconstruct a
+previous state; storing both versions of every field would put customer content in a table that
+outlives the retention window it was meant to respect. And platform-operator actions (suspending an
+account, changing a plan, toggling a flag) are written to `platform_audit_log`, a separate table with
+a separate actor space, not into any account's own log — see docs/PLATFORM.md.
 
 ## 6. Verification
 

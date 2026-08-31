@@ -84,7 +84,11 @@ async function main(): Promise<void> {
     new Worker(
       QueueName.WEBHOOK,
       (job) =>
-        withLogContext({ jobId: job.id ?? undefined }, () => processWebhookJob(job, db, logger)),
+        withLogContext({ jobId: job.id ?? undefined }, () =>
+          processWebhookJob(job, db, logger, {
+            allowPrivateTargets: config.ALLOW_PRIVATE_WEBHOOK_URLS,
+          }),
+        ),
       // Several at once: these are outbound HTTP calls to other people's servers, and one slow
       // endpoint must not hold up everybody else's deliveries.
       { connection, concurrency: config.WORKER_CONCURRENCY },

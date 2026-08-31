@@ -293,6 +293,9 @@ services:
       # Server-rendered pages (the public help centre) call the API from inside the network,
       # where `localhost` is this container rather than the API.
       INTERNAL_API_URL: ${INTERNAL_API_URL:-http://api:3001}
+      # Not used to reach storage - the browser does that over a signed URL. The dashboard needs
+      # the origin so its Content Security Policy can allow the attachment images it renders.
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9100}
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1']
       interval: 15s
@@ -316,6 +319,9 @@ services:
     environment:
       API_URL: ${API_URL:-http://localhost:3001}
       REALTIME_URL: ${REALTIME_URL:-http://localhost:3002}
+      # Named in the panel's Content Security Policy so a visitor can see the file they were
+      # just sent. Nothing here reaches storage; the browser does, over a signed URL.
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9100}
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1']
       interval: 15s

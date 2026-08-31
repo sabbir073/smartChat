@@ -196,6 +196,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     db,
     clock,
     flags,
+    allowPrivateTargets: config.ALLOW_PRIVATE_WEBHOOK_URLS,
     notify: (deliveryId) => queue.enqueue(WebhookJob.DELIVER, { deliveryId }).then(() => undefined),
   });
 

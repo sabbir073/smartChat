@@ -60,6 +60,17 @@ export const widgetOfflineMessageSchema = z.object({
     .refine((values) => Object.keys(values).length <= 24, 'Too many fields'),
 });
 
+/**
+ * Banning a visitor. Both fields optional: no `until` is a permanent ban, and the reason is for
+ * the audit log rather than for the visitor, who is never told why.
+ */
+export const banVisitorSchema = z.object({
+  until: z.string().datetime().nullable().optional(),
+  reason: z.string().trim().max(200).optional(),
+});
+
+export type BanVisitorInput = z.infer<typeof banVisitorSchema>;
+
 export type WidgetOfflineMessageInput = z.infer<typeof widgetOfflineMessageSchema>;
 
 export type WidgetBootstrapInput = z.infer<typeof widgetBootstrapSchema>;

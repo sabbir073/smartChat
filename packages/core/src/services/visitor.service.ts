@@ -1,11 +1,20 @@
 import type { Database, Visitor } from '@smartchat/database';
-import { AppError, ErrorCode, type DeviceType } from '@smartchat/types';
+import { ActorType as DbActorType } from '@smartchat/database';
+import {
+  AppError,
+  ErrorCode,
+  Permission,
+  type DeviceType,
+  type TenantContext,
+} from '@smartchat/types';
 import type { WidgetConfig } from '@smartchat/validation';
 import {
   VISITOR_TOKEN_TTL_SECONDS,
   issueVisitorToken,
   verifyVisitorToken,
 } from '../crypto/visitor-token.js';
+import { AuditRepository } from '../repositories/audit.repository.js';
+import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { PropertyRepository } from '../repositories/property.repository.js';
 import { VisitorRepository } from '../repositories/visitor.repository.js';
 import { WidgetRepository } from '../repositories/widget.repository.js';
@@ -83,12 +92,14 @@ export class VisitorService {
   private readonly widgets: WidgetRepository;
   private readonly visitors: VisitorRepository;
   private readonly properties: PropertyRepository;
+  private readonly audit: AuditRepository;
 
   constructor(private readonly options: VisitorServiceOptions) {
     this.clock = options.clock ?? systemClock;
     this.widgets = new WidgetRepository(options.db);
     this.visitors = new VisitorRepository(options.db);
     this.properties = new PropertyRepository(options.db);
+    this.audit = new AuditRepository(options.db);
   }
 
   async bootstrap(input: BootstrapInput): Promise<BootstrapResult> {
@@ -132,6 +143,11 @@ export class VisitorService {
     if (existing) {
       visitor = existing.visitor;
       isReturning = true;
+
+      // A ban that only applied to the token in hand would last exactly as long as it took the
+      // visitor to reload the page: bootstrap would recognise them, mint a new token, and hand
+      // back an identity that `authenticate` had just refused. The check belongs at both doors.
+      this.assertNotBanned(visitor);
 
       const resumable = await this.visitors.findResumableSession(
         property.accountId,
@@ -247,9 +263,7 @@ export class VisitorService {
     // A token whose visitor has been erased is no longer a valid identity, even if the signature
     // is still good.
     if (!visitor) throw new AppError(ErrorCode.INVALID_TOKEN);
-    if (visitor.isBanned && (!visitor.bannedUntil || visitor.bannedUntil > this.clock.now())) {
-      throw new AppError(ErrorCode.VISITOR_BANNED);
-    }
+    this.assertNotBanned(visitor);
 
     return {
       accountId: result.payload.accountId,
@@ -258,6 +272,98 @@ export class VisitorService {
       sessionId: result.payload.sessionId,
       visitor,
     };
+  }
+
+  /**
+   * A ban is `is_banned` plus an optional expiry, so one column carries both kinds: with a date it
+   * is a cooling-off period that ends on its own, without one it is permanent. An expired ban is
+   * left on the row rather than cleaned up - it is the record of what happened, and a visitor who
+   * comes back after it lapses is simply not banned any more.
+   */
+  private assertNotBanned(visitor: Visitor): void {
+    if (!visitor.isBanned) return;
+    if (visitor.bannedUntil && visitor.bannedUntil <= this.clock.now()) return;
+    throw new AppError(ErrorCode.VISITOR_BANNED);
+  }
+
+  /**
+   * Stop this visitor chatting.
+   *
+   * Scoped to the caller's account like everything else - a visitor id from another account is a
+   * 404, not a ban applied to somebody else's customer. `CONTACT_UPDATE` rather than a permission
+   * of its own: it is the "manage this person" right, which owners, admins and managers hold and
+   * agents deliberately do not (ADR-083).
+   *
+   * The effect is on the next request, not the current socket. An open connection was already
+   * authenticated, and the honest description of this control is "they cannot come back" rather
+   * than "they are cut off mid-sentence" - a banned visitor's next page load, token refresh or
+   * gateway ticket is refused, and a socket has to mint a ticket to reconnect.
+   */
+  async ban(
+    context: TenantContext,
+    visitorId: string,
+    input: { until?: Date | null; reason?: string | undefined } = {},
+  ): Promise<Visitor> {
+    requirePermission(context, Permission.CONTACT_UPDATE);
+    const visitor = await this.findInAccount(context, visitorId);
+
+    const until = input.until ?? null;
+    if (until && until <= this.clock.now()) {
+      throw new AppError(ErrorCode.VALIDATION_FAILED, 'A ban must end in the future');
+    }
+
+    const updated = await this.options.db.visitor.update({
+      where: { id: visitor.id },
+      data: { isBanned: true, bannedUntil: until },
+    });
+
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId,
+      action: 'visitor.banned',
+      resourceType: 'visitor',
+      resourceId: visitor.id,
+      metadata: {
+        until: until ? until.toISOString() : null,
+        ...(input.reason ? { reason: input.reason.slice(0, 200) } : {}),
+      },
+    });
+
+    return updated;
+  }
+
+  async unban(context: TenantContext, visitorId: string): Promise<Visitor> {
+    requirePermission(context, Permission.CONTACT_UPDATE);
+    const visitor = await this.findInAccount(context, visitorId);
+
+    const updated = await this.options.db.visitor.update({
+      where: { id: visitor.id },
+      data: { isBanned: false, bannedUntil: null },
+    });
+
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId,
+      action: 'visitor.unbanned',
+      resourceType: 'visitor',
+      resourceId: visitor.id,
+      metadata: {},
+    });
+
+    return updated;
+  }
+
+  /** Tenant-scoped lookup. Someone else's visitor does not exist, rather than being forbidden. */
+  private async findInAccount(context: TenantContext, visitorId: string): Promise<Visitor> {
+    const visitor = await this.options.db.visitor.findFirst({
+      where: { accountId: context.accountId, id: visitorId },
+    });
+    if (!visitor) throw new AppError(ErrorCode.NOT_FOUND);
+    // A restricted member can only act on the properties they were given.
+    requirePropertyAccess(context, visitor.propertyId);
+    return visitor;
   }
 
   async recordPageView(

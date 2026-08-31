@@ -859,6 +859,10 @@ export default function InboxPage() {
               conversation={selected}
               online={onlineVisitors.has(selected.visitor.id)}
               currentUrl={visitorUrls[selected.visitor.id] ?? null}
+              // A ban changes the conversation payload, so the list is re-read rather than
+              // patched locally - the badge should show what the server believes, not what this
+              // tab hoped would happen.
+              onVisitorChanged={() => void loadConversations()}
             />
           ) : (
             <div className="p-6 text-[13px] text-ink-subtle">

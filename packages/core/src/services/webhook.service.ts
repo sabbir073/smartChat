@@ -9,6 +9,7 @@ import {
 } from '@smartchat/types';
 import type { CreateWebhookInput, UpdateWebhookInput } from '@smartchat/validation';
 import { generateToken } from '../crypto/tokens.js';
+import { createOutboundFetch, type OutboundFetch } from '../integrations/outbound.js';
 import {
   DELIVERY_HEADER,
   EVENT_HEADER,
@@ -46,8 +47,14 @@ export interface WebhookServiceOptions {
   clock?: Clock;
   /** Optional: nudge the dispatcher so a delivery does not wait for the next sweep. */
   notify?: (deliveryId: string) => Promise<void>;
-  /** Injectable for tests; the real one is `fetch`. */
-  send?: typeof fetch;
+  /**
+   * Injectable for tests. The real one is `createOutboundFetch()`, not `fetch`: an endpoint an
+   * account chose is a server-side request forgery primitive, and the default client re-validates
+   * the address and pins the connection to it. See integrations/outbound.ts.
+   */
+  send?: OutboundFetch;
+  /** Development only, from configuration. Lets a webhook point at this machine. */
+  allowPrivateTargets?: boolean;
   /**
    * The platform kill switch for webhooks. Optional so the dispatcher can be built without it.
    * It stops new deliveries being *queued*; anything already queued still goes, because dropping
@@ -61,10 +68,14 @@ export type WebhookWithoutSecret = Omit<Webhook, 'secret'>;
 export class WebhookService {
   private readonly clock: Clock;
   private readonly audit: AuditRepository;
+  private readonly send: OutboundFetch;
 
   constructor(private readonly options: WebhookServiceOptions) {
     this.clock = options.clock ?? systemClock;
     this.audit = new AuditRepository(options.db);
+    this.send =
+      options.send ??
+      createOutboundFetch({ allowPrivateTargets: options.allowPrivateTargets === true });
   }
 
   // ---------------------------------------------------------------------------
@@ -290,8 +301,7 @@ export class WebhookService {
     let error: string | undefined;
 
     try {
-      const send = this.options.send ?? fetch;
-      const response = await send(webhook.url, {
+      const response = await this.send(webhook.url, {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -301,7 +311,7 @@ export class WebhookService {
           'user-agent': 'SmartChat-Webhooks/1.0',
         },
         body,
-        signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MS),
+        timeoutMs: DELIVERY_TIMEOUT_MS,
       });
       responseStatus = response.status;
       responseBody = (await response.text().catch(() => '')).slice(0, MAX_RESPONSE_CHARS);
@@ -309,6 +319,9 @@ export class WebhookService {
       error = caught instanceof Error ? caught.message.slice(0, 300) : 'Delivery failed';
     }
 
+    // 3xx included, deliberately. Redirects are not followed - the address was vetted, and a
+    // redirect is an invitation to a second address that was not - so a receiver that answers
+    // with one has not accepted the delivery.
     const accepted = responseStatus !== undefined && responseStatus >= 200 && responseStatus < 300;
 
     if (accepted) {

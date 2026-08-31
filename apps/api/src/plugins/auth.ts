@@ -142,6 +142,9 @@ export const authPlugin = fp<{ container: Container }>(
         // One answer for every kind of refusal - unknown prefix, wrong secret, revoked, expired,
         // suspended account. Distinguishing them is how a key space gets enumerated.
         if (!principal) throw new AppError(ErrorCode.UNAUTHENTICATED);
+        // Per key, not per IP: a key is the actor, and one customer's integration running from a
+        // shared address must not spend another's budget.
+        await app.rateLimit(request, 'dashboardApi', `key:${principal.keyId}`);
         request.tenant = container.apiKeys.contextFor(
           principal,
           request.requestId,
@@ -153,6 +156,17 @@ export const authPlugin = fp<{ container: Container }>(
       if (!request.currentUser) await loadSession(request, reply);
       const user = request.currentUser;
       if (!user) throw new AppError(ErrorCode.UNAUTHENTICATED);
+
+      /**
+       * One budget for the whole authenticated surface.
+       *
+       * A handful of routes carry their own tighter limit for what they cost; this is the floor
+       * underneath all of them, so a route added tomorrow is limited on the day it ships rather
+       * than on the day somebody remembers. Keyed to the session rather than the user, because a
+       * runaway script in one tab should not lock the person out of the tab they are working in,
+       * and rather than the IP, because a whole office behind one address is one address.
+       */
+      await app.rateLimit(request, 'dashboardApi', `session:${request.session?.id ?? user.id}`);
 
       const headerAccount = request.headers['x-account-id'];
       const requested =
@@ -176,7 +190,8 @@ export const authPlugin = fp<{ container: Container }>(
       });
     });
   },
-  { name: 'auth', dependencies: ['request-context'] },
+  // 'rate-limit' is a hard dependency now that every authenticated request consumes a budget.
+  { name: 'auth', dependencies: ['request-context', 'rate-limit'] },
 );
 
 /** Narrowing helpers so handlers never repeat a null check the preHandler already guaranteed. */

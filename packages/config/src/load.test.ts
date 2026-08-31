@@ -12,6 +12,37 @@ describe('loadConfig', () => {
     expect(cfg.LOG_LEVEL).toBe('info');
   });
 
+  /**
+   * The bug this pins: `docker compose` writes an empty string for a variable nobody set, and an
+   * empty string is a *present* value to zod - so an optional field with a length rule refused to
+   * start the service over a setting that was meant to be optional. `/metrics` is exactly that
+   * field, and the API would not boot with the shipped defaults.
+   */
+  it('treats an empty environment variable as unset, the way a compose default means it', () => {
+    const schema = z.object({
+      METRICS_TOKEN: z.string().min(16).optional(),
+      COOKIE_DOMAIN: z.string().optional(),
+      LOG_LEVEL: z.string().default('info'),
+    });
+
+    const cfg = loadConfig(schema, {
+      METRICS_TOKEN: '',
+      COOKIE_DOMAIN: '',
+      LOG_LEVEL: '',
+    } as NodeJS.ProcessEnv);
+
+    expect(cfg.METRICS_TOKEN).toBeUndefined();
+    expect(cfg.COOKIE_DOMAIN).toBeUndefined();
+    // And a default applies rather than being shadowed by the empty string.
+    expect(cfg.LOG_LEVEL).toBe('info');
+  });
+
+  it('still reads a value that was actually provided', () => {
+    const schema = z.object({ METRICS_TOKEN: z.string().min(16).optional() });
+    const cfg = loadConfig(schema, { METRICS_TOKEN: LONG } as NodeJS.ProcessEnv);
+    expect(cfg.METRICS_TOKEN).toBe(LONG);
+  });
+
   it('reports every problem at once rather than one per restart', () => {
     try {
       loadConfig(secretsEnvSchema, { SESSION_SECRET: 'short' } as NodeJS.ProcessEnv);

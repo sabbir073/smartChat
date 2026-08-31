@@ -51,7 +51,8 @@ exposed. Postgres, Redis and MinIO are reachable on the internal Docker network 
 
 ## 3. Release procedure
 
-1. CI is green on `main` (lint, typecheck, unit, integration, isolation, build, docker build).
+1. CI is green on `master` (format, lint, typecheck, unit tests, build, docker build, migrations
+   from empty, schema-drift check, every end-to-end suite, and both rehearsals).
 2. Tag the release; images are built and tagged with the commit SHA.
 3. On the server: `docker compose pull`.
 4. Back up the database — and confirm the backup file exists and restores.
@@ -61,15 +62,39 @@ exposed. Postgres, Redis and MinIO are reachable on the internal Docker network 
 
 ## 4. Rollback
 
-Because migrations are additive and deploy-before-cutover, rollback is an image rollback:
+Say the uncomfortable part first: **a migration cannot be un-run.** Prisma has no `down`, and this
+project does not pretend otherwise. What that means in practice is that rollback has two shapes, and
+knowing which one you are in is the whole procedure.
+
+**If the release was additive** — it only added tables, columns, indexes or defaults — the new schema
+still serves the previous release, so putting the images back is a complete rollback and nothing is
+lost:
 
 ```bash
-docker compose down api web realtime worker
-IMAGE_TAG=<previous-sha> docker compose up -d api web realtime worker
+IMAGE_TAG=<previous-sha> docker compose up -d api web realtime worker widget
 ```
 
-A migration that cannot be rolled back this way must be split into expand → backfill → contract
-across two releases. That rule is what makes rollback safe, and it is enforced in review.
+**If the release dropped, renamed or narrowed anything**, the old image will look for something that
+is no longer there. Images alone are not enough, and the pre-deploy backup taken at step 4 above is
+not optional:
+
+```bash
+IMAGE_TAG=<previous-sha> docker compose up -d api web realtime worker widget   # first: stop the bleeding
+./infrastructure/backup/restore.sh <pre-deploy-backup>                          # then: put the data back
+```
+
+Restoring costs every write since the backup, which is why the rule below matters more than the
+procedure: a migration that removes something must be split into **expand → backfill → contract**
+across two releases, so that no single deploy is ever in the second category. Enforced in review.
+
+`node scripts/rollback-rehearsal.mjs` performs all of this rather than describing it. It checks that
+the image tag flows through both compose files and can select a real image, it damages a scratch copy
+of the database and restores it, and it prints **every migration in the repository classified as
+additive or destructive** — which is the fact you need at 2am and the one nobody remembers. CI runs
+it on every change.
+
+Rolling back the database alone, without the images, is not a supported operation: the new code
+expects the new schema.
 
 ## 5. Health and observability
 

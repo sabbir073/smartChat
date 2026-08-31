@@ -37,6 +37,44 @@ done
 
 echo "smartchat: substituted runtime URLs in ${replaced} file(s), ${settled} already done"
 
+# -----------------------------------------------------------------------------
+# The panel's Content Security Policy.
+#
+# It has to name the API and gateway origins, which are only known now, so the nginx config ships
+# with a placeholder and gets it filled in here - the same trick, and the same reason, as the
+# bundles above. STORAGE is the object store the browser fetches attachments from over signed URLs.
+#
+# The panel is framed on customer sites by design, so frame-ancestors stays open; every other
+# directive is closed. connect-src is the one that matters: it is what stops a script that somehow
+# got into this document from posting a transcript anywhere else.
+# -----------------------------------------------------------------------------
+STORAGE="${S3_PUBLIC_ENDPOINT:-}"
+STORAGE="${STORAGE%/}"
+
+api_host="${API#*://}"
+realtime_host="${REALTIME#*://}"
+case "$REALTIME" in
+  https://*) realtime_ws="wss://${realtime_host}" ;;
+  *)         realtime_ws="ws://${realtime_host}" ;;
+esac
+case "$API" in
+  https://*) api_ws="wss://${api_host}" ;;
+  *)         api_ws="ws://${api_host}" ;;
+esac
+
+connect_src="'self' ${API} ${api_ws} ${REALTIME} ${realtime_ws}"
+img_src="'self' data: blob:"
+if [ -n "$STORAGE" ]; then
+  connect_src="${connect_src} ${STORAGE}"
+  img_src="${img_src} ${STORAGE}"
+fi
+
+PANEL_CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src ${img_src}; font-src 'self' data:; connect-src ${connect_src}; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+
+# A literal '|' cannot appear in a URL host, so it is a safe sed delimiter here.
+sed -i "s|__SMARTCHAT_PANEL_CSP__|${PANEL_CSP}|g" /etc/nginx/conf.d/default.conf
+echo "smartchat: panel CSP set (connect-src ${connect_src})"
+
 # The failure this guards against is a build whose define step silently stopped emitting
 # placeholders, which would ship a widget pointing at localhost in production.
 #

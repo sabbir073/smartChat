@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   assignConversationSchema,
+  banVisitorSchema,
   listConversationsSchema,
   listMessagesSchema,
   markReadSchema,
@@ -46,6 +47,9 @@ export interface ConversationDto {
     country: string | null;
     language: string | null;
     isReturning: boolean;
+    /** So the panel can offer "ban" or "lift ban" rather than guessing which one applies. */
+    isBanned: boolean;
+    bannedUntil: string | null;
   };
 }
 
@@ -83,6 +87,12 @@ export function toConversationDto(row: Conversation & { visitor: Visitor }): Con
       country: row.visitor.country,
       language: row.visitor.language,
       isReturning: row.visitor.visitCount > 1,
+      // An expired ban reads as no ban, exactly as the service treats it - the panel must not
+      // offer to lift something that has already lapsed.
+      isBanned:
+        row.visitor.isBanned &&
+        (!row.visitor.bannedUntil || row.visitor.bannedUntil.getTime() > Date.now()),
+      bannedUntil: row.visitor.bannedUntil?.toISOString() ?? null,
     },
   };
 }
@@ -194,5 +204,38 @@ export async function conversationRoutes(
     // first; a property id from another account simply does not exist here.
     await container.properties.get(tenant, query.propertyId);
     return ok(reply, { visitors: await container.presence.listVisitors(query.propertyId) });
+  });
+
+  /**
+   * Ban a visitor.
+   *
+   * The enforcement has always been there - `authenticate` and `bootstrap` both refuse a banned
+   * identity - but until now nothing could switch it on, which made it a control on paper. An
+   * `until` makes the ban temporary; omitting it makes it permanent.
+   */
+  app.post('/visitors/:id/ban', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(z.object({ id: z.string().uuid() }), request.params);
+    const input = parseBody(banVisitorSchema, request.body ?? {});
+    const visitor = await container.visitors.ban(tenant, id, {
+      until: input.until ? new Date(input.until) : null,
+      ...(input.reason ? { reason: input.reason } : {}),
+    });
+    return ok(reply, {
+      id: visitor.id,
+      isBanned: visitor.isBanned,
+      bannedUntil: visitor.bannedUntil,
+    });
+  });
+
+  app.delete('/visitors/:id/ban', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(z.object({ id: z.string().uuid() }), request.params);
+    const visitor = await container.visitors.unban(tenant, id);
+    return ok(reply, {
+      id: visitor.id,
+      isBanned: visitor.isBanned,
+      bannedUntil: visitor.bannedUntil,
+    });
   });
 }

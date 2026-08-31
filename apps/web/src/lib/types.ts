@@ -105,6 +105,8 @@ export interface ConversationDto {
     country: string | null;
     language: string | null;
     isReturning: boolean;
+    isBanned: boolean;
+    bannedUntil: string | null;
   };
 }
 

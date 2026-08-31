@@ -1264,3 +1264,79 @@ which nobody typed for a minute. Sign-in paths get their own far stricter rate-l
 edge, in addition to the application's own per-account limiter - the edge one knows nothing and is
 therefore still standing when the application is the thing being overwhelmed.
 **Date** 2026-08-30
+
+---
+## ADR-083 — Banning a visitor is a `contact:update` right, not a permission of its own
+**Context** The schema has carried `is_banned` and `banned_until` since phase 1 and the visitor
+service has always refused a banned identity — but nothing could switch it on. The control existed
+and was unreachable, which is the same as not existing while reading as though it does.
+**Chosen** Two routes, `POST` and `DELETE /visitors/:id/ban`, authorised by `contact:update`.
+**Reason** A new permission would have to be added to `ALL_PERMISSIONS`, to three role presets, and
+then backfilled onto every role row that already exists in every deployed database — a migration
+whose only purpose is to name a right that an existing right already describes. `contact:update` is
+the "manage this person" permission: owners, admins and managers hold it, and agents deliberately do
+not. An agent working a queue should not decide who is allowed to come back.
+**What follows** A ban takes effect on the *next* request, not on the open socket. The connection
+was authenticated when it was made and the gateway does not re-check mid-stream; what the ban
+guarantees is that the next page load, token refresh or gateway ticket is refused, and a socket that
+drops cannot come back. The panel says exactly that rather than implying an instant disconnect.
+Bootstrap checks the ban as well as `authenticate` — without that second check a reload would mint a
+fresh token for a banned visitor and the ban would last precisely one page view.
+**Date** 2026-08-31
+
+---
+## ADR-084 — The dashboard's Content Security Policy is built per request, in middleware
+**Context** `SECURITY.md` claimed a strict CSP with a nonce on the dashboard. There was none: the
+API had one (it serves JSON, where it costs nothing) and the Next application had `X-Frame-Options`
+and little else.
+**Chosen** A per-request nonce and a `strict-dynamic` policy assembled in `middleware.ts`, with the
+API, gateway and storage origins read from the environment at request time.
+**Reason** A static policy cannot carry a nonce, and `script-src 'unsafe-inline'` would make the
+header decorative — it would allow exactly the injected script it is there to stop. The origins
+cannot be baked in at build time either, because one image is promoted through every environment;
+they are read from `process.env` in the middleware, where the values are the running container's.
+**What follows** `style-src` keeps `'unsafe-inline'`. Next inlines critical CSS and React writes
+style attributes at runtime, neither of which can carry a nonce; a style cannot execute, so this is a
+bounded concession rather than a hole in `script-src`, and it is named here so nobody has to
+rediscover why it is there. Development gets a relaxed policy, because `next dev` compiles with
+`eval` — pretending the strict policy holds there would be a worse lie than admitting it does not.
+The widget panel gets its own policy from nginx, with the origins substituted by the same entrypoint
+that already points the bundle at them.
+**Date** 2026-08-31
+
+---
+## ADR-085 — Webhook delivery re-resolves the address and pins the connection to it
+**Context** The URL was validated when it was saved: https, no private literal, no bare hostname.
+Delivery then called `fetch` on it. A name is not an address, and `https://hooks.example.com` can
+resolve to `169.254.169.254` — tomorrow, or on the second of two answers, or between the check and
+the connection.
+**Chosen** `createOutboundFetch()`: re-validate the URL, resolve the host, require **every** answer
+to be a public address, then issue the request through `node:http`/`node:https` with a `lookup` that
+returns only those vetted addresses.
+**Reason** Checking the resolved address and then letting the HTTP client resolve the name again
+leaves a window between the two — which is the whole of DNS rebinding. Pinning closes it. Requiring
+every answer rather than the first closes the variant where a hostile zone returns one public and
+one private address and lets the resolver choose.
+**What follows** Redirects are not followed — `node:http` does not follow them, which is the
+behaviour we want, and a 3xx is recorded as a failed delivery rather than as a hop to an address
+nobody vetted. The response body is capped at 64 KB as it arrives, so a receiver cannot use the
+dispatcher's memory as a landing zone. `ALLOW_PRIVATE_WEBHOOK_URLS` relaxes all of this for
+development, is set from configuration and never from a request, and the production compose file
+sets it to `false` explicitly.
+**Date** 2026-08-31
+
+---
+## ADR-086 — Every authenticated request consumes one budget, applied in the auth hook
+**Context** `RATE_LIMITS.dashboardApi` existed, `SECURITY.md` documented it as 600/min per session,
+and no route consumed it. Three routes had their own `mutation` limit; everything else was unlimited.
+**Chosen** Consume `dashboardApi` inside `authenticateTenant`, keyed by session id for a browser
+caller and by API key id for a key.
+**Reason** A limit applied route by route is a limit somebody forgets on the next route. Applying it
+where the principal is established means a route added tomorrow is limited on the day it ships. The
+tighter per-route limits stay: this is the floor, not the ceiling.
+**What follows** Keyed to the session rather than the user, so a runaway script in one tab does not
+lock the person out of the tab they are working in; and to the key rather than the IP, so one
+customer's integration cannot spend another's budget from a shared address. Anonymous requests are
+refused before the limiter runs, so an unauthenticated flood is still the edge proxy's problem —
+which is where it belongs, and where ADR-082 already put it.
+**Date** 2026-08-31

@@ -50,7 +50,10 @@ jobs:
         run: pnpm build
 
   integration:
-    name: Integration · Migrations · Tenant isolation
+    # Named for what it does. Tenant isolation is asserted by scripts/e2e-isolation.mjs, which
+    # needs the full stack and therefore runs in the `stack` job below - a job name is a claim,
+    # and this one used to make a claim no step in it kept.
+    name: Migrations · Schema drift · Seed
     runs-on: ubuntu-latest
     timeout-minutes: 25
     services:
@@ -164,7 +167,7 @@ jobs:
       - name: End-to-end suites
         run: |
           set -e
-          for suite in realtime team automation files kb tickets reports integrations platform retention; do
+          for suite in realtime team automation files kb tickets reports integrations platform retention isolation abuse; do
             echo "::group::$suite"
             node scripts/e2e-$suite.mjs
             echo "::endgroup::"
@@ -174,6 +177,12 @@ jobs:
       # restored is not considered reliable, and "never" includes "not since that migration".
       - name: Restore rehearsal
         run: node scripts/restore-rehearsal.mjs
+
+      # And the other half of the same question. Migrations are forward-only, so the rollback
+      # procedure is "previous image, plus the pre-deploy backup if the migration was
+      # destructive" - which is only true if somebody keeps checking that it is.
+      - name: Rollback rehearsal
+        run: node scripts/rollback-rehearsal.mjs
 
       - name: Logs on failure
         if: failure()

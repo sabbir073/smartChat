@@ -13,6 +13,27 @@ const PLACEHOLDER_MARKERS = ['change_me', 'changeme', 'your_secret_here', 'repla
 const SECRET_KEY_PATTERN = /(SECRET|PASSWORD|KEY|TOKEN)$/;
 
 /**
+ * An environment variable set to the empty string is not set.
+ *
+ * This is what a compose default means. `METRICS_TOKEN: ${METRICS_TOKEN:-}` puts an empty string
+ * into the container when nobody has chosen a value, and to zod an empty string is a present
+ * value: an optional field that also has a `min(16)` then fails, and the service refuses to start
+ * over a setting that is meant to be optional. That is exactly what happened to `/metrics` - the
+ * one field where "absent" and "empty" had to mean the same thing was the one where they did not.
+ *
+ * Stripping them here rather than patching each schema means every field gets the behaviour, and
+ * a `.default()` applies where one exists instead of being shadowed by an empty string.
+ */
+function withoutEmptyValues(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const cleaned: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined || value === '') continue;
+    cleaned[key] = value;
+  }
+  return cleaned;
+}
+
+/**
  * Parse and validate the environment for one process.
  *
  * Throws `ConfigError` with every problem listed at once, rather than failing on the first one —
@@ -22,7 +43,7 @@ export function loadConfig<T extends ZodTypeAny>(
   schema: T,
   source: NodeJS.ProcessEnv = process.env,
 ): z.infer<T> {
-  const result = schema.safeParse(source);
+  const result = schema.safeParse(withoutEmptyValues(source));
 
   if (!result.success) {
     throw new ConfigError(
