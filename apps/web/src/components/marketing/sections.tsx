@@ -14,21 +14,53 @@ export function Section({
   children,
   className,
   tone = 'canvas',
+  backdrop,
+  wide = false,
 }: {
   children: ReactNode;
   className?: string;
-  tone?: 'canvas' | 'surface';
+  /** `night` is the dark band product visuals sit on, where a glow has something to glow against. */
+  tone?: 'canvas' | 'surface' | 'night';
+  /** Decorative backdrop. Purely visual; nothing below it depends on it rendering. */
+  backdrop?: 'aurora' | 'grid' | 'both';
+  wide?: boolean;
 }) {
+  const night = tone === 'night';
   return (
-    <section className={cn(tone === 'surface' ? 'bg-surface' : 'bg-canvas', className)}>
-      <div className="mx-auto max-w-6xl px-5 py-16 sm:py-24">{children}</div>
+    <section
+      className={cn(
+        'relative',
+        night && 'bg-night text-ink-inverted',
+        tone === 'surface' && 'bg-surface',
+        tone === 'canvas' && 'bg-canvas',
+        (backdrop === 'aurora' || backdrop === 'both') && 'mk-aurora',
+        (backdrop === 'aurora' || backdrop === 'both') && night && 'mk-aurora--night',
+        (backdrop === 'grid' || backdrop === 'both') && 'mk-grid',
+        (backdrop === 'grid' || backdrop === 'both') && night && 'mk-grid--night',
+        className,
+      )}
+    >
+      <div className={cn('relative mx-auto px-5 py-16 sm:py-24', wide ? 'max-w-7xl' : 'max-w-6xl')}>
+        {children}
+      </div>
     </section>
   );
 }
 
-export function Eyebrow({ children }: { children: ReactNode }) {
+export function Eyebrow({ children, night = false }: { children: ReactNode; night?: boolean }) {
   return (
-    <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-brand">{children}</p>
+    <p
+      className={cn(
+        'inline-flex items-center gap-2 text-[12px] font-semibold uppercase tracking-[0.08em]',
+        night ? 'text-accent-cyan' : 'text-brand',
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn('h-px w-6', night ? 'bg-accent-cyan/60' : 'bg-brand/40')}
+      />
+      {children}
+    </p>
   );
 }
 
@@ -37,19 +69,35 @@ export function SectionHeading({
   title,
   lead,
   centered = false,
+  night = false,
 }: {
   eyebrow?: string;
   title: string;
   lead?: string;
   centered?: boolean;
+  night?: boolean;
 }) {
   return (
     <div className={cn('max-w-2xl', centered && 'mx-auto text-center')}>
-      {eyebrow && <Eyebrow>{eyebrow}</Eyebrow>}
-      <h2 className="mt-2 text-balance text-[28px] font-semibold leading-tight tracking-tight text-ink sm:text-[34px]">
+      {eyebrow && <Eyebrow night={night}>{eyebrow}</Eyebrow>}
+      <h2
+        className={cn(
+          'mt-3 text-balance text-[30px] font-semibold leading-[1.12] tracking-tight sm:text-[40px]',
+          night ? 'text-ink-inverted' : 'text-ink',
+        )}
+      >
         {title}
       </h2>
-      {lead && <p className="mt-4 text-[16px] leading-relaxed text-ink-muted">{lead}</p>}
+      {lead && (
+        <p
+          className={cn(
+            'mt-4 text-[16.5px] leading-relaxed',
+            night ? 'text-ink-inverted/70' : 'text-ink-muted',
+          )}
+        >
+          {lead}
+        </p>
+      )}
     </div>
   );
 }
@@ -64,16 +112,59 @@ export function FeatureCard({
   icon: ReactNode;
 }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-border bg-surface p-5">
+    <div className="mk-card group h-full p-5">
       <div
         aria-hidden
-        className="grid size-9 place-items-center rounded-[var(--radius-control)] bg-brand-soft text-brand"
+        className="grid size-10 place-items-center rounded-xl bg-gradient-to-br from-brand to-accent-violet text-ink-inverted shadow-sm transition-transform duration-300 group-hover:scale-105"
       >
         {icon}
       </div>
-      <h3 className="mt-4 text-[15px] font-semibold text-ink">{title}</h3>
+      <h3 className="mt-4 text-[15.5px] font-semibold text-ink">{title}</h3>
       <p className="mt-2 text-[14px] leading-relaxed text-ink-muted">{children}</p>
     </div>
+  );
+}
+
+/**
+ * A statement of fact about the product, sized to be read across a room.
+ *
+ * Only ever facts we can point at in the code - a plan limit, a delivery guarantee, a schedule.
+ * Never a customer count, an uptime figure or a satisfaction score: this deployment has no
+ * customers yet, and a number nobody can check is an invented one.
+ */
+export function Figure({
+  value,
+  label,
+  night = false,
+}: {
+  value: string;
+  label: string;
+  night?: boolean;
+}) {
+  return (
+    <div>
+      <p
+        className={cn(
+          'text-[30px] font-semibold tracking-tight sm:text-[36px]',
+          night ? 'mk-gradient-text--bright' : 'text-ink',
+        )}
+      >
+        {value}
+      </p>
+      <p className={cn('mt-1 text-[13px]', night ? 'text-ink-inverted/60' : 'text-ink-muted')}>
+        {label}
+      </p>
+    </div>
+  );
+}
+
+/** A pill of running text. Used in the marquee, where each one names something real. */
+export function Pill({ children }: { children: ReactNode }) {
+  return (
+    <span className="mx-1.5 inline-flex shrink-0 items-center gap-2 rounded-full border border-border bg-surface px-4 py-2 text-[13px] font-medium text-ink-muted">
+      <span aria-hidden className="size-1.5 rounded-full bg-gradient-to-br from-brand to-accent-violet" />
+      {children}
+    </span>
   );
 }
 
@@ -88,15 +179,24 @@ export function Step({
   children: ReactNode;
 }) {
   return (
-    <li className="relative pl-12">
+    <li className="relative pl-14">
+      {/*
+        The connector is drawn on the step, not between steps, and hidden on the last one via
+        `last:hidden` - so adding a fourth step needs no change here and cannot leave a line
+        dangling into nothing.
+      */}
       <span
         aria-hidden
-        className="absolute left-0 top-0 grid size-8 place-items-center rounded-full border border-border-strong bg-surface text-[13px] font-semibold text-ink"
+        className="absolute left-[19px] top-11 hidden h-[calc(100%-1rem)] w-px bg-gradient-to-b from-brand/40 to-transparent last:hidden sm:block"
+      />
+      <span
+        aria-hidden
+        className="absolute left-0 top-0 grid size-10 place-items-center rounded-xl bg-gradient-to-br from-brand to-accent-violet text-[14px] font-semibold text-ink-inverted shadow-sm"
       >
         {number}
       </span>
-      <h3 className="text-[15px] font-semibold text-ink">{title}</h3>
-      <p className="mt-1.5 text-[14px] leading-relaxed text-ink-muted">{children}</p>
+      <h3 className="pt-1.5 text-[16px] font-semibold text-ink">{title}</h3>
+      <p className="mt-1.5 text-[14.5px] leading-relaxed text-ink-muted">{children}</p>
     </li>
   );
 }
@@ -113,22 +213,24 @@ export function CallToAction({
   secondary?: { href: string; label: string };
 }) {
   return (
-    <div className="rounded-[var(--radius-card)] border border-border bg-surface px-6 py-10 text-center sm:px-10">
-      <h2 className="text-balance text-[24px] font-semibold tracking-tight text-ink sm:text-[28px]">
+    <div className="mk-aurora mk-aurora--night relative overflow-hidden rounded-3xl bg-night px-6 py-14 text-center sm:px-10">
+      <h2 className="relative text-balance text-[28px] font-semibold tracking-tight text-ink-inverted sm:text-[34px]">
         {title}
       </h2>
-      <p className="mx-auto mt-3 max-w-xl text-[15px] leading-relaxed text-ink-muted">{lead}</p>
-      <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+      <p className="relative mx-auto mt-3 max-w-xl text-[15.5px] leading-relaxed text-ink-inverted/70">
+        {lead}
+      </p>
+      <div className="relative mt-8 flex flex-wrap items-center justify-center gap-3">
         <Link
           href={primary.href}
-          className="rounded-[var(--radius-control)] bg-brand px-5 py-2.5 text-sm font-medium text-ink-inverted shadow-sm transition-colors hover:bg-brand-hover"
+          className="rounded-full bg-ink-inverted px-6 py-3 text-sm font-semibold text-ink shadow-lg transition-transform hover:scale-[1.03]"
         >
           {primary.label}
         </Link>
         {secondary && (
           <Link
             href={secondary.href}
-            className="rounded-[var(--radius-control)] border border-border-strong px-5 py-2.5 text-sm font-medium text-ink transition-colors hover:bg-surface-raised"
+            className="rounded-full border border-white/25 px-6 py-3 text-sm font-medium text-ink-inverted transition-colors hover:bg-white/10"
           >
             {secondary.label}
           </Link>

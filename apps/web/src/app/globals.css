@@ -38,6 +38,22 @@
 
   --radius-card: 0.75rem;
   --radius-control: 0.5rem;
+
+  /*
+   * Marketing palette.
+   *
+   * The application uses one brand colour and almost no gradient, because a tool somebody stares
+   * at for eight hours should be quiet. The public site has the opposite job - it has about three
+   * seconds - so it gets two accents to build gradients from, and a dark ground for the bands
+   * where product screenshots need to glow. These are deliberately separate tokens: nothing here
+   * is allowed to leak into the dashboard.
+   */
+  --color-accent-violet: oklch(58% 0.2 292);
+  --color-accent-cyan: oklch(72% 0.14 210);
+  --color-accent-pink: oklch(68% 0.19 350);
+  --color-night: oklch(19% 0.022 265);
+  --color-night-raised: oklch(24% 0.026 265);
+  --color-night-border: oklch(33% 0.03 265);
 }
 
 @layer base {
@@ -193,5 +209,314 @@
   .kb-prose hr {
     border: 0;
     border-top: 1px solid var(--color-border);
+  }
+}
+
+
+/* ===========================================================================
+ * Marketing site.
+ *
+ * Everything below is scoped to classes only the public pages use. The rule for all of it: the
+ * page has to be complete, legible and correct with animation switched off, because
+ * `prefers-reduced-motion` is a real setting real people rely on and because the first paint
+ * happens before any of this runs. Motion decorates; it never carries meaning.
+ * =========================================================================== */
+@layer components {
+  /* --- backdrops --------------------------------------------------------- */
+
+  /*
+   * The aurora.
+   *
+   * Three blurred radial gradients drifting on long, coprime durations so the loop never visibly
+   * repeats. Painted on a pseudo-element rather than the section itself so it cannot affect the
+   * stacking or the text colour above it.
+   */
+  .mk-aurora {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .mk-aurora::before {
+    content: '';
+    position: absolute;
+    inset: -30%;
+    z-index: -2;
+    background:
+      radial-gradient(38% 44% at 22% 28%, oklch(56% 0.184 258 / 0.28), transparent 70%),
+      radial-gradient(34% 40% at 78% 22%, oklch(58% 0.2 292 / 0.26), transparent 70%),
+      radial-gradient(42% 46% at 60% 82%, oklch(72% 0.14 210 / 0.22), transparent 72%);
+    filter: blur(28px);
+    animation: mk-drift 34s ease-in-out infinite alternate;
+  }
+
+  .mk-aurora--night::before {
+    background:
+      radial-gradient(40% 46% at 18% 24%, oklch(56% 0.184 258 / 0.5), transparent 70%),
+      radial-gradient(36% 42% at 82% 18%, oklch(58% 0.2 292 / 0.45), transparent 70%),
+      radial-gradient(46% 50% at 62% 88%, oklch(72% 0.14 210 / 0.32), transparent 72%);
+    filter: blur(46px);
+  }
+
+  @keyframes mk-drift {
+    0% {
+      transform: translate3d(-3%, -2%, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(3%, 2%, 0) scale(1.08);
+    }
+    100% {
+      transform: translate3d(-2%, 3%, 0) scale(1.02);
+    }
+  }
+
+  /* A faint engineering grid. Masked to fade out, so it reads as texture and not as a table. */
+  .mk-grid::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image:
+      linear-gradient(to right, currentColor 1px, transparent 1px),
+      linear-gradient(to bottom, currentColor 1px, transparent 1px);
+    background-size: 56px 56px;
+    color: var(--color-ink);
+    opacity: 0.028;
+    mask-image: radial-gradient(70% 58% at 50% 38%, black, transparent 100%);
+  }
+
+  .mk-grid--night::after {
+    color: oklch(100% 0 0);
+    opacity: 0.07;
+  }
+
+  /* --- type -------------------------------------------------------------- */
+
+  .mk-gradient-text {
+    background: linear-gradient(
+      100deg,
+      var(--color-brand) 0%,
+      var(--color-accent-violet) 46%,
+      var(--color-accent-cyan) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /*
+   * The same idea, lifted for a dark ground.
+   *
+   * The light-mode stops are chosen against near-white; on the night band they sit only a little
+   * above the background and read as dim rather than as colour. These are the same hues at a
+   * lightness that works there.
+   */
+  .mk-gradient-text--bright {
+    background: linear-gradient(
+      100deg,
+      oklch(78% 0.13 258) 0%,
+      oklch(76% 0.15 292) 46%,
+      oklch(84% 0.12 205) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* --- surfaces ---------------------------------------------------------- */
+
+  /*
+   * A card with a gradient hairline.
+   *
+   * The gradient lives in the border via a masked pseudo-element rather than as a background with
+   * an inset child, so the card keeps one box and one radius and nothing has to be kept in step.
+   */
+  .mk-card {
+    position: relative;
+    border-radius: 1rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    transition:
+      transform 0.35s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .mk-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      140deg,
+      var(--color-brand) 0%,
+      var(--color-accent-violet) 40%,
+      transparent 70%
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.35s ease;
+    pointer-events: none;
+  }
+
+  .mk-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 18px 40px -24px oklch(24% 0.015 260 / 0.35);
+  }
+
+  .mk-card:hover::before {
+    opacity: 1;
+  }
+
+  .mk-glow {
+    box-shadow:
+      0 0 0 1px oklch(100% 0 0 / 0.06),
+      0 40px 90px -50px oklch(56% 0.184 258 / 0.7),
+      0 20px 60px -40px oklch(58% 0.2 292 / 0.5);
+  }
+
+  /* --- scroll reveal ----------------------------------------------------- */
+
+  /*
+   * Starts hidden only once JavaScript has claimed the element by setting `data-reveal`.
+   * Without that, content with no JS would be permanently invisible - which is the usual way this
+   * pattern goes wrong.
+   */
+  [data-reveal='pending'] {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  [data-reveal='shown'] {
+    opacity: 1;
+    transform: none;
+    transition:
+      opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+
+  /* --- marquee ----------------------------------------------------------- */
+
+  .mk-marquee {
+    display: flex;
+    width: max-content;
+    animation: mk-scroll 38s linear infinite;
+  }
+
+  .mk-marquee-wrap:hover .mk-marquee {
+    animation-play-state: paused;
+  }
+
+  @keyframes mk-scroll {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  /* --- small motion ------------------------------------------------------ */
+
+  .mk-float {
+    animation: mk-float 7s ease-in-out infinite;
+  }
+
+  @keyframes mk-float {
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  .mk-pulse-ring::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: mk-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+  }
+
+  @keyframes mk-ping {
+    75%,
+    100% {
+      transform: scale(2.4);
+      opacity: 0;
+    }
+  }
+
+  .mk-typing span {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    margin-right: 3px;
+    border-radius: 9999px;
+    background: currentColor;
+    animation: mk-bounce 1.2s infinite;
+  }
+
+  .mk-typing span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .mk-typing span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes mk-bounce {
+    0%,
+    60%,
+    100% {
+      transform: none;
+      opacity: 0.45;
+    }
+    30% {
+      transform: translateY(-4px);
+      opacity: 1;
+    }
+  }
+
+  .mk-pop {
+    animation: mk-pop 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  @keyframes mk-pop {
+    from {
+      opacity: 0;
+      transform: translateY(8px) scale(0.97);
+    }
+  }
+
+  /*
+   * One switch for the lot.
+   *
+   * Every decorative animation above is turned off together, and every element that motion would
+   * have revealed is forced visible - so somebody who asked their system for less movement gets a
+   * complete page rather than an empty one.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    .mk-aurora::before,
+    .mk-marquee,
+    .mk-float,
+    .mk-pulse-ring::before,
+    .mk-typing span,
+    .mk-pop {
+      animation: none !important;
+    }
+
+    [data-reveal] {
+      opacity: 1 !important;
+      transform: none !important;
+      transition: none !important;
+    }
+
+    .mk-card {
+      transition: none;
+    }
   }
 }

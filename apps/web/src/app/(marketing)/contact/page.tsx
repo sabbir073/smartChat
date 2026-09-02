@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Section, SectionHeading } from '@/components/marketing/sections';
+import { Section } from '@/components/marketing/sections';
+import { PageHero } from '@/components/marketing/hero';
 
 export const metadata: Metadata = {
   title: 'Contact — SmartChat',
@@ -55,13 +56,15 @@ export default function ContactPage() {
 
   return (
     <>
-      <Section tone="surface" className="border-b border-border">
-        <SectionHeading
-          eyebrow="Contact"
-          title="Write to a person, not a form."
-          lead="Three addresses, so your message starts in the right place. All of them reach somebody who can actually answer."
-        />
-      </Section>
+      <PageHero
+        eyebrow="Contact"
+        title={
+          <>
+            Write to a person, <span className="mk-gradient-text">not a form.</span>
+          </>
+        }
+        lead="Three addresses, so your message starts in the right place. All of them reach somebody who can actually answer."
+      />
 
       <Section>
         <div className="mx-auto grid max-w-4xl gap-4 sm:grid-cols-2 lg:grid-cols-3">

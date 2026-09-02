@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import {
   CallToAction,
   FeatureCard,
@@ -6,6 +7,9 @@ import {
   SectionHeading,
   icons,
 } from '@/components/marketing/sections';
+import { PageHero } from '@/components/marketing/hero';
+import { InboxPreview } from '@/components/marketing/inbox-preview';
+import { Reveal } from '@/components/marketing/reveal';
 
 export const metadata: Metadata = {
   title: 'Features — SmartChat',
@@ -143,34 +147,74 @@ const GROUPS = [
 export default function FeaturesPage() {
   return (
     <>
-      <Section tone="surface" className="border-b border-border">
-        <SectionHeading
-          centered
-          eyebrow="Features"
-          title="What it does, and what that gets you."
-          lead="Everything on this page works today. Anything we have not built is on the pricing page's FAQ or in the docs, said plainly, rather than written here in the present tense."
-        />
+      <PageHero
+        eyebrow="Features"
+        title={
+          <>
+            What it does, and <span className="mk-gradient-text">what that gets you.</span>
+          </>
+        }
+        lead="Everything on this page works today. Anything we have not built is on the pricing page's FAQ or in the docs, said plainly, rather than written here in the present tense."
+      >
+        <Link
+          href="/register"
+          className="rounded-full bg-gradient-to-r from-brand to-accent-violet px-6 py-3 text-sm font-semibold text-ink-inverted shadow-lg shadow-brand/25 transition-transform hover:scale-[1.03]"
+        >
+          Start free
+        </Link>
+        <Link
+          href="/pricing"
+          className="rounded-full border border-border-strong bg-surface/70 px-6 py-3 text-sm font-medium text-ink backdrop-blur transition-colors hover:bg-surface-raised"
+        >
+          See pricing
+        </Link>
+      </PageHero>
+
+      {/* The inbox itself, before the prose about it. */}
+      <Section tone="night" backdrop="both" wide>
+        <Reveal>
+          <SectionHeading
+            night
+            centered
+            eyebrow="The agent's side"
+            title="One queue, however many websites you run."
+            lead="Filters that narrow rather than widen, search that reaches message bodies, and notes that are a different kind of message rather than a flag on an ordinary one."
+          />
+        </Reveal>
+        <Reveal delay={120} className="mt-12">
+          <InboxPreview />
+        </Reveal>
       </Section>
 
       {GROUPS.map((group, index) => (
-        <Section key={group.eyebrow} tone={index % 2 === 1 ? 'surface' : 'canvas'}>
-          <SectionHeading eyebrow={group.eyebrow} title={group.title} lead={group.lead} />
-          <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {group.features.map((feature) => (
-              <FeatureCard key={feature.title} title={feature.title} icon={feature.icon}>
-                {feature.body}
-              </FeatureCard>
+        <Section
+          key={group.eyebrow}
+          tone={index % 2 === 1 ? 'surface' : 'canvas'}
+          backdrop={index % 2 === 1 ? undefined : 'aurora'}
+        >
+          <Reveal>
+            <SectionHeading eyebrow={group.eyebrow} title={group.title} lead={group.lead} />
+          </Reveal>
+          <div className="mt-11 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {group.features.map((feature, cardIndex) => (
+              <Reveal key={feature.title} delay={cardIndex * 60}>
+                <FeatureCard title={feature.title} icon={feature.icon}>
+                  {feature.body}
+                </FeatureCard>
+              </Reveal>
             ))}
           </div>
         </Section>
       ))}
 
       <Section tone="surface">
-        <CallToAction
-          title="See it on your own website."
-          lead="Create an account, paste one script tag, and watch a conversation arrive in your inbox."
-          secondary={{ href: '/pricing', label: 'See pricing' }}
-        />
+        <Reveal>
+          <CallToAction
+            title="See it on your own website."
+            lead="Create an account, paste one script tag, and watch a conversation arrive in your inbox."
+            secondary={{ href: '/pricing', label: 'See pricing' }}
+          />
+        </Reveal>
       </Section>
     </>
   );

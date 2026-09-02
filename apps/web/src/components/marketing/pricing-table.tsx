@@ -81,9 +81,9 @@ export function PricingTable({ plans }: { plans: PublicPlan[] }) {
               aria-checked={yearly === option.value}
               onClick={() => setYearly(option.value)}
               className={cn(
-                'rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors',
+                'rounded-full px-5 py-2 text-[13px] font-semibold transition-all duration-300',
                 yearly === option.value
-                  ? 'bg-brand text-ink-inverted'
+                  ? 'bg-gradient-to-r from-brand to-accent-violet text-ink-inverted shadow-sm'
                   : 'text-ink-muted hover:text-ink',
               )}
             >
@@ -92,14 +92,17 @@ export function PricingTable({ plans }: { plans: PublicPlan[] }) {
           ))}
         </div>
         {saving > 0 && (
-          <p className="text-[13px] text-ink-muted">
-            Yearly billing saves {saving === Math.round(saving) ? saving : saving.toFixed(1)} months.
+          <p className="inline-flex items-center gap-1.5 rounded-full bg-success-soft px-3 py-1 text-[12.5px] font-medium text-success">
+            <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden>
+              <path d="m5 13 4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            Yearly billing saves {saving === Math.round(saving) ? saving : saving.toFixed(1)} months
           </p>
         )}
       </div>
 
       {/* Cards */}
-      <div className="mt-10 grid gap-4 lg:grid-cols-4">
+      <div className="mt-12 grid items-start gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {plans.map((plan) => {
           const price = yearly ? plan.priceYearlyCents : plan.priceMonthlyCents;
           const highlighted = plan.code === 'starter';
@@ -108,12 +111,16 @@ export function PricingTable({ plans }: { plans: PublicPlan[] }) {
             <div
               key={plan.code}
               className={cn(
-                'flex flex-col rounded-[var(--radius-card)] border bg-surface p-6',
-                highlighted ? 'border-brand shadow-sm ring-1 ring-brand/20' : 'border-border',
+                'relative flex flex-col rounded-2xl p-6 transition-transform duration-300',
+                highlighted
+                  ? // The chosen plan is lifted and given the gradient edge, so the eye lands on it
+                    // before it reads a single number.
+                    'border border-transparent bg-surface shadow-xl shadow-brand/10 lg:-my-3 lg:py-9 [background:linear-gradient(var(--color-surface),var(--color-surface))_padding-box,linear-gradient(140deg,var(--color-brand),var(--color-accent-violet))_border-box]'
+                  : 'mk-card',
               )}
             >
               {highlighted && (
-                <p className="mb-3 inline-flex w-fit rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-brand">
+                <p className="mb-3 inline-flex w-fit rounded-full bg-gradient-to-r from-brand to-accent-violet px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-ink-inverted">
                   Most chosen
                 </p>
               )}
@@ -129,7 +136,12 @@ export function PricingTable({ plans }: { plans: PublicPlan[] }) {
                   </span>
                 ) : (
                   <>
-                    <span className="text-[32px] font-semibold tracking-tight text-ink">
+                    <span
+                      className={cn(
+                        'text-[38px] font-semibold tracking-tight',
+                        highlighted ? 'mk-gradient-text' : 'text-ink',
+                      )}
+                    >
                       {money(price, plan.currency)}
                     </span>
                     <span className="ml-1 text-[13px] text-ink-muted">
@@ -142,9 +154,9 @@ export function PricingTable({ plans }: { plans: PublicPlan[] }) {
               <Link
                 href={plan.isContactSales ? '/contact' : '/register'}
                 className={cn(
-                  'mt-6 rounded-[var(--radius-control)] px-4 py-2.5 text-center text-sm font-medium transition-colors',
+                  'mt-6 rounded-full px-4 py-2.5 text-center text-sm font-semibold transition-all',
                   highlighted
-                    ? 'bg-brand text-ink-inverted hover:bg-brand-hover'
+                    ? 'bg-gradient-to-r from-brand to-accent-violet text-ink-inverted shadow-md shadow-brand/25 hover:scale-[1.02]'
                     : 'border border-border-strong text-ink hover:bg-surface-raised',
                 )}
               >

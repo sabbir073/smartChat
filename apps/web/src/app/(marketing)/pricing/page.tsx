@@ -46,17 +46,19 @@ export default async function PricingPage() {
 
   return (
     <>
-      <Section tone="surface" className="border-b border-border">
-        <SectionHeading
-          centered
-          eyebrow="Pricing"
-          title="Priced by what it costs to run, not by how many people you hire."
-          lead="Every number below is read from the same table that enforces it. If a plan says 500 conversations, that is the limit the server applies."
-        />
-        <PricingTable plans={plans} />
-      </Section>
+      <section className="mk-aurora mk-grid relative border-b border-border bg-canvas">
+        <div className="relative mx-auto max-w-6xl px-5 pb-20 pt-[calc(5rem+72px)] sm:pb-24 sm:pt-[calc(6rem+72px)]">
+          <SectionHeading
+            centered
+            eyebrow="Pricing"
+            title="Priced by what it costs to run, not by how many people you hire."
+            lead="Every number below is read from the same table that enforces it. If a plan says 500 conversations, that is the limit the server applies."
+          />
+          <PricingTable plans={plans} />
+        </div>
+      </section>
 
-      <Section>
+      <Section tone="surface">
         <SectionHeading centered title="The questions people actually ask" />
         <dl className="mx-auto mt-10 max-w-3xl divide-y divide-border border-y border-border">
           {FAQ.map((item) => (

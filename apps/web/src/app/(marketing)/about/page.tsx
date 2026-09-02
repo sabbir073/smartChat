@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
-import { CallToAction, Section, SectionHeading } from '@/components/marketing/sections';
+import { CallToAction, Section } from '@/components/marketing/sections';
+import { PageHero } from '@/components/marketing/hero';
 
 export const metadata: Metadata = {
   title: 'About — SmartChat',
@@ -11,13 +12,16 @@ export const metadata: Metadata = {
 export default function AboutPage() {
   return (
     <>
-      <Section tone="surface" className="border-b border-border">
-        <SectionHeading
-          eyebrow="About"
-          title="Support software that does not hold your conversations hostage."
-          lead="SmartChat exists because the useful chat tools are hosted, priced per seat, and store every word your customers write on infrastructure you have no say over."
-        />
-      </Section>
+      <PageHero
+        eyebrow="About"
+        title={
+          <>
+            Support software that does not{' '}
+            <span className="mk-gradient-text">hold your conversations hostage.</span>
+          </>
+        }
+        lead="SmartChat exists because the useful chat tools are hosted, priced per seat, and store every word your customers write on infrastructure you have no say over."
+      />
 
       <Section>
         <div className="mx-auto max-w-3xl space-y-10">

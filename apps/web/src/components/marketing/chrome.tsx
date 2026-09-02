@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/components/ui';
 
 const NAV = [
@@ -18,7 +18,7 @@ export function Wordmark({ className }: { className?: string }) {
     <span className={cn('inline-flex items-center gap-2 font-semibold text-ink', className)}>
       <span
         aria-hidden
-        className="grid size-7 place-items-center rounded-[var(--radius-control)] bg-brand text-[13px] font-bold text-ink-inverted"
+        className="grid size-8 place-items-center rounded-[10px] bg-gradient-to-br from-brand via-accent-violet to-accent-cyan text-[14px] font-bold text-ink-inverted shadow-sm"
       >
         S
       </span>
@@ -38,10 +38,37 @@ export function Wordmark({ className }: { className?: string }) {
 export function MarketingHeader() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  /**
+   * The header condenses once the hero is behind it.
+   *
+   * Passive listener and a boolean, rather than anything that reads layout on every frame: this
+   * fires on every scroll event on every page of the site, and the one thing it must not do is
+   * make scrolling feel worse than it did without it.
+   */
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 12);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface/85 backdrop-blur">
-      <div className="mx-auto flex h-16 max-w-6xl items-center justify-between gap-6 px-5">
+    <header
+      className={cn(
+        'sticky top-0 z-40 transition-all duration-300',
+        scrolled
+          ? 'border-b border-border bg-surface/80 shadow-[0_1px_20px_-12px_rgba(0,0,0,0.35)] backdrop-blur-xl'
+          : 'border-b border-transparent bg-transparent',
+      )}
+    >
+      <div
+        className={cn(
+          'mx-auto flex max-w-6xl items-center justify-between gap-6 px-5 transition-all duration-300',
+          scrolled ? 'h-14' : 'h-[72px]',
+        )}
+      >
         <Link href="/" className="shrink-0" aria-label="SmartChat home">
           <Wordmark />
         </Link>
@@ -53,13 +80,19 @@ export function MarketingHeader() {
               href={item.href}
               aria-current={pathname === item.href ? 'page' : undefined}
               className={cn(
-                'rounded-[var(--radius-control)] px-3 py-2 text-sm font-medium transition-colors',
-                pathname === item.href
-                  ? 'text-ink'
-                  : 'text-ink-muted hover:bg-surface-raised hover:text-ink',
+                'group relative px-3 py-2 text-sm font-medium transition-colors',
+                pathname === item.href ? 'text-ink' : 'text-ink-muted hover:text-ink',
               )}
             >
               {item.label}
+              {/* Grows from the centre on hover, and sits full-width on the current page. */}
+              <span
+                aria-hidden
+                className={cn(
+                  'absolute inset-x-3 -bottom-0.5 h-0.5 origin-center rounded-full bg-gradient-to-r from-brand to-accent-violet transition-transform duration-300',
+                  pathname === item.href ? 'scale-x-100' : 'scale-x-0 group-hover:scale-x-100',
+                )}
+              />
             </Link>
           ))}
         </nav>
@@ -73,7 +106,7 @@ export function MarketingHeader() {
           </Link>
           <Link
             href="/register"
-            className="rounded-[var(--radius-control)] bg-brand px-4 py-2 text-sm font-medium text-ink-inverted shadow-sm transition-colors hover:bg-brand-hover"
+            className="rounded-full bg-gradient-to-r from-brand to-accent-violet px-5 py-2 text-sm font-semibold text-ink-inverted shadow-sm shadow-brand/25 transition-transform hover:scale-[1.04]"
           >
             Start free
           </Link>
@@ -99,7 +132,11 @@ export function MarketingHeader() {
       </div>
 
       {open && (
-        <nav id="mobile-nav" aria-label="Main" className="border-t border-border px-5 py-3 md:hidden">
+        <nav
+          id="mobile-nav"
+          aria-label="Main"
+          className="border-t border-border bg-surface px-5 py-3 md:hidden"
+        >
           <ul className="space-y-1">
             {[...NAV, { href: '/login', label: 'Sign in' }].map((item) => (
               <li key={item.href}>
@@ -116,7 +153,7 @@ export function MarketingHeader() {
               <Link
                 href="/register"
                 onClick={() => setOpen(false)}
-                className="block rounded-[var(--radius-control)] bg-brand px-3 py-2 text-center text-sm font-medium text-ink-inverted"
+                className="block rounded-full bg-gradient-to-r from-brand to-accent-violet px-3 py-2.5 text-center text-sm font-semibold text-ink-inverted"
               >
                 Start free
               </Link>
