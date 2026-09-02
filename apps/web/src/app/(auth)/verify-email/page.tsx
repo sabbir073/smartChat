@@ -65,7 +65,7 @@ function VerifyEmail() {
               <Alert tone="success" title="Email confirmed">
                 Your address is verified. You can start setting up your first website.
               </Alert>
-              <Link href="/">
+              <Link href="/app">
                 <Button fullWidth>Go to dashboard</Button>
               </Link>
             </>
@@ -104,7 +104,7 @@ function VerifyEmail() {
       </Card>
 
       <p className="text-center text-sm text-ink-muted">
-        <Link href="/" className="font-medium text-brand hover:underline">
+        <Link href="/app" className="font-medium text-brand hover:underline">
           Continue to the dashboard
         </Link>
       </p>

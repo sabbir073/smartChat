@@ -12,6 +12,15 @@ export interface Entitlements {
   planName: string;
   limits: Record<string, number | null>;
   features: Record<string, boolean>;
+  /**
+   * True when service is reduced to read-only.
+   *
+   * Carried here rather than read separately because it is needed on exactly the same requests as
+   * the limits are, and a second uncached query on every mutation is a second query on every
+   * mutation. It is invalidated by the same `invalidate` call, so a payment restores service
+   * within the same window an upgrade takes effect in.
+   */
+  isPaused: boolean;
 }
 
 /**
@@ -39,11 +48,27 @@ export class EntitlementService {
       include: { plan: { include: { features: true } } },
     });
 
+    /**
+     * An account with no subscription resolves to the cheapest published plan, not to nothing.
+     *
+     * "Nothing" reads as unlimited everywhere below - an absent limit is unlimited and an absent
+     * flag is enabled - so a missing row would silently hand out the whole product. Every account
+     * is given a subscription when it is created; this is the belt to that braces, for a row lost
+     * to a restore, a manual fix, or an account made before that code existed.
+     */
+    const plan =
+      subscription?.plan ??
+      (await this.db.plan.findFirst({
+        where: { isPublic: true, isContactSales: false },
+        include: { features: true },
+        orderBy: [{ priceMonthlyCents: 'asc' }, { sortOrder: 'asc' }],
+      }));
+
     const limits: Record<string, number | null> = {};
     const features: Record<string, boolean> = {};
 
-    if (subscription) {
-      for (const feature of subscription.plan.features) {
+    if (plan) {
+      for (const feature of plan.features) {
         if (feature.boolValue !== null) features[feature.key] = feature.boolValue;
         if (feature.limitValue !== null) limits[feature.key] = Number(feature.limitValue);
         else if (feature.boolValue === null) limits[feature.key] = null; // explicit unlimited
@@ -51,10 +76,11 @@ export class EntitlementService {
     }
 
     const value: Entitlements = {
-      planCode: subscription?.plan.code ?? 'none',
-      planName: subscription?.plan.name ?? 'No plan',
+      planCode: plan?.code ?? 'none',
+      planName: plan?.name ?? 'No plan',
       limits,
       features,
+      isPaused: subscription?.status === 'paused',
     };
 
     this.cache.set(accountId, { value, expiresAt: this.now() + this.ttlMs });
@@ -102,6 +128,11 @@ export class EntitlementService {
       `${FEATURE_LABEL[key].replace(/^the /, '')} is not included in your plan.`,
       { context: { key } },
     );
+  }
+
+  /** True when the account's service is paused: everything readable, nothing writable. */
+  async isPaused(accountId: string): Promise<boolean> {
+    return (await this.forAccount(accountId)).isPaused;
   }
 
   invalidate(accountId: string): void {

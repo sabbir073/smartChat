@@ -16,7 +16,7 @@ import {
 import { sanitiseUrl, type VisitorIdentity } from '@smartchat/core';
 import { z } from 'zod';
 import type { RealtimeContainer } from '../container.js';
-import { SocketAbuseGuard } from '../lib/abuse.js';
+import { MAX_STRIKES, SocketAbuseGuard } from '../lib/abuse.js';
 import { AutomationSession } from '../lib/automation-session.js';
 import { ackError, ackOk, parsePayload, respond, type AckCallback } from '../lib/ack.js';
 
@@ -131,7 +131,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       VisitorClientEvent.CONVERSATION_START,
       async (payload: unknown, callback: AckCallback<unknown>) => {
         try {
-          if (!(await guard.allowMessage(socket.id, identity.visitorId, identity.propertyId))) {
+          if (!(await guard.allowMessage(identity.visitorId, identity.visitorId, identity.propertyId))) {
             throw new AppError(ErrorCode.RATE_LIMITED);
           }
           const input = parsePayload(startConversationSchema, payload);
@@ -152,7 +152,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
           // must not re-run the rules that welcome somebody.
           if (result.isNew) void automation.onConversationStarted();
         } catch (error) {
-          handleFailure(socket, guard, logger, error);
+          void handleFailure(socket, guard, identity.visitorId, logger, error);
           respond(callback, ackError(error));
         }
       },
@@ -163,7 +163,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       VisitorClientEvent.MESSAGE_SEND,
       async (payload: unknown, callback: AckCallback<unknown>) => {
         try {
-          if (!(await guard.allowMessage(socket.id, identity.visitorId, identity.propertyId))) {
+          if (!(await guard.allowMessage(identity.visitorId, identity.visitorId, identity.propertyId))) {
             throw new AppError(ErrorCode.RATE_LIMITED);
           }
           const input = parsePayload(
@@ -182,7 +182,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
           // "sent" on the visitor's screen mean "durable" rather than "left this machine".
           respond(callback, ackOk({ message: result.message, deduplicated: !result.created }));
         } catch (error) {
-          handleFailure(socket, guard, logger, error);
+          void handleFailure(socket, guard, identity.visitorId, logger, error);
           respond(callback, ackError(error));
         }
       },
@@ -200,7 +200,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
             ackOk({ conversationId: input.conversationId, alreadyClosed: result.alreadyClosed }),
           );
         } catch (error) {
-          handleFailure(socket, guard, logger, error);
+          void handleFailure(socket, guard, identity.visitorId, logger, error);
           respond(callback, ackError(error));
         }
       },
@@ -284,7 +284,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
             typing: true,
           });
         } catch {
-          guard.strike(socket.id);
+          void guard.strike(identity.visitorId);
         }
       })();
     });
@@ -301,7 +301,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
             typing: false,
           });
         } catch {
-          guard.strike(socket.id);
+          void guard.strike(identity.visitorId);
         }
       })();
     });
@@ -313,7 +313,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
           const input = parsePayload(z.object({ conversationId: z.string().uuid() }), payload);
           await conversations.markVisitorRead(identity, input.conversationId);
         } catch {
-          guard.strike(socket.id);
+          void guard.strike(identity.visitorId);
         }
       })();
     });
@@ -337,7 +337,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
               ...currentPage,
             });
         } catch {
-          guard.strike(socket.id);
+          void guard.strike(identity.visitorId);
         }
       })();
     });
@@ -347,7 +347,14 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       // Pending time-based rules die with the connection. Messaging somebody about how long they
       // have been reading, after they have closed the tab, is worse than not messaging them.
       automation.stop();
-      guard.forget(socket.id);
+      /*
+        Strikes are deliberately NOT cleared here.
+
+        They used to be, keyed by socket id, which meant disconnecting forgave everything - and
+        disconnecting is exactly what the tenth strike does. The count now expires on its own
+        after fifteen minutes, so a visitor who was throttled and went away comes back clean,
+        while one who reconnects immediately to keep going does not.
+      */
       void presence
         .setVisitorOffline(identity.propertyId, identity.visitorId)
         .catch(() => undefined);
@@ -372,15 +379,16 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
  * Throttling alone is not enough: an attacker simply holds the connection open and keeps trying,
  * which costs them nothing and costs us a socket.
  */
-function handleFailure(
+async function handleFailure(
   socket: Socket,
   guard: SocketAbuseGuard,
+  visitorId: string,
   logger: RealtimeContainer['logger'],
   error: unknown,
-): void {
-  const strikes = guard.strike(socket.id);
-  if (guard.shouldDisconnect(socket.id)) {
-    logger.warn({ socketId: socket.id, strikes }, 'disconnecting abusive socket');
+): Promise<void> {
+  const strikes = await guard.strike(visitorId);
+  if (strikes >= MAX_STRIKES) {
+    logger.warn({ socketId: socket.id, visitorId, strikes }, 'disconnecting abusive socket');
     socket.disconnect(true);
     return;
   }

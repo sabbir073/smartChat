@@ -56,8 +56,15 @@ The loader and the panel talk over `postMessage` with a strict contract:
 
 - Both sides pin `targetOrigin` to the exact widget origin — never `*`.
 - Both sides verify `event.origin` and a per-instance nonce before acting on a message.
-- The message set is small and closed: `panel:ready`, `panel:resize`, `panel:close`,
-  `panel:unread`, `host:open`, `host:close`, `host:identify`, `host:page`.
+- The message set is small and closed, and every name is `sc:`-prefixed so it cannot collide with
+  whatever else the customer's page is posting:
+  - panel → host: `sc:panel:ready`, `sc:panel:resize`, `sc:panel:close`, `sc:panel:unread`,
+    `sc:panel:sound`
+  - host → panel: `sc:host:init`, `sc:host:open`, `sc:host:close`, `sc:host:page`,
+    `sc:host:identify`, `sc:host:visibility`, `sc:host:preview-config`
+- `sc:host:preview-config` is the builder only: the dashboard pushes an unpublished configuration
+  straight into the real panel, so the preview is the widget rather than a second implementation
+  of it that could drift.
 - Unknown message types are dropped silently.
 
 ## 5. Configuration surface
@@ -83,10 +90,13 @@ request against it and returns 403 for a mismatch when enforcement is on.
 
 - Exact hosts (`example.com`), wildcard subdomains (`*.example.com`), and explicit
   `localhost`/`127.0.0.1` entries for development.
-- Until the customer enables enforcement, unknown origins are **recorded**, not blocked, so a
-  misconfigured install shows up in the dashboard instead of silently failing.
-- Installation verification works from the same signal: the first widget config request from an
-  allowed origin marks the property installed and records the URL.
+- Until the customer enables enforcement, unknown origins are simply **not checked**. Nothing is
+  recorded about them: there is no column, log line or metric holding an observed origin, and this
+  page previously said there was.
+- Installation verification works from the widget's first config request: `GET /widget/config`
+  from an allowed origin marks the property installed and stamps `lastWidgetRequestAt`. The URL is
+  not stored — only the timestamp. That request is the right signal because the loader makes it on
+  every page it renders on, whereas a visitor may never open the panel.
 
 ## 7. Versioning
 

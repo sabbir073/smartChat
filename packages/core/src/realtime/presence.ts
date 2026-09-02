@@ -175,7 +175,4 @@ export class PresenceService {
     await this.redis.del(presenceKey.typing(conversationId, actorId));
   }
 
-  async isTyping(conversationId: string, actorId: string): Promise<boolean> {
-    return (await this.redis.exists(presenceKey.typing(conversationId, actorId))) === 1;
-  }
 }

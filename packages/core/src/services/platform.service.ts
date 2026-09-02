@@ -1,4 +1,11 @@
-import type { Account, Database, FeatureFlag, PlatformAdmin } from '@smartchat/database';
+import type {
+  Account,
+  BillingInterval,
+  Database,
+  FeatureFlag,
+  PlanChangeStatus,
+  PlatformAdmin,
+} from '@smartchat/database';
 import {
   AppError,
   ErrorCode,
@@ -7,6 +14,8 @@ import {
   PlatformPermission,
   type PlatformFlag,
 } from '@smartchat/types';
+import { periodEnd, priceForInterval } from '../billing/periods.js';
+import type { EntitlementService } from './entitlement.service.js';
 import { fakePasswordVerification, verifyPassword } from '../crypto/password.js';
 import { generateToken, hashToken } from '../crypto/tokens.js';
 import { systemClock, type Clock } from '../time.js';
@@ -32,6 +41,16 @@ export interface PlatformServiceOptions {
   db: Database;
   clock?: Clock;
   sessionTtlMs?: number;
+  /**
+   * The entitlement cache, so an operator's decision reaches the customer at once.
+   *
+   * Required rather than optional. Entitlements are cached for thirty seconds; when an operator
+   * approves an upgrade, that cache is the difference between the customer's new limit working
+   * immediately and their next click still being refused for reasons they cannot see. An optional
+   * dependency here is one that gets omitted, and the symptom is a support conversation about a
+   * plan the customer has already paid for.
+   */
+  entitlements: EntitlementService;
 }
 
 export interface PlatformAccountSummary {
@@ -48,8 +67,6 @@ export interface PlatformAccountSummary {
   propertyCount: number;
   conversationCount: number;
 }
-
-const DAY = 24 * 60 * 60 * 1000;
 
 function requirePlatformPermission(
   principal: PlatformPrincipal,
@@ -302,18 +319,24 @@ export class PlatformService {
   }
 
   /**
-   * Move an account to a plan.
+   * Move an account to a plan, by operator decision.
    *
-   * Billing is not implemented and is not faked: this changes what the account is *entitled* to,
-   * and nothing charges anybody. The entitlement cache is 30 seconds, so the change is visible
-   * while the operator is still looking at the page - and the console says so rather than letting
-   * somebody conclude it did not work.
+   * This is the override, not the ordinary path: a customer changes plan through
+   * `SubscriptionService`, which goes through the billing provider and leaves a request row behind
+   * it. This one exists for the cases that never fit that - an Enterprise agreement signed offline,
+   * a goodwill upgrade, a correction - and it is audited as an operator action so the difference is
+   * visible later.
+   *
+   * It starts a fresh billing period rather than keeping the old one, because assigning a plan is
+   * the start of a new commercial arrangement and invoicing the remainder of somebody else's month
+   * would be wrong in both directions.
    */
   async assignPlan(
     principal: PlatformPrincipal,
     accountId: string,
     planCode: string,
     ip?: string,
+    interval: BillingInterval = 'monthly',
   ): Promise<void> {
     requirePlatformPermission(principal, PlatformPermission.PLAN_MANAGE);
 
@@ -330,16 +353,186 @@ export class PlatformService {
       create: {
         accountId,
         planId: plan.id,
+        interval,
         status: 'active',
         currentPeriodStart: now,
-        // Thirty days, because nothing bills: this is a period the entitlement model needs to
-        // have, not a promise about money. See the note above the method.
-        currentPeriodEnd: new Date(now.getTime() + 30 * DAY),
+        currentPeriodEnd: periodEnd(now, interval),
       },
-      update: { planId: plan.id, status: 'active' },
+      update: {
+        planId: plan.id,
+        interval,
+        status: 'active',
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd(now, interval),
+        // An operator putting somebody on a plan is resolving whatever was wrong before it.
+        graceEndsAt: null,
+        pausedAt: null,
+        cancelAtPeriodEnd: false,
+        canceledAt: null,
+      },
     });
 
-    await this.record(principal.adminId, 'account.plan_changed', accountId, { planCode }, ip);
+    this.options.entitlements.invalidate(accountId);
+
+    await this.record(
+      principal.adminId,
+      'account.plan_changed',
+      accountId,
+      { planCode, interval },
+      ip,
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Plan change requests: the operator half of the manual billing provider
+  // ---------------------------------------------------------------------------
+
+  async listPlanChanges(principal: PlatformPrincipal, status: PlanChangeStatus = 'pending') {
+    requirePlatformPermission(principal, PlatformPermission.PLAN_MANAGE);
+    const rows = await this.options.db.planChangeRequest.findMany({
+      where: { status },
+      include: { account: { include: { subscription: true } }, fromPlan: true, toPlan: true },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      accountId: row.accountId,
+      accountName: row.account.name,
+      fromPlan: row.fromPlan.name,
+      toPlan: row.toPlan.code,
+      toPlanName: row.toPlan.name,
+      interval: row.interval,
+      requestedByEmail: row.requestedByEmail,
+      createdAt: row.createdAt,
+      status: row.status,
+      /**
+       * Whether anybody actually has to decide this.
+       *
+       * A move to a cheaper plan is already agreed - it is only waiting for the period the
+       * customer paid for to run out, and the sweeper applies it. Showing it beside genuine
+       * upgrade requests would invite an operator to "approve" a downgrade early and take away a
+       * fortnight the customer has already bought.
+       */
+      kind:
+        priceForInterval(row.toPlan, row.interval) < priceForInterval(row.fromPlan, row.interval)
+          ? ('scheduled_downgrade' as const)
+          : ('upgrade_request' as const),
+      effectiveAt: row.account.subscription?.currentPeriodEnd ?? null,
+    }));
+  }
+
+  /**
+   * Approve or refuse a plan change.
+   *
+   * Approving applies it through the same code path a customer's own upgrade takes, so there is
+   * exactly one way a subscription moves between plans. Refusing records the reason, which the
+   * customer sees - "no" without a reason is how a support ticket gets opened.
+   */
+  async decidePlanChange(
+    principal: PlatformPrincipal,
+    requestId: string,
+    decision: 'approved' | 'rejected',
+    options: { note?: string | undefined; apply: (accountId: string, planId: string, interval: BillingInterval) => Promise<unknown> },
+    ip?: string,
+  ): Promise<void> {
+    requirePlatformPermission(principal, PlatformPermission.PLAN_MANAGE);
+
+    const request = await this.options.db.planChangeRequest.findUnique({
+      where: { id: requestId },
+      include: { toPlan: true },
+    });
+    if (!request) throw new AppError(ErrorCode.NOT_FOUND);
+    if (request.status !== 'pending') {
+      throw new AppError(ErrorCode.CONFLICT, 'That request has already been decided.');
+    }
+
+    if (decision === 'approved') {
+      await options.apply(request.accountId, request.toPlanId, request.interval);
+    }
+
+    await this.options.db.planChangeRequest.update({
+      where: { id: request.id },
+      data: {
+        status: decision,
+        decidedByAdminId: principal.adminId,
+        decidedAt: this.clock.now(),
+        note: options.note ?? null,
+      },
+    });
+
+    // Whatever was decided, what the account is entitled to may have just moved. Approving is the
+    // obvious case; refusing matters too, because the customer's screen has to stop saying that
+    // something is waiting on us.
+    this.options.entitlements.invalidate(request.accountId);
+
+    await this.record(
+      principal.adminId,
+      decision === 'approved' ? 'plan_change.approved' : 'plan_change.rejected',
+      request.accountId,
+      { requestId, toPlan: request.toPlan.code, note: options.note ?? null },
+      ip,
+    );
+  }
+
+  async listInvoices(principal: PlatformPrincipal, accountId?: string) {
+    requirePlatformPermission(principal, PlatformPermission.USAGE_VIEW);
+    return this.options.db.invoice.findMany({
+      where: accountId ? { accountId } : {},
+      include: { account: { select: { name: true } } },
+      orderBy: { issuedAt: 'desc' },
+      take: 100,
+    });
+  }
+
+  /**
+   * Record that an invoice was paid.
+   *
+   * The whole of "taking the money" in the manual provider. `reference` is free text because what
+   * identifies a payment differs per customer - a bank reference, a purchase order, a note saying
+   * it was waived - and forcing it into a shape would just mean people write in the wrong field.
+   */
+  async markInvoicePaid(
+    principal: PlatformPrincipal,
+    invoiceId: string,
+    reference: string | null,
+    ip?: string,
+  ): Promise<void> {
+    requirePlatformPermission(principal, PlatformPermission.PLAN_MANAGE);
+
+    const invoice = await this.options.db.invoice.findUnique({ where: { id: invoiceId } });
+    if (!invoice) throw new AppError(ErrorCode.NOT_FOUND);
+    if (invoice.status === 'void') {
+      throw new AppError(ErrorCode.CONFLICT, 'That invoice was voided.');
+    }
+    if (invoice.status === 'paid') return; // Idempotent: recording a payment twice is not an error.
+
+    const now = this.clock.now();
+    await this.options.db.$transaction([
+      this.options.db.invoice.update({
+        where: { id: invoiceId },
+        data: { status: 'paid', paidAt: now, reference },
+      }),
+      // Paying clears the arrears: the subscription leaves `past_due` (or `paused`) and its grace
+      // window is dropped. Nothing was deleted while it was paused, so this restores service whole.
+      this.options.db.subscription.updateMany({
+        where: { accountId: invoice.accountId, status: { in: ['past_due', 'paused'] } },
+        data: { status: 'active', graceEndsAt: null, pausedAt: null },
+      }),
+    ]);
+
+    // A payment can lift a pause, and a paused account is one where every write is being refused.
+    // Leaving that in a cache for half a minute is half a minute of a paying customer being told no.
+    this.options.entitlements.invalidate(invoice.accountId);
+
+    await this.record(
+      principal.adminId,
+      'invoice.paid',
+      invoice.accountId,
+      { invoiceId, number: invoice.number, amountCents: invoice.amountCents },
+      ip,
+    );
   }
 
   // ---------------------------------------------------------------------------

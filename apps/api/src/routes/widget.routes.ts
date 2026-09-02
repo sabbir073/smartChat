@@ -158,9 +158,18 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
    */
   app.post('/widget/uploads/sign', async (request, reply) => {
     const token = bearer(request);
-    await app.rateLimit(request, 'visitorUpload');
     const input = parseBody(signUploadSchema, request.body);
     const identity = await container.visitors.authenticate(token);
+
+    /**
+     * Keyed to the visitor, which is what `SECURITY.md` says and what the budget is for.
+     *
+     * It used to fall through to the client IP, and an IP is the wrong subject twice over: every
+     * visitor in one office shared a single ten-an-hour allowance, and anybody who wanted more
+     * than ten simply changed address. The identity is resolved first so the limit can be spent
+     * against a subject the server signed rather than one the network happened to supply.
+     */
+    await app.rateLimit(request, 'visitorUpload', `visitor:${identity.visitorId}`);
 
     const signed = await container.attachments.signForVisitor(
       {

@@ -30,7 +30,6 @@ export type AgentClientEvent = (typeof AgentClientEvent)[keyof typeof AgentClien
 
 export const ServerEvent = {
   MESSAGE_NEW: 'message:new',
-  MESSAGE_UPDATED: 'message:updated',
   CONVERSATION_CREATED: 'conversation:created',
   CONVERSATION_UPDATED: 'conversation:updated',
   CONVERSATION_ASSIGNED: 'conversation:assigned',
@@ -45,9 +44,6 @@ export const ServerEvent = {
    * visitor is told one boolean and never which people are online.
    */
   AGENTS_AVAILABLE: 'presence:agents_available',
-  VISITOR_UPDATED: 'visitor:updated',
-  UNREAD_UPDATED: 'unread:updated',
-  ERROR: 'error',
 } as const;
 export type ServerEvent = (typeof ServerEvent)[keyof typeof ServerEvent];
 

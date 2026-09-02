@@ -158,13 +158,4 @@ export class RedisEventPublisher implements EventPublisher {
   }
 }
 
-/** Collects events instead of publishing them. Used in tests. */
-export class RecordingEventPublisher implements EventPublisher {
-  readonly events: DomainEvent[] = [];
-
-  async publish(event: DomainEvent): Promise<void> {
-    this.events.push(event);
-  }
-}
-
 export { ServerEvent };

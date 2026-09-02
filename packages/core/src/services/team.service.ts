@@ -10,6 +10,7 @@ import {
   AppError,
   DEFAULT_ROLE_PERMISSIONS,
   ErrorCode,
+  FeatureKey,
   Permission,
   type MemberRole,
   type TenantContext,
@@ -29,16 +30,19 @@ import type { MailProvider } from '../mail/provider.js';
 import type { BrandContext } from '../mail/templates.js';
 import { invitationTemplate } from '../mail/templates.js';
 import { AccountRepository } from '../repositories/account.repository.js';
-import { AuditRepository } from '../repositories/audit.repository.js';
+import { AuditAction, AuditRepository } from '../repositories/audit.repository.js';
 import { TokenRepository } from '../repositories/token.repository.js';
 import { UserRepository } from '../repositories/user.repository.js';
 import { requirePermission } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
+import type { PlanGuard } from './plan-guard.js';
 
 const DAY = 86_400_000;
 
 export interface TeamServiceOptions {
   db: Database;
+  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
+  plan: PlanGuard;
   mailer: MailProvider;
   brand: BrandContext;
   /** Hand the invitation email to the queue when there is one; otherwise send inline. */
@@ -105,6 +109,9 @@ export class TeamService {
   ): Promise<{ member: AccountMember; alreadyMember: boolean }> {
     requirePermission(context, Permission.MEMBER_INVITE);
     this.assertCanGrantRole(context, input.baseRole);
+    // Counted before the invitation is sent, not when it is accepted: an invitation that cannot
+    // be accepted is worse than one that was never sent.
+    await this.options.plan.assertCanAdd(context, FeatureKey.MAX_AGENTS);
 
     const email = input.email.trim().toLowerCase();
     const now = this.clock.now();
@@ -476,8 +483,10 @@ export class TeamService {
 
   async createRole(context: TenantContext, input: CreateRoleInput): Promise<Role> {
     requirePermission(context, Permission.ROLE_MANAGE);
+    // The four preset roles are always available; only defining your own is a paid capability.
+    await this.options.plan.assertFeature(context, FeatureKey.FEATURE_CUSTOM_ROLES);
     try {
-      return await this.options.db.role.create({
+      const role = await this.options.db.role.create({
         data: {
           accountId: context.accountId,
           key: input.key,
@@ -487,6 +496,27 @@ export class TeamService {
           isSystem: false,
         },
       });
+
+      /**
+       * Audited, because a role *is* a set of permissions.
+       *
+       * These three methods wrote no audit row for the whole of the product's life, while the
+       * methods either side of them did, and `SECURITY.md` said role edits were logged. Editing a
+       * custom role's permission list is the primary way somebody inside an account escalates
+       * their own privileges - it is the last thing that should happen without a trace.
+       */
+      await this.audit.record({
+        accountId: context.accountId,
+        actorType: DbActorType.user,
+        actorId: context.userId ?? null,
+        action: AuditAction.ROLE_CREATED,
+        resourceType: 'role',
+        resourceId: role.id,
+        ip: context.ip ?? null,
+        metadata: { key: role.key, name: role.name, permissions: role.permissions },
+      });
+
+      return role;
     } catch (error) {
       if (isUniqueViolation(error)) {
         throw new AppError(ErrorCode.VALIDATION_FAILED, 'A role with that key already exists');
@@ -517,6 +547,24 @@ export class TeamService {
       where: { id: roleId, accountId: context.accountId },
     });
     if (!updated) throw new AppError(ErrorCode.NOT_FOUND);
+
+    // Both lists, because "what changed" is the question the log is read to answer.
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId ?? null,
+      action: AuditAction.ROLE_UPDATED,
+      resourceType: 'role',
+      resourceId: updated.id,
+      ip: context.ip ?? null,
+      metadata: {
+        key: updated.key,
+        name: updated.name,
+        permissionsBefore: role.permissions,
+        permissionsAfter: updated.permissions,
+      },
+    });
+
     return updated;
   }
 
@@ -536,6 +584,17 @@ export class TeamService {
       data: { roleId: null },
     });
     await this.options.db.role.deleteMany({ where: { id: roleId, accountId: context.accountId } });
+
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId ?? null,
+      action: AuditAction.ROLE_DELETED,
+      resourceType: 'role',
+      resourceId: roleId,
+      ip: context.ip ?? null,
+      metadata: { key: role.key, name: role.name, permissions: role.permissions },
+    });
   }
 
   // --- departments ----------------------------------------------------------

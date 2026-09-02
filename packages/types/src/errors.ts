@@ -61,6 +61,13 @@ export const ErrorCode = {
   PLAN_LIMIT_REACHED: 'PLAN_LIMIT_REACHED',
   FEATURE_NOT_AVAILABLE: 'FEATURE_NOT_AVAILABLE',
   /**
+   * The account's service is reduced to read-only: an unpaid subscription past its grace window,
+   * or one that was cancelled. 402 rather than 403 because it is answerable with money, and the
+   * message says plainly that nothing has been deleted - which is true, and is the first thing
+   * somebody seeing this wants to know.
+   */
+  SUBSCRIPTION_PAUSED: 'SUBSCRIPTION_PAUSED',
+  /**
    * Switched off by the platform, not by the plan.
    *
    * Distinct from FEATURE_NOT_AVAILABLE on purpose: that one is 402 and means "upgrade", which
@@ -123,6 +130,7 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
 
   PLAN_LIMIT_REACHED: 402,
   FEATURE_NOT_AVAILABLE: 402,
+  SUBSCRIPTION_PAUSED: 402,
   TEMPORARILY_UNAVAILABLE: 503,
 };
 
@@ -242,5 +250,7 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   UPLOAD_FAILED: 'The upload could not be completed',
   PLAN_LIMIT_REACHED: 'Your plan limit has been reached',
   FEATURE_NOT_AVAILABLE: 'This feature is not available on your plan',
+  SUBSCRIPTION_PAUSED:
+    'This account is read-only until the subscription is renewed. Nothing has been deleted.',
   TEMPORARILY_UNAVAILABLE: 'This is temporarily unavailable. Please try again shortly.',
 };

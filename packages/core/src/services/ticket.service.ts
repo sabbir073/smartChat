@@ -9,6 +9,7 @@ import { ActorType as DbActorType } from '@smartchat/database';
 import {
   AppError,
   ErrorCode,
+  FeatureKey,
   Permission,
   WebhookEvent,
   type CursorPage,
@@ -34,6 +35,7 @@ import { AuditRepository } from '../repositories/audit.repository.js';
 import { afterCursor, encodeCursor, notDeleted, tenantScope } from '../repositories/scope.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { assertPropertyInAccount } from '../tenancy/property-access.js';
+import type { PlanGuard } from './plan-guard.js';
 import type { WebhookEmitter } from './webhook.service.js';
 import { systemClock, type Clock } from '../time.js';
 
@@ -59,6 +61,8 @@ export type MailDeliver = (input: {
 
 export interface TicketServiceOptions {
   db: Database;
+  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
+  plan: PlanGuard;
   brand: BrandContext;
   deliver: MailDeliver;
   /** Outbound integrations. Optional so a test can build the service without one. */
@@ -220,6 +224,7 @@ export class TicketService {
 
   async create(context: TenantContext, input: CreateTicketInput): Promise<Ticket> {
     requirePermission(context, Permission.TICKET_MANAGE);
+    await this.options.plan.assertFeature(context, FeatureKey.FEATURE_TICKETS);
     await assertPropertyInAccount(this.options.db, context, input.propertyId, ErrorCode.NOT_FOUND);
 
     const now = this.clock.now();

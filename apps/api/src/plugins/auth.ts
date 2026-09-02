@@ -1,6 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { AppError, ErrorCode, type TenantContext } from '@smartchat/types';
+import { AppError, ErrorCode, FeatureKey, type TenantContext } from '@smartchat/types';
 import { buildTenantContext, safeEqual } from '@smartchat/core';
 import type { Session, User } from '@smartchat/database';
 import type { Container } from '../container.js';
@@ -142,14 +142,44 @@ export const authPlugin = fp<{ container: Container }>(
         // One answer for every kind of refusal - unknown prefix, wrong secret, revoked, expired,
         // suspended account. Distinguishing them is how a key space gets enumerated.
         if (!principal) throw new AppError(ErrorCode.UNAUTHENTICATED);
-        // Per key, not per IP: a key is the actor, and one customer's integration running from a
-        // shared address must not spend another's budget.
+
+        /**
+         * The public API is a paid capability, checked here rather than per route.
+         *
+         * A key belonging to an account whose plan does not include the API is refused at the
+         * door with 402, not 401: the credential is real and the answer is "upgrade", which is
+         * what the caller needs to hear. Doing it here means every route the key can reach is
+         * covered, including ones added later.
+         */
+        await container.plans.assertFeatureForAccount(
+          principal.accountId,
+          FeatureKey.FEATURE_PUBLIC_API,
+        );
+
+        // Two budgets. The first is the per-key share of the whole authenticated surface; the
+        // second is the plan's own daily API allowance, which is what customers actually buy.
         await app.rateLimit(request, 'dashboardApi', `key:${principal.keyId}`);
+
+        const daily = await container.entitlements.limit(
+          principal.accountId,
+          FeatureKey.MAX_API_REQUESTS_PER_DAY,
+        );
+        if (daily !== null) {
+          await app.rateLimitDynamic(
+            request,
+            `apiDaily:${principal.accountId}`,
+            { limit: daily, windowMs: 86_400_000 },
+            // Not 429. Running out of a daily allowance is answered by a bigger plan, not by
+            // waiting a moment, and telling somebody to slow down would be the wrong advice.
+            ErrorCode.PLAN_LIMIT_REACHED,
+          );
+        }
         request.tenant = container.apiKeys.contextFor(
           principal,
           request.requestId,
           request.clientIp,
         );
+        await assertWritableIfMutating(request);
         return;
       }
 
@@ -188,7 +218,30 @@ export const authPlugin = fp<{ container: Container }>(
         ip: request.clientIp,
         userAgent: request.headers['user-agent'],
       });
+      await assertWritableIfMutating(request);
     });
+
+    /**
+     * "Pause, never destroy", applied once for the whole authenticated surface.
+     *
+     * A paused account keeps every read: the inbox, the transcripts, the exports, the reports.
+     * What it loses is the ability to add to them. Putting the check in the hook rather than in
+     * each service means a route written next month is covered on the day it ships, which is the
+     * same reason the public-API check and the rate limit above it live here.
+     *
+     * Billing is the deliberate hole. An account that cannot reach its own billing screen cannot
+     * stop being paused, which would make the pause permanent and the remedy unreachable.
+     */
+    async function assertWritableIfMutating(request: FastifyRequest): Promise<void> {
+      if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') {
+        return;
+      }
+      if (request.url.startsWith('/api/v1/billing/')) return;
+
+      const accountId = request.tenant?.accountId;
+      if (!accountId) return;
+      await container.plans.assertWritable(accountId);
+    }
   },
   // 'rate-limit' is a hard dependency now that every authenticated request consumes a budget.
   { name: 'auth', dependencies: ['request-context', 'rate-limit'] },

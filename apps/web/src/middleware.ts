@@ -2,21 +2,23 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 const SESSION_COOKIE = 'sc_session';
 
-const PUBLIC_PATHS = [
-  // The help centre is read by strangers. It is public in the strong sense: no session, and it
-  // must stay reachable for somebody who is *also* signed in, which is why it is listed below as
-  // staying public when signed in too.
-  '/help',
-  // The platform console has its own session cookie and its own sign-in. The tenant middleware
-  // must not redirect an operator to the account login page just because they have no account.
-  '/console',
-  '/login',
-  '/register',
-  '/forgot-password',
-  '/reset-password',
-  '/verify-email',
-  '/accept-invitation',
-];
+/**
+ * The signed-in application. Everything under here needs a session; nothing else does.
+ *
+ * Stated as one prefix rather than a list of pages, because the failure mode of a list is a page
+ * somebody forgets to add to it - and that page is then readable by anybody.
+ */
+const APP_PREFIX = '/app';
+
+/**
+ * Everything else is public, and that is the whole rule.
+ *
+ * This used to be a list of public paths with the dashboard as the default. It is now the other
+ * way round, because the two failure modes are not equally bad: forgetting to add a page to a
+ * public list makes a marketing page ask for a login, which is annoying; forgetting to add one to
+ * a *private* list exposes it, which is not. The marketing site, the help centre, the sign-in
+ * pages and the operator console are all simply not under `/app`.
+ */
 
 /**
  * The dashboard's Content Security Policy.
@@ -111,9 +113,11 @@ function contentSecurityPolicy(nonce: string): string {
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const hasSession = Boolean(request.cookies.get(SESSION_COOKIE)?.value);
-  const isPublic = PUBLIC_PATHS.some(
-    (path) => pathname === path || pathname.startsWith(`${path}/`),
-  );
+
+  // The rule, in one line: the application needs a session, and nothing else does. Inverting it
+  // this way - rather than listing what is public - means a page added under /app tomorrow is
+  // protected the moment it exists.
+  const needsSession = pathname === APP_PREFIX || pathname.startsWith(`${APP_PREFIX}/`);
 
   const nonce = btoa(crypto.randomUUID());
   const csp = contentSecurityPolicy(nonce);
@@ -124,28 +128,28 @@ export function middleware(request: NextRequest) {
     return response;
   };
 
-  if (!hasSession && !isPublic) {
+  if (!hasSession && needsSession) {
     const url = request.nextUrl.clone();
     url.pathname = '/login';
     // Preserve where they were going so sign-in can return them there.
-    if (pathname !== '/') url.searchParams.set('next', pathname);
+    url.searchParams.set('next', pathname);
     return withCsp(NextResponse.redirect(url));
   }
 
-  // Accepting an invitation is excluded as well: somebody already signed into one workspace may
-  // be joining a second, and bouncing them to the dashboard would silently drop the invitation.
-  const staysPublicWhenSignedIn =
-    pathname === '/help' ||
-    pathname.startsWith('/help/') ||
-    pathname === '/console' ||
-    pathname.startsWith('/console/') ||
-    pathname === '/verify-email' ||
-    pathname === '/reset-password' ||
-    pathname === '/accept-invitation';
+  /**
+   * Signing in already? Then the sign-in pages are pointless - send them to the application.
+   *
+   * The exclusions matter more than the rule. The marketing site and the help centre stay
+   * readable while signed in; accepting an invitation must work for somebody already signed into a
+   * *different* workspace, and bouncing them would silently drop the invitation; and the console
+   * has its own identity entirely.
+   */
+  const bouncesWhenSignedIn =
+    pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
 
-  if (hasSession && isPublic && !staysPublicWhenSignedIn) {
+  if (hasSession && bouncesWhenSignedIn) {
     const url = request.nextUrl.clone();
-    url.pathname = '/';
+    url.pathname = APP_PREFIX;
     url.search = '';
     return withCsp(NextResponse.redirect(url));
   }

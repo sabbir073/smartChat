@@ -44,26 +44,41 @@ describe('loadConfig', () => {
   });
 
   it('reports every problem at once rather than one per restart', () => {
+    const schema = secretsEnvSchema.merge(
+      z.object({ EXTRA_SECRET: z.string().min(32), OTHER_SECRET: z.string().min(32) }),
+    );
     try {
-      loadConfig(secretsEnvSchema, { SESSION_SECRET: 'short' } as NodeJS.ProcessEnv);
+      loadConfig(schema, { VISITOR_TOKEN_SECRET: 'short' } as NodeJS.ProcessEnv);
       expect.unreachable('should have thrown');
     } catch (error) {
       expect(error).toBeInstanceOf(ConfigError);
       const issues = (error as ConfigError).issues;
-      expect(issues.length).toBeGreaterThanOrEqual(4);
-      expect(issues.some((i) => i.startsWith('SESSION_SECRET'))).toBe(true);
-      expect(issues.some((i) => i.startsWith('JWT_SECRET'))).toBe(true);
+      expect(issues.length).toBeGreaterThanOrEqual(3);
+      expect(issues.some((i) => i.startsWith('VISITOR_TOKEN_SECRET'))).toBe(true);
+      expect(issues.some((i) => i.startsWith('EXTRA_SECRET'))).toBe(true);
     }
+  });
+
+  /**
+   * The guard for ADR-092: a required secret must be one somebody can rotate to some effect.
+   *
+   * `SESSION_SECRET`, `JWT_SECRET` and `ENCRYPTION_KEY` were all mandatory here and read by
+   * nothing, which made rotating them a placebo. If one comes back, it has to come back with a
+   * reader.
+   */
+  it('demands only secrets the product actually reads', () => {
+    const keys = Object.keys(secretsEnvSchema.shape);
+    expect(keys).toContain('VISITOR_TOKEN_SECRET');
+    expect(keys).not.toContain('SESSION_SECRET');
+    expect(keys).not.toContain('JWT_SECRET');
+    expect(keys).not.toContain('ENCRYPTION_KEY');
   });
 
   it('refuses to boot in production with a placeholder secret', () => {
     const schema = baseEnvSchema.merge(secretsEnvSchema);
     const env = {
       NODE_ENV: 'production',
-      SESSION_SECRET: `dev_session_secret_change_me_${'0'.repeat(20)}`,
-      JWT_SECRET: LONG,
-      VISITOR_TOKEN_SECRET: LONG,
-      ENCRYPTION_KEY: LONG,
+      VISITOR_TOKEN_SECRET: `dev_visitor_token_secret_change_me_${'0'.repeat(20)}`,
     } as unknown as NodeJS.ProcessEnv;
 
     expect(() => loadConfig(schema, env)).toThrow(ConfigError);
@@ -73,13 +88,10 @@ describe('loadConfig', () => {
     const schema = baseEnvSchema.merge(secretsEnvSchema);
     const env = {
       NODE_ENV: 'development',
-      SESSION_SECRET: `dev_session_secret_change_me_${'0'.repeat(20)}`,
-      JWT_SECRET: LONG,
-      VISITOR_TOKEN_SECRET: LONG,
-      ENCRYPTION_KEY: LONG,
+      VISITOR_TOKEN_SECRET: `dev_visitor_token_secret_change_me_${'0'.repeat(20)}`,
     } as unknown as NodeJS.ProcessEnv;
 
-    expect(loadConfig(schema, env).JWT_SECRET).toBe(LONG);
+    expect(loadConfig(schema, env).VISITOR_TOKEN_SECRET).toContain('change_me');
   });
 
   it('coerces and bounds numeric and boolean values', () => {

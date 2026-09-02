@@ -153,15 +153,111 @@ export async function platformRoutes(app: FastifyInstance, container: Container)
       const principal = requirePlatform(request);
       const { id } = parseParams(accountParam, request.params);
       const input = parseBody(
-        z.object({ planCode: z.string().trim().min(1).max(60) }),
+        z.object({
+          planCode: z.string().trim().min(1).max(60),
+          interval: z.enum(['monthly', 'yearly']).default('monthly'),
+        }),
         request.body,
       );
-      await container.platform.assignPlan(principal, id, input.planCode, request.clientIp);
+      await container.platform.assignPlan(
+        principal,
+        id,
+        input.planCode,
+        request.clientIp,
+        input.interval,
+      );
       return noContent(reply);
     });
 
     guarded.get('/platform/plans', async (request, reply) => {
       return ok(reply, await container.platform.listPlans(requirePlatform(request)));
+    });
+
+    // --- billing: the operator half of the manual provider --------------------
+
+    guarded.get('/platform/plan-changes', async (request, reply) => {
+      const query = parseQuery(
+        z.object({ status: z.enum(['pending', 'approved', 'rejected', 'withdrawn']).default('pending') }),
+        request.query,
+      );
+      return ok(
+        reply,
+        await container.platform.listPlanChanges(requirePlatform(request), query.status),
+      );
+    });
+
+    guarded.post('/platform/plan-changes/:id/decide', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const { id } = parseParams(z.object({ id: z.string().uuid() }), request.params);
+      const input = parseBody(
+        z.object({
+          decision: z.enum(['approved', 'rejected']),
+          note: z.string().trim().max(500).optional(),
+        }),
+        request.body,
+      );
+
+      await container.platform.decidePlanChange(
+        principal,
+        id,
+        input.decision,
+        {
+          ...(input.note ? { note: input.note } : {}),
+          // Approving goes through the provider, so a plan approved by an operator and one chosen
+          // by a customer land the subscription in exactly the same state. Two code paths that
+          // both "move a subscription" is how they end up disagreeing.
+          apply: (accountId, planId, interval) =>
+            container.billing.applyApprovedChange(accountId, planId, interval),
+        },
+        request.clientIp,
+      );
+      return noContent(reply);
+    });
+
+    guarded.get('/platform/invoices', async (request, reply) => {
+      const query = parseQuery(
+        z.object({ accountId: z.string().uuid().optional() }),
+        request.query,
+      );
+      const invoices = await container.platform.listInvoices(
+        requirePlatform(request),
+        query.accountId,
+      );
+      return ok(
+        reply,
+        invoices.map((invoice) => ({
+          id: invoice.id,
+          accountId: invoice.accountId,
+          accountName: invoice.account.name,
+          number: invoice.number,
+          planName: invoice.planName,
+          interval: invoice.interval,
+          amountCents: invoice.amountCents,
+          currency: invoice.currency,
+          status: invoice.status,
+          periodStart: invoice.periodStart.toISOString(),
+          periodEnd: invoice.periodEnd.toISOString(),
+          issuedAt: invoice.issuedAt.toISOString(),
+          paidAt: invoice.paidAt?.toISOString() ?? null,
+          reference: invoice.reference,
+        })),
+      );
+    });
+
+    guarded.post('/platform/invoices/:id/paid', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const { id } = parseParams(z.object({ id: z.string().uuid() }), request.params);
+      const input = parseBody(
+        z.object({ reference: z.string().trim().max(200).optional() }),
+        request.body ?? {},
+      );
+      await container.platform.markInvoicePaid(
+        principal,
+        id,
+        input.reference ?? null,
+        request.clientIp,
+      );
+      return noContent(reply);
     });
 
     guarded.get('/platform/health', async (request, reply) => {
@@ -202,6 +298,22 @@ export async function platformRoutes(app: FastifyInstance, container: Container)
       }
       const outcome = await container.retention.apply();
       return ok(reply, outcome);
+    });
+
+    /**
+     * Run the subscription lifecycle now.
+     *
+     * Same reasoning as the retention sweep above. The scheduled job runs hourly, which is right
+     * for production and useless to an operator on the phone to a customer asking why a renewal
+     * has not landed. It is the same method the job calls, so this cannot drift from it, and it is
+     * idempotent - invoices are keyed to the period, so running it twice bills nobody twice.
+     */
+    guarded.post('/platform/maintenance/subscriptions', async (request, reply) => {
+      const principal = requirePlatform(request);
+      if (!principal.permissions.has('platform:settings:manage')) {
+        throw new AppError(ErrorCode.FORBIDDEN, 'Your platform role does not include that');
+      }
+      return ok(reply, await container.subscriptions.runLifecycle());
     });
 
     guarded.get('/platform/audit', async (request, reply) => {

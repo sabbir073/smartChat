@@ -35,6 +35,33 @@ else
   log "WARNING: no SHA256SUMS in this backup - integrity not verified"
 fi
 
+# ---------------------------------------------------------------------------
+# The manifest.
+#
+# It records the migration this dump was taken at, and until now nothing read it - so a dump taken
+# before a migration restored silently into a schema that expected the migration, and the first
+# sign of trouble was a query failing hours later. Reading it is the whole point of writing it.
+# ---------------------------------------------------------------------------
+if [ -f "${SOURCE}/manifest.txt" ]; then
+  DUMP_MIGRATION=$(sed -n 's/^schema_version=//p' "${SOURCE}/manifest.txt")
+  LIVE_MIGRATION=$(docker compose exec -T postgres psql -U "$PGUSER" \
+    -d "${POSTGRES_DB:-smartchat}" -tAc \
+    "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1" \
+    2>/dev/null | tr -d '[:space:]' || echo unknown)
+
+  log "backup was taken at migration: ${DUMP_MIGRATION:-unknown}"
+  log "this cluster is at migration:  ${LIVE_MIGRATION:-unknown}"
+
+  if [ -n "$DUMP_MIGRATION" ] && [ "$DUMP_MIGRATION" != unknown ] \
+     && [ -n "$LIVE_MIGRATION" ] && [ "$LIVE_MIGRATION" != unknown ] \
+     && [ "$DUMP_MIGRATION" != "$LIVE_MIGRATION" ]; then
+    log "WARNING: this dump predates the migrations this cluster has applied."
+    log "Restore it, then run 'pnpm db:deploy' against ${TARGET} before using it."
+  fi
+else
+  log "WARNING: no manifest.txt in this backup - cannot tell which migration it was taken at"
+fi
+
 log "creating ${TARGET}"
 docker compose exec -T postgres psql -U "$PGUSER" -d postgres \
   -c "DROP DATABASE IF EXISTS \"${TARGET}\";" \

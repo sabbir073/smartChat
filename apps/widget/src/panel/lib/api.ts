@@ -13,6 +13,14 @@ export interface BootstrapResponse {
   agentsAvailable: boolean;
   /** The largest file this deployment accepts. Sent by the server rather than guessed here. */
   maxUploadBytes: number;
+  /**
+   * Whether to show "Powered by SmartChat".
+   *
+   * The server decides. Branding removal is something a plan sells, and this widget runs on the
+   * customer's own page - a flag it worked out for itself would be one line of JavaScript away
+   * from being worked out differently.
+   */
+  showBranding: boolean;
 }
 
 export class WidgetApiError extends Error {

@@ -1340,3 +1340,137 @@ customer's integration cannot spend another's budget from a shared address. Anon
 refused before the limiter runs, so an unauthenticated flood is still the edge proxy's problem —
 which is where it belongs, and where ADR-082 already put it.
 **Date** 2026-08-31
+
+---
+## ADR-087 — Billing is a port with one honest implementation, not a Stripe integration deferred
+**Context** The product had plans in the database and no way for a customer to be on one, change
+one, or pay for one. The obvious move was to wire in a card processor; the obvious problem was that
+doing so would put a third party, a set of secrets and a webhook endpoint between us and every test
+of the subscription behaviour, before any of that behaviour existed to test.
+**Chosen** A `BillingProvider` interface — request a change, apply a decided change, cancel, resume,
+invoice a period — with `ManualBillingProvider` behind it. A customer chooses a plan, an operator
+approves it in the console, invoices are written when a period rolls over and marked paid when
+somebody records the payment.
+**Reason** Everything that makes a subscription *mean* something — entitlements, limits, the pause
+behaviour, usage, invoices, the customer's billing screen — is above the seam and is exercised end
+to end today with no external dependency. The manual provider is not a placeholder: approving plan
+changes and recording bank transfers is how a great deal of B2B software is actually sold. A card
+processor implements the same five methods and changes nothing above them.
+**What follows** The interface talks about intent (`requestChange`) rather than mechanism (`create a
+checkout session`), so a provider is free to answer with an approval queue, an immediate switch or a
+redirect. `PlanChangeOutcome` carries a `redirect` case that the manual provider never returns,
+because the shape has to exist before the second implementation does or adding it becomes a
+breaking change. Approval and self-serve both end in `applyApprovedChange`, so a subscription only
+ever moves between plans down one path.
+**Date** 2026-08-31
+
+---
+## ADR-088 — Over a limit means read-only, never removed
+**Context** A downgrade, a lapsed payment or a cancellation all leave an account holding more than
+its plan covers. The cheap answer is to delete the excess — the fourth website, the conversations
+past the retention window, the eleventh agent. The cheap answer is also how a customer loses work
+over an invoice they never saw.
+**Chosen** Pause, never destroy. Nothing is deleted, unpublished or edited. A paused account keeps
+every read — the inbox, the transcripts, the exports, the reports — and loses only the ability to
+write. Websites past the allowance stop taking *new* conversations, oldest-first so which ones keep
+serving is predictable; everything on them stays intact and comes back whole when the plan does.
+**Reason** A lapsed invoice is a commercial problem. Holding somebody's support history hostage over
+one is not a remedy, it is a hostage — and it is irreversible in a way the missed payment is not.
+Read-only is recoverable from in one click by both sides.
+**What follows** The write refusal is applied once, in the tenant authentication hook, so a route
+written next month is covered on the day it ships; `/billing/*` is the deliberate hole, because an
+account that cannot reach its own billing screen can never stop being paused. Which websites keep
+serving is oldest-first rather than by traffic or by name, because a customer has to be able to
+predict it without asking. `resume` has to work on an already-paused subscription and not only on
+one still inside its period — the first version refused that and made pausing a one-way door.
+The visitor-facing refusal is the same `PROPERTY_NOT_FOUND` a deleted website gives: a stranger on
+somebody else's page has no business learning that the owner is behind on a bill.
+**Date** 2026-08-31
+
+---
+## ADR-089 — Every account is given a subscription the moment it is created
+**Context** Registration created an account, its roles and its owner membership, and no
+subscription. `EntitlementService` reads limits from the subscription's plan; with no subscription
+there were no limits, and an absent limit means unlimited. So every account ever created through
+the product's own sign-up was silently on an unmetered plan, while the pricing page advertised
+limits and the code read as though it enforced them.
+**Chosen** `ensureSubscription` runs inside account creation, giving a fourteen-day trial on the
+full product. When the trial ends the subscription falls back to the free plan rather than
+activating the paid one nobody agreed to pay for. `EntitlementService` falls back to the cheapest
+published plan when no subscription row exists at all, and a data migration backfills accounts
+created before this.
+**Reason** Three layers because the failure was silent and expensive. The creation path is the fix;
+the entitlement fallback means a row lost to a restore or a manual edit fails closed rather than
+handing out the whole product; the migration repairs what already exists. Falling back to *free*
+rather than to *nothing* is the load-bearing half — "nothing" was the bug.
+**What follows** A trial on the free plan would be a trial of nothing, so the trial runs on Pro and
+lands on Free. Nothing is deleted at the end of it: whatever was built during the trial stays, and
+anything past the free plan's limits becomes read-only under ADR-088 — the same rule a lapse
+follows, applied to the one moment every customer goes through. A database with no plans at all
+makes account creation fail loudly, because the alternative is an account with no entitlements,
+which is where this started.
+**Date** 2026-08-31
+
+---
+## ADR-090 — The job-to-queue map is keyed by `JobName`, so an unrouted job cannot compile
+**Context** `QUEUE_FOR_JOB` was `Record<string, QueueName>`, maintained by hand. Phase 15 added two
+job names — `email.billing` and `maintenance.subscription_lifecycle` — and did not add them here.
+Nothing failed to compile. What happened instead was worse than a missing job: the worker schedules
+its repeatable jobs at boot, scheduling an unrouted job throws, and the **whole worker process
+refused to start**. Every email in the product stopped — invitations, ticket notifications,
+password resets — along with every webhook delivery. Three E2E suites went red in ways that pointed
+at email templates and webhook signing, none of which were wrong.
+**Chosen** `Record<JobName, QueueName>`. A job name added to `JobPayloadMap` without a queue is now
+a type error at the point it is introduced.
+**Reason** The map is the kind of thing that is obviously complete on the day it is written and
+quietly incomplete six months later. `Record<string, ...>` accepts any key and demands none, which
+is precisely the wrong shape for an exhaustive routing table. This is the same argument as making
+`PlanGuard` a required constructor option rather than an optional one: put the obligation where the
+compiler can see it.
+**What follows** The runtime `throw` stays. It is now unreachable from TypeScript, but it is the
+only thing standing between a JavaScript caller and a silently dropped job, and it costs one
+comparison. The blast radius is also worth naming: one unrouted job takes down the entire worker,
+because scheduling happens at startup. That is the right failure — loud, immediate, and visible in
+the container's health status — but it means this map is load-bearing far beyond the job it omits.
+**Date** 2026-09-01
+
+---
+## ADR-091 — The route map in `API.md` is the routes, not the plan
+**Context** `API.md` §5 was headed "Route map (target)" and had been written in phase 0. Fifteen
+phases later it documented the Platform surface at `/api/v1/admin/...` — which has never
+existed — and named about twenty endpoints the router does not register: `/webhooks` instead of
+`/integrations/webhooks`, `/account/members/invite` instead of `POST /team/members`,
+`/conversations/:id/close` instead of a `PATCH`, `GET /visitors`, `POST /widget/messages`. The
+word "(target)" was doing a lot of work that nobody reading it would notice.
+**Chosen** Replace it with the actual route table, enumerated from the route files, and drop the
+qualifier. Same for the surfaces table's `/admin` prefix.
+**Reason** A route map is not prose about intentions — it is the thing somebody builds a client
+against, and one that is aspirational in places nobody can identify is worse than none at all.
+This is the documentation form of the failure this project keeps finding in code: something that
+reads as a promise and is not connected to anything.
+**What follows** Rule 4 was rewritten in the same pass. It said "every mutating route is rate
+limited", which pointed at the named `mutation` budget — consumed by three routes out of about
+sixty. That is not false, because ADR-086's `dashboardApi` floor covers every authenticated
+request, but it named the wrong mechanism. The rule now says which limit actually does the work
+and which routes carry a tighter one on top.
+**Date** 2026-09-01
+
+---
+## ADR-092 — A required secret must be one somebody can rotate to some effect
+**Context** `SESSION_SECRET`, `JWT_SECRET` and `ENCRYPTION_KEY` were all mandatory 32-character
+secrets, validated at boot, refused as placeholders in production, and read by **nothing**.
+Sessions are opaque random tokens compared by hash and need no signing key; there are no JWTs in
+this product; and the AES-GCM module `ENCRYPTION_KEY` existed for was called from nowhere but its
+own test. `ACCESS_TOKEN_TTL_MINUTES` and `DATABASE_POOL_MAX` were the same shape.
+**Chosen** Remove the three secrets and the token TTL from the config schema and from every
+compose file and example; delete the unreachable encryption module; and make `DATABASE_POOL_MAX`
+actually apply, by putting `connection_limit` on the connection string in `createPrismaClient` —
+the only place Prisma reads it from, which is why it had never done anything.
+**Reason** A required secret that has no effect is worse than an absent one, in a specific way:
+an operator who rotates it after a suspected compromise believes they have changed something.
+`VISITOR_TOKEN_SECRET` stays, because rotating it really does invalidate every visitor token.
+**What follows** A test in `packages/config` now asserts that the secrets schema contains
+`VISITOR_TOKEN_SECRET` and does *not* contain the other three, so any one of them coming back has
+to come back with a reader. The encryption module is recoverable from git if 2FA is ever built;
+what is not acceptable is shipping the key requirement before the feature.
+**Date** 2026-09-01

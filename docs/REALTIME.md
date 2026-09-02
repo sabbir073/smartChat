@@ -48,12 +48,22 @@ Client → server (`/agent`):
 `message:read`, `presence:set`, `sync:since`
 
 Server → client:
-`message:new`, `message:ack`, `message:updated`, `conversation:created`,
-`conversation:updated`, `conversation:assigned`, `conversation:closed`,
-`typing`, `presence:agent`, `presence:visitor`, `visitor:updated`, `error`
+`message:new`, `conversation:created`, `conversation:updated`, `conversation:assigned`,
+`conversation:closed`, `typing`, `presence:agent`, `presence:visitor`,
+`presence:agents_available`
 
-Every event name and payload is a Zod schema in `@smartchat/validation`. Unknown events are ignored;
-malformed payloads produce an `error` event and count toward the socket's abuse budget.
+That list is exactly `ServerEvent`, and every member of it is emitted somewhere. It used to name
+four more — `message:ack`, `message:updated`, `visitor:updated` and `error` — none of which the
+server has ever sent, so a client written from this page would have listened for events that never
+arrive.
+
+There is no `error` **event**, and there is no `message:ack` event either. Both are the same
+mechanism: every client→server event carries a Socket.IO acknowledgement callback, and the server
+answers through it — `{ ok: true, data }` or `{ ok: false, error: { code, message } }`. A send is
+confirmed on that callback, and a malformed payload is refused on it. Unknown event names are
+ignored. Both count toward the socket's abuse budget.
+
+Every event name and payload is a Zod schema in `@smartchat/validation`.
 
 ## 5. Message send path
 
@@ -89,8 +99,13 @@ those properties. See ADR-022.
 ## 6. Reconnect and resync
 
 On reconnect the client sends `sync:since { conversationId, lastSeq }`. The server replays every
-message with `seq > lastSeq` from Postgres, then re-sends current presence and typing state. This is
-why ordering uses `seq` and not timestamps: replay is exact, with no clock-skew ambiguity.
+message with `seq > lastSeq` from Postgres. This is why ordering uses `seq` and not timestamps:
+replay is exact, with no clock-skew ambiguity.
+
+Presence and typing are **not** replayed, and deliberately so. Both are Redis keys with a
+45-second and a 6-second TTL; anything worth knowing about either arrives on its own within one
+heartbeat, and re-sending a typing indicator captured at the moment of a reconnect would show a
+dot for somebody who stopped typing while the socket was down.
 
 Backoff: 500 ms base, ×1.6, capped at 30 s, ±20 % jitter, unlimited attempts while the tab is
 visible.
@@ -108,9 +123,25 @@ Agent *availability* (the deliberate online/away choice) **is** persisted, becau
 
 ## 8. Abuse control
 
-Per socket: connection rate limit per IP, message rate limit per visitor and per property, maximum
-payload size, maximum rooms, and a strike counter that disconnects and temporarily bans on repeated
-violations. All counters live in Redis and are shared across gateway instances.
+On the visitor namespace:
+
+- A **message rate limit per visitor and per property**, both Redis sliding windows shared across
+  gateway instances (`visitorMessage`, `propertyMessage` in `RATE_LIMITS`).
+- A **strike counter**, in Redis, keyed by **visitor** and expiring after fifteen minutes. Ten
+  strikes disconnects the socket. Keyed by visitor rather than by socket, and in Redis rather than
+  in the process, because it was neither of those to begin with: the count lived in a `Map` on one
+  replica under the socket id, so reconnecting reset it — and reconnecting is precisely what the
+  tenth strike provokes.
+- A **payload size limit**, from Socket.IO's `maxHttpBufferSize`.
+
+Deliberately not present, and named here rather than implied: there is **no connection rate limit
+per IP** on the gateway (a connection needs a single-use ticket minted by the rate-limited API,
+which is the budget that actually applies), **no cap on room membership**, and a strike does not
+ban — it disconnects. A ban is a separate, deliberate act by an agent, and it survives a reload;
+see `SECURITY.md`.
+
+The agent namespace has no abuse guard. Its sockets are authenticated members of an account, and
+the limits that matter to them are applied where their actions are: the API and the plan.
 
 ## 9. What we explicitly do not do
 

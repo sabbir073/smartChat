@@ -95,17 +95,27 @@ export const createWebhookSchema = z.object({
   enabled: z.boolean().default(true),
 });
 
-export const updateWebhookSchema = z
-  .object({
-    name: z.string().trim().min(1).max(80).optional(),
-    url: webhookUrlSchema.optional(),
-    events: z
-      .array(z.enum(WEBHOOK_EVENT_VALUES as [string, ...string[]]))
-      .min(1)
-      .optional(),
-    enabled: z.boolean().optional(),
-  })
-  .refine((value) => Object.keys(value).length > 0, 'Nothing to update');
+/**
+ * The updatable fields, before the "did you actually change anything" refinement.
+ *
+ * Exported separately because `.refine()` produces a `ZodEffects`, which has no `.extend()` - and
+ * the API needs to swap in the relaxed URL rule for development. Without this the relaxation
+ * covered create and not update, so in development you could point a webhook at a local receiver
+ * when you made it and then never move it.
+ */
+export const updateWebhookFields = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  url: webhookUrlSchema.optional(),
+  events: z
+    .array(z.enum(WEBHOOK_EVENT_VALUES as [string, ...string[]]))
+    .min(1)
+    .optional(),
+  enabled: z.boolean().optional(),
+});
+
+export const notEmpty = (value: object): boolean => Object.keys(value).length > 0;
+
+export const updateWebhookSchema = updateWebhookFields.refine(notEmpty, 'Nothing to update');
 
 export type CreateApiKeyInput = z.infer<typeof createApiKeySchema>;
 export type CreateWebhookInput = z.infer<typeof createWebhookSchema>;

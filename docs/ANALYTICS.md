@@ -106,9 +106,17 @@ POST /api/v1/reports/rebuild   { from, to }
 ```
 
 `report:view` for the three reads; owners, administrators and managers have it by default.
-Everything is property-scoped: a restricted agent's overview covers only the websites they work on,
-and asking for one they do not is a **404**, not a filtered zero — a filtered zero would tell them
-the website exists and is quiet.
+
+The overview and the article report are property-scoped: a restricted agent's numbers cover only
+the websites they work on, and asking for one they do not is a **404**, not a filtered zero — a
+filtered zero would tell them the website exists and is quiet.
+
+The **agent report is not**, and cannot be. `daily_agent_metrics` counts an agent's messages,
+closes and replies per agent; there is no property column to filter on, because an agent's day is
+not divisible by website. So a member restricted to particular websites is **refused** it with a
+403 rather than shown account-wide figures. This page used to say "everything is property-scoped",
+which was true of two reads out of three, and the third was quietly showing scoped members every
+colleague's totals.
 
 Dates are `YYYY-MM-DD`, not timestamps. A report is asked for in days, and accepting an instant
 would invite a client to send its browser's midnight and get back a window nobody worked. Ranges

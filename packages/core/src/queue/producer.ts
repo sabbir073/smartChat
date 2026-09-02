@@ -2,14 +2,26 @@ import { Queue, type JobsOptions } from 'bullmq';
 import type { RedisClient } from '../redis/client.js';
 import { DEFAULT_JOB_OPTIONS, QueueName, type JobName, type JobPayloadMap } from './jobs.js';
 
-const QUEUE_FOR_JOB: Record<string, QueueName> = {
+/**
+ * Which queue each job belongs to.
+ *
+ * Typed as `Record<JobName, QueueName>` and not `Record<string, ...>`, so adding a job name
+ * without adding it here does not compile. It used to be string-keyed, and the consequence was
+ * not a missing job - it was the **whole worker process refusing to start**, at boot, because
+ * scheduling an unregistered job throws. Two new billing jobs shipped, the worker died on start,
+ * and every email in the product silently stopped: invitations, ticket notifications, password
+ * resets. A map the compiler cannot check is a map somebody will one day not finish.
+ */
+const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'email.send': QueueName.EMAIL,
+  'email.billing': QueueName.EMAIL,
   'analytics.rollup': QueueName.ANALYTICS,
   'webhook.deliver': QueueName.WEBHOOK,
   'webhook.sweep': QueueName.WEBHOOK,
   'maintenance.purge_expired_sessions': QueueName.MAINTENANCE,
   'maintenance.purge_expired_tokens': QueueName.MAINTENANCE,
   'maintenance.apply_retention': QueueName.MAINTENANCE,
+  'maintenance.subscription_lifecycle': QueueName.MAINTENANCE,
 };
 
 /**

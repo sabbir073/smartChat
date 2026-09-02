@@ -36,9 +36,32 @@ function assignIds(node: unknown): void {
 
 export interface CreatePrismaOptions {
   databaseUrl: string;
+  /**
+   * Connections this process may hold.
+   *
+   * Applied by rewriting the connection string, because that is the only place Prisma reads it
+   * from - which is exactly why `DATABASE_POOL_MAX` was configured, validated and required by
+   * three processes for fifteen phases without changing anything. A URL that already names
+   * `connection_limit` wins, so an operator who tuned it there is not silently overridden.
+   */
+  poolMax?: number;
   logQueries?: boolean;
   onQuery?: (event: Prisma.QueryEvent) => void;
   onWarning?: (message: string) => void;
+}
+
+/** Put `connection_limit` on the URL unless it is already there. */
+export function withPoolLimit(databaseUrl: string, poolMax: number | undefined): string {
+  if (poolMax === undefined) return databaseUrl;
+  try {
+    const url = new URL(databaseUrl);
+    if (url.searchParams.has('connection_limit')) return databaseUrl;
+    url.searchParams.set('connection_limit', String(poolMax));
+    return url.toString();
+  } catch {
+    // An unparseable URL is the connection's problem to report, not this helper's.
+    return databaseUrl;
+  }
 }
 
 /**
@@ -49,7 +72,7 @@ export interface CreatePrismaOptions {
  */
 export function createPrismaClient(options: CreatePrismaOptions) {
   const base = new PrismaClient({
-    datasources: { db: { url: options.databaseUrl } },
+    datasources: { db: { url: withPoolLimit(options.databaseUrl, options.poolMax) } },
     log: options.logQueries
       ? [
           { emit: 'event', level: 'query' },

@@ -1,4 +1,3 @@
-export * from './crypto/encryption.js';
 export * from './crypto/password.js';
 export * from './crypto/tokens.js';
 export * from './mail/index.js';
@@ -45,5 +44,12 @@ export * from './services/api-key.service.js';
 export * from './services/platform.service.js';
 export * from './services/retention.service.js';
 export * from './services/webhook.service.js';
+export * from './services/plan-guard.js';
+export * from './mail/billing-templates.js';
+export * from './billing/bootstrap.js';
+export * from './billing/periods.js';
+export * from './billing/provider.js';
+export * from './billing/manual-provider.js';
+export * from './services/subscription.service.js';
 export * from './integrations/outbound.js';
 export * from './integrations/signature.js';

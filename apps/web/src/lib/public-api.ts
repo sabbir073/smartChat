@@ -67,3 +67,28 @@ export async function publicApiGet<T>(
 
   return envelope.data;
 }
+
+/**
+ * A plan, as the pricing page consumes it.
+ *
+ * Mirrors `PublicPlanDto` on the API. Kept as a hand-written interface rather than imported from
+ * the API package because the marketing site is a *client* of that contract, and a client that
+ * imports the server's own type stops noticing when the contract changes.
+ */
+export interface PublicPlan {
+  code: string;
+  name: string;
+  tagline: string | null;
+  priceMonthlyCents: number;
+  priceYearlyCents: number;
+  currency: string;
+  isContactSales: boolean;
+  annualSavingMonths: number;
+  limits: Record<string, number | null>;
+  features: Record<string, boolean>;
+}
+
+/** Every publicly listed plan, in display order. */
+export async function fetchPublicPlans(): Promise<PublicPlan[]> {
+  return publicApiGet<PublicPlan[]>('/public/plans');
+}

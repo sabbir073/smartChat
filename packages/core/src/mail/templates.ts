@@ -21,7 +21,7 @@ function escapeHtml(value: string): string {
  * Table-based layout with inline styles, because email clients remain the least capable rendering
  * targets we ship to — flexbox and external stylesheets are not reliable there.
  */
-function layout(brand: BrandContext, heading: string, bodyHtml: string): string {
+export function layout(brand: BrandContext, heading: string, bodyHtml: string): string {
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -45,7 +45,7 @@ If it wasn't you, you can safely ignore this email.
 </td></tr></table></body></html>`;
 }
 
-function button(url: string, label: string): string {
+export function button(url: string, label: string): string {
   return `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;"><tr>
 <td style="background:#2f6fed;border-radius:8px;">
 <a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 22px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">${escapeHtml(label)}</a>
@@ -54,7 +54,7 @@ function button(url: string, label: string): string {
 <p style="margin:0;font-size:13px;color:#2f6fed;word-break:break-all;">${escapeHtml(url)}</p>`;
 }
 
-const paragraph = (text: string) =>
+export const paragraph = (text: string) =>
   `<p style="margin:0 0 14px;font-size:15px;line-height:1.6;color:#3c4149;">${escapeHtml(text)}</p>`;
 
 export function verifyEmailTemplate(

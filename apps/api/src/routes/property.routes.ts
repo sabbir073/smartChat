@@ -19,13 +19,20 @@ const domainParam = z.object({ id: z.string().uuid(), domainId: z.string().uuid(
 export async function propertyRoutes(app: FastifyInstance, container: Container): Promise<void> {
   app.addHook('preHandler', app.authenticateTenant);
 
+  /** Whether one website is inside the plan's allowance and the subscription is live. */
+  const serves = (accountId: string, propertyId: string): Promise<boolean> =>
+    container.plans.isPropertyServing(accountId, propertyId);
+
   app.get('/properties', async (request, reply) => {
     const tenant = requireTenant(request);
     const query = parseQuery(listPropertiesSchema, request.query);
     const page = await container.properties.list(tenant, query);
+    // One query for the whole page rather than one per row: the answer is the same set for every
+    // property in the account, and asking eight times would be eight times the same answer.
+    const serving = new Set(await container.plans.servingPropertyIds(tenant.accountId));
     return ok(
       reply,
-      page.items.map(toPropertyDto),
+      page.items.map((property) => toPropertyDto(property, serving.has(property.id))),
       page.meta as unknown as Record<string, unknown>,
     );
   });
@@ -35,20 +42,29 @@ export async function propertyRoutes(app: FastifyInstance, container: Container)
     await app.rateLimit(request, 'mutation', `account:${tenant.accountId}`);
     const input = parseBody(createPropertySchema, request.body);
     const property = await container.properties.create(tenant, input);
-    return created(reply, toPropertyDto(property));
+    return created(reply, toPropertyDto(property, await serves(tenant.accountId, property.id)));
   });
 
   app.get('/properties/:id', async (request, reply) => {
     const tenant = requireTenant(request);
     const { id } = parseParams(idParam, request.params);
-    return ok(reply, toPropertyDto(await container.properties.get(tenant, id)));
+    return ok(
+      reply,
+      toPropertyDto(await container.properties.get(tenant, id), await serves(tenant.accountId, id)),
+    );
   });
 
   app.patch('/properties/:id', async (request, reply) => {
     const tenant = requireTenant(request);
     const { id } = parseParams(idParam, request.params);
     const input = parseBody(updatePropertySchema, request.body);
-    return ok(reply, toPropertyDto(await container.properties.update(tenant, id, input)));
+    return ok(
+      reply,
+      toPropertyDto(
+        await container.properties.update(tenant, id, input),
+        await serves(tenant.accountId, id),
+      ),
+    );
   });
 
   app.delete('/properties/:id', async (request, reply) => {
@@ -68,13 +84,25 @@ export async function propertyRoutes(app: FastifyInstance, container: Container)
     const tenant = requireTenant(request);
     const { id } = parseParams(idParam, request.params);
     const input = parseBody(addDomainSchema, request.body);
-    return created(reply, toPropertyDto(await container.properties.addDomain(tenant, id, input)));
+    return created(
+      reply,
+      toPropertyDto(
+        await container.properties.addDomain(tenant, id, input),
+        await serves(tenant.accountId, id),
+      ),
+    );
   });
 
   app.delete('/properties/:id/domains/:domainId', async (request, reply) => {
     const tenant = requireTenant(request);
     const { id, domainId } = parseParams(domainParam, request.params);
-    return ok(reply, toPropertyDto(await container.properties.removeDomain(tenant, id, domainId)));
+    return ok(
+      reply,
+      toPropertyDto(
+        await container.properties.removeDomain(tenant, id, domainId),
+        await serves(tenant.accountId, id),
+      ),
+    );
   });
 
   // ---------------------------------------------------------------------------

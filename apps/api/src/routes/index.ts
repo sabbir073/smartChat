@@ -3,6 +3,7 @@ import type { Container } from '../container.js';
 import { accountRoutes } from './account.routes.js';
 import { authRoutes } from './auth.routes.js';
 import { automationRoutes } from './automation.routes.js';
+import { billingRoutes, publicPlanRoutes } from './billing.routes.js';
 import { contactRoutes } from './contact.routes.js';
 import { conversationRoutes } from './conversation.routes.js';
 import { integrationRoutes } from './integration.routes.js';
@@ -38,6 +39,10 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       await v1.register(async (scoped) => ticketRoutes(scoped, container));
       await v1.register(async (scoped) => reportRoutes(scoped, container));
       await v1.register(async (scoped) => integrationRoutes(scoped, container));
+      await v1.register(async (scoped) => billingRoutes(scoped, container));
+      // The pricing page is read by strangers, so this gets its own scope with no auth hook -
+      // the same reasoning as the public help centre below.
+      await v1.register(async (scoped) => publicPlanRoutes(scoped, container));
       // The platform console: its own scope, its own cookie, its own principal. It must not
       // inherit the tenant authentication hook, and a tenant session must never reach it.
       await v1.register(async (scoped) => platformRoutes(scoped, container));

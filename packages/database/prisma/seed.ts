@@ -38,7 +38,12 @@ const PLANS = [
   {
     code: 'free',
     name: 'Free',
+    tagline: 'Everything you need to answer your first thousand questions.',
     priceMonthlyCents: 0,
+    // Free is free either way. Stored rather than special-cased, so the pricing page can render
+    // every plan with one code path.
+    priceYearlyCents: 0,
+    isContactSales: false,
     sortOrder: 1,
     features: {
       max_properties: 1,
@@ -66,7 +71,12 @@ const PLANS = [
   {
     code: 'starter',
     name: 'Starter',
+    tagline: 'For a growing team that has outgrown one shared inbox.',
     priceMonthlyCents: 2900,
+    // Twelve months for the price of ten. The discount is stored, not computed, so changing it is
+    // a commercial decision somebody makes rather than a constant somebody finds.
+    priceYearlyCents: 29_000,
+    isContactSales: false,
     sortOrder: 2,
     features: {
       max_properties: 5,
@@ -94,7 +104,10 @@ const PLANS = [
   {
     code: 'pro',
     name: 'Pro',
+    tagline: 'Unlimited conversations, and the whole product switched on.',
     priceMonthlyCents: 9900,
+    priceYearlyCents: 99_000,
+    isContactSales: false,
     sortOrder: 3,
     features: {
       max_properties: 50,
@@ -106,6 +119,45 @@ const PLANS = [
       max_triggers: null,
       max_shortcuts: null,
       max_api_requests_per_day: 1_000_000,
+      max_conversation_history_days: null,
+    },
+    flags: {
+      feature_knowledge_base: true,
+      feature_tickets: true,
+      feature_triggers: true,
+      feature_webhooks: true,
+      feature_public_api: true,
+      feature_remove_branding: true,
+      feature_custom_roles: true,
+      feature_file_attachments: true,
+    },
+  },
+  /**
+   * Enterprise is a real plan row with real entitlements, and deliberately not self-serve.
+   *
+   * `isContactSales` is what makes that honest rather than decorative: the pricing page shows
+   * "Talk to us" instead of a price, and the API refuses a change request naming it. An operator
+   * assigns it in the console after an actual conversation. A plan a customer could select and
+   * then not be charged for would be exactly the fake button this project does not ship.
+   */
+  {
+    code: 'enterprise',
+    name: 'Enterprise',
+    tagline: 'Volume, procurement, and an agreement written for you.',
+    priceMonthlyCents: 0,
+    priceYearlyCents: 0,
+    isContactSales: true,
+    sortOrder: 4,
+    features: {
+      max_properties: null,
+      max_agents: null,
+      max_monthly_conversations: null,
+      max_storage_bytes: null,
+      max_kb_articles: null,
+      max_webhooks: null,
+      max_triggers: null,
+      max_shortcuts: null,
+      max_api_requests_per_day: null,
       max_conversation_history_days: null,
     },
     flags: {
@@ -214,9 +266,16 @@ async function seedPlans(): Promise<Map<string, string>> {
   for (const plan of PLANS) {
     const record = await prisma.plan.upsert({
       where: { code: plan.code },
+      // Every field is in `update` as well as `create`. A seed that only sets a column on first
+      // insert silently stops maintaining it, and the price on an existing environment then
+      // disagrees with the price in this file - which is the sort of drift nobody notices until a
+      // customer is billed for it.
       update: {
         name: plan.name,
+        tagline: plan.tagline,
         priceMonthlyCents: plan.priceMonthlyCents,
+        priceYearlyCents: plan.priceYearlyCents,
+        isContactSales: plan.isContactSales,
         sortOrder: plan.sortOrder,
       },
       create: {
@@ -224,7 +283,10 @@ async function seedPlans(): Promise<Map<string, string>> {
         code: plan.code,
         name: plan.name,
         description: `${plan.name} plan`,
+        tagline: plan.tagline,
         priceMonthlyCents: plan.priceMonthlyCents,
+        priceYearlyCents: plan.priceYearlyCents,
+        isContactSales: plan.isContactSales,
         sortOrder: plan.sortOrder,
       },
     });

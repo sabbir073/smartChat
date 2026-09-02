@@ -79,9 +79,37 @@ enum SubscriptionStatus {
   trialing
   active
   past_due
+  /// Over its grace window and unpaid, or cancelled and past its period. Service is reduced to
+  /// read-only; no data is removed. See ADR-088.
+  paused
   canceled
 
   @@map("subscription_status")
+}
+
+enum BillingInterval {
+  monthly
+  yearly
+
+  @@map("billing_interval")
+}
+
+enum PlanChangeStatus {
+  pending
+  approved
+  rejected
+  /// Withdrawn by the customer before anybody decided.
+  withdrawn
+
+  @@map("plan_change_status")
+}
+
+enum InvoiceStatus {
+  issued
+  paid
+  void
+
+  @@map("invoice_status")
 }
 
 enum ConversationStatus {
@@ -271,13 +299,24 @@ model Plan {
   description       String?
   isPublic          Boolean  @default(true) @map("is_public")
   priceMonthlyCents Int      @default(0) @map("price_monthly_cents")
+  /// The price for twelve months paid at once, in cents. Stored rather than derived, because a
+  /// discount is a commercial decision and not a formula somebody has to reverse-engineer.
+  priceYearlyCents  Int      @default(0) @map("price_yearly_cents")
   currency          String   @default("USD") @db.Char(3)
+  /// One line under the plan name on the pricing page. Copy lives with the plan, not in the page.
+  tagline           String?
+  /// A plan nobody can select themselves: the pricing page shows "Talk to us" instead of a price,
+  /// and a change request naming it is refused.
+  isContactSales    Boolean  @default(false) @map("is_contact_sales")
   sortOrder         Int      @default(0) @map("sort_order")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  features      PlanFeature[]
-  subscriptions Subscription[]
+  features       PlanFeature[]
+  subscriptions  Subscription[]
+  changesFrom    PlanChangeRequest[] @relation("PlanChangeFrom")
+  changesTo      PlanChangeRequest[] @relation("PlanChangeTo")
+  invoices       Invoice[]
 
   @@map("plans")
 }
@@ -437,6 +476,8 @@ model Account {
    * per account - a person quoting "ticket 412" is quoting something that exists exactly once.
    */
   ticketSeq         Int           @default(0) @map("ticket_seq")
+  /// The same idea for invoices. "Invoice 7" must resolve to exactly one document.
+  invoiceSeq        Int           @default(0) @map("invoice_seq")
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
@@ -451,6 +492,8 @@ model Account {
   auditLogs         AuditLog[]
   tokens            VerificationToken[]
   subscription      Subscription?
+  planChanges       PlanChangeRequest[]
+  invoices          Invoice[]
   usage             UsageRecord[]
   triggers          Trigger[]
   shortcuts         Shortcut[]
@@ -671,18 +714,106 @@ model Subscription {
   accountId          String             @unique @map("account_id") @db.Uuid
   planId             String             @map("plan_id") @db.Uuid
   status             SubscriptionStatus @default(trialing)
+  interval           BillingInterval    @default(monthly)
   currentPeriodStart DateTime           @map("current_period_start") @db.Timestamptz(6)
   currentPeriodEnd   DateTime           @map("current_period_end") @db.Timestamptz(6)
   trialEndsAt        DateTime?          @map("trial_ends_at") @db.Timestamptz(6)
   cancelAtPeriodEnd  Boolean            @default(false) @map("cancel_at_period_end")
   canceledAt         DateTime?          @map("canceled_at") @db.Timestamptz(6)
+  /**
+   * When an unpaid subscription stops being tolerated.
+   *
+   * A period that ends without payment does not cut anybody off that evening: the subscription
+   * goes `past_due`, this is set, and service continues while it is in the future. Only when it
+   * passes does the account move to `paused` - and even then nothing is deleted. See ADR-088.
+   */
+  graceEndsAt        DateTime?          @map("grace_ends_at") @db.Timestamptz(6)
+  pausedAt           DateTime?          @map("paused_at") @db.Timestamptz(6)
+  /// Which billing implementation owns this subscription. `manual` means an operator does.
+  provider           String             @default("manual")
+  /// The provider's own id, when it has one. Null for `manual`.
+  externalId         String?            @map("external_id")
   createdAt          DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt          DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
   plan    Plan    @relation(fields: [planId], references: [id])
 
+  @@index([status, currentPeriodEnd])
+  @@index([status, graceEndsAt])
   @@map("subscriptions")
+}
+
+/**
+ * A customer asking to move plan, and the operator's answer.
+ *
+ * The request is a row rather than an immediate write because in the `manual` provider a plan
+ * change is a commercial event somebody has to agree to. It is also the audit trail: "who asked
+ * for Pro, when, and who approved it" is a question that gets asked, and a subscription row that
+ * simply changed cannot answer it.
+ */
+model PlanChangeRequest {
+  id              String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId       String            @map("account_id") @db.Uuid
+  fromPlanId      String            @map("from_plan_id") @db.Uuid
+  toPlanId        String            @map("to_plan_id") @db.Uuid
+  interval        BillingInterval   @default(monthly)
+  status          PlanChangeStatus  @default(pending)
+  /// The member who asked. Kept when they leave, so the record does not lose its author.
+  requestedByUserId String?         @map("requested_by_user_id") @db.Uuid
+  requestedByEmail  String?         @map("requested_by_email")
+  decidedByAdminId  String?         @map("decided_by_admin_id") @db.Uuid
+  decidedAt         DateTime?       @map("decided_at") @db.Timestamptz(6)
+  /// Why it was refused, or any note the operator left. Shown to the customer.
+  note              String?
+  createdAt         DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account  Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  fromPlan Plan    @relation("PlanChangeFrom", fields: [fromPlanId], references: [id])
+  toPlan   Plan    @relation("PlanChangeTo", fields: [toPlanId], references: [id])
+
+  @@index([accountId, createdAt])
+  @@index([status, createdAt])
+  @@map("plan_change_requests")
+}
+
+/**
+ * What was owed for one period.
+ *
+ * Written when a period is billed, not when it is paid, so an unpaid period is a row that says
+ * `issued` rather than an absence somebody has to infer. Numbers are per-account and gapless for
+ * the same reason ticket numbers are: "invoice 7" has to mean exactly one thing.
+ */
+model Invoice {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId      String        @map("account_id") @db.Uuid
+  number         Int
+  planId         String        @map("plan_id") @db.Uuid
+  planName       String        @map("plan_name")
+  interval       BillingInterval
+  amountCents    Int           @map("amount_cents")
+  currency       String        @default("USD") @db.Char(3)
+  status         InvoiceStatus @default(issued)
+  periodStart    DateTime      @map("period_start") @db.Timestamptz(6)
+  periodEnd      DateTime      @map("period_end") @db.Timestamptz(6)
+  issuedAt       DateTime      @default(now()) @map("issued_at") @db.Timestamptz(6)
+  paidAt         DateTime?     @map("paid_at") @db.Timestamptz(6)
+  voidedAt       DateTime?     @map("voided_at") @db.Timestamptz(6)
+  /// Free notes from whoever recorded the payment: a reference number, "paid by transfer", etc.
+  reference      String?
+  provider       String        @default("manual")
+  externalId     String?       @map("external_id")
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id])
+
+  @@unique([accountId, number])
+  @@index([accountId, issuedAt])
+  @@index([status, issuedAt])
+  @@map("invoices")
 }
 
 model UsageRecord {

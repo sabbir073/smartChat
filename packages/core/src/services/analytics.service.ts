@@ -86,7 +86,7 @@ export interface ArticleRow {
 }
 
 /** The most days one request may cover. A year of daily rows is a chart nobody can read anyway. */
-export const MAX_REPORT_DAYS = 366;
+const MAX_REPORT_DAYS = 366;
 
 function toDayString(value: Date): string {
   return value.toISOString().slice(0, 10);
@@ -530,8 +530,26 @@ export class AnalyticsService {
     return { from: fromDay, to: toDay, timezone, totals, series };
   }
 
+  /**
+   * Per-agent figures for the account.
+   *
+   * Refused outright for a member scoped to particular websites, rather than quietly answered
+   * with account-wide numbers. `daily_agent_metrics` has no property column - an agent's messages
+   * are counted per agent, not per website - so there is nothing to filter by, and `ANALYTICS.md`
+   * saying "everything is property-scoped" was true of the other two reads and not of this one.
+   *
+   * A scoped member asking for it was being shown every colleague's totals across websites they
+   * cannot otherwise see. Saying no is the honest answer; inventing a filtered number from data
+   * that cannot be filtered would be worse than either.
+   */
   async agents(context: TenantContext, input: { from: Date; to: Date }): Promise<AgentRow[]> {
     requirePermission(context, Permission.REPORT_VIEW);
+    if (context.propertyIds && context.propertyIds.size > 0) {
+      throw new AppError(
+        ErrorCode.FORBIDDEN,
+        'Per-agent reporting covers the whole account, so it is not available to a member scoped to particular websites.',
+      );
+    }
     const fromDay = toDayString(input.from);
     const toDay = toDayString(input.to);
 

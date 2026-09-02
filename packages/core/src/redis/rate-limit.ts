@@ -92,16 +92,7 @@ export class RateLimiter {
     }
   }
 
-  /** Inspect without consuming — used to render "try again in N seconds" without a penalty. */
-  async peek(key: string, rule: RateLimitRule): Promise<number> {
-    const now = this.clock.timestamp();
-    await this.redis.zremrangebyscore(`ratelimit:${key}`, 0, now - rule.windowMs);
-    return this.redis.zcard(`ratelimit:${key}`);
-  }
 
-  async reset(key: string): Promise<void> {
-    await this.redis.del(`ratelimit:${key}`);
-  }
 
   private async evaluate(key: string, args: string[]): Promise<unknown> {
     if (!this.scriptSha) {

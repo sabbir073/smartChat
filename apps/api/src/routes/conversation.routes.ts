@@ -10,6 +10,8 @@ import {
   updateConversationSchema,
 } from '@smartchat/validation';
 import type { Conversation, Visitor } from '@smartchat/database';
+import { Permission } from '@smartchat/types';
+import { requirePermission } from '@smartchat/core';
 import type { Container } from '../container.js';
 import { requireTenant } from '../plugins/auth.js';
 import { created, noContent, ok } from '../lib/reply.js';
@@ -199,6 +201,16 @@ export async function conversationRoutes(
 
   app.get('/presence/visitors', async (request, reply) => {
     const tenant = requireTenant(request);
+    /**
+     * The permission the API scope claims to expand to.
+     *
+     * `VISITOR_VIEW` was granted by two roles and by the `conversations:read` API scope, and then
+     * checked nowhere - so `INTEGRATIONS.md`'s promise that a scope "expands to real Permission
+     * values, so a key ends up going through exactly the checks a member does" was not true for
+     * this one. Property scoping below was doing all the work, which stops the wrong account but
+     * not a member whose role deliberately excludes seeing who is on the site.
+     */
+    requirePermission(tenant, Permission.VISITOR_VIEW);
     const query = parseQuery(z.object({ propertyId: z.string().uuid() }), request.query);
     // Property scoping is enforced by resolving the property through the tenant-scoped service
     // first; a property id from another account simply does not exist here.

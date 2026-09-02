@@ -646,7 +646,14 @@ export function App() {
         </>
       )}
 
-      {view !== 'chat' && <p className="footer">Powered by SmartChat</p>}
+      {/*
+        Branded until the plan says otherwise, and until the server has said so. `session` is null
+        before bootstrap answers, and defaulting to branded there means a plan that has not paid
+        for removal never gets a frame without it.
+      */}
+      {view !== 'chat' && (session?.showBranding ?? true) && (
+        <p className="footer">Powered by SmartChat</p>
+      )}
     </div>
   );
 }

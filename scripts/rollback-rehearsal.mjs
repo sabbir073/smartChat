@@ -300,8 +300,26 @@ async function main() {
    * every migration against a database that already has them - which fails loudly, but hours later
    * and in front of an audience.
    */
-  const ledger = Number(query(SCRATCH, 'SELECT count(*) FROM _prisma_migrations;'));
-  check('and the migration ledger came back with it', ledger === migrations.length, `${ledger}`);
+  /**
+   * Counted as "applied", not as "rows".
+   *
+   * `SELECT count(*)` was wrong and this rehearsal caught it on the first ledger that had ever
+   * had a failure in it: a migration that fails, is marked `--rolled-back` and is then fixed and
+   * reapplied leaves **two** rows for one directory, permanently and correctly. That is a normal
+   * ledger, not a broken restore, and a check that calls it a failure is a check somebody will
+   * eventually learn to ignore.
+   */
+  const ledger = Number(
+    query(
+      SCRATCH,
+      'SELECT count(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;',
+    ),
+  );
+  check(
+    'and the migration ledger came back with it',
+    ledger === migrations.length,
+    `${ledger} applied vs ${migrations.length} on disk`,
+  );
 
   spawnSync('docker', ['compose', 'exec', '-T', 'postgres', 'rm', '-f', '/tmp/rollback.dump']);
 

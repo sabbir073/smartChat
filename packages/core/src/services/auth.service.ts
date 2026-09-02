@@ -17,7 +17,6 @@ import { generateToken, hashToken } from '../crypto/tokens.js';
 import { LogMailProvider } from '../mail/log.provider.js';
 import type { MailProvider } from '../mail/provider.js';
 import {
-  invitationTemplate,
   passwordChangedTemplate,
   passwordResetTemplate,
   verifyEmailTemplate,
@@ -49,7 +48,6 @@ export interface AuthServiceOptions {
   sessionTtlMs?: number;
   verificationTtlMs?: number;
   passwordResetTtlMs?: number;
-  invitationTtlMs?: number;
   /** When true, new accounts skip email verification. Development and tests only. */
   autoVerifyEmail?: boolean;
 }
@@ -73,14 +71,12 @@ export class AuthService {
   private readonly sessionTtlMs: number;
   private readonly verificationTtlMs: number;
   private readonly passwordResetTtlMs: number;
-  private readonly invitationTtlMs: number;
 
   constructor(private readonly options: AuthServiceOptions) {
     this.clock = options.clock ?? systemClock;
     this.sessionTtlMs = options.sessionTtlMs ?? 30 * DAY;
     this.verificationTtlMs = options.verificationTtlMs ?? 24 * HOUR;
     this.passwordResetTtlMs = options.passwordResetTtlMs ?? 60 * MINUTE;
-    this.invitationTtlMs = options.invitationTtlMs ?? 7 * DAY;
   }
 
   // ---------------------------------------------------------------------------
@@ -457,40 +453,12 @@ export class AuthService {
   // ---------------------------------------------------------------------------
   // Invitations
   // ---------------------------------------------------------------------------
-
-  async sendInvitationEmail(input: {
-    email: string;
-    accountId: string;
-    accountName: string;
-    inviterName: string;
-    memberId: string;
-    meta: RequestMeta;
-  }): Promise<void> {
-    const tokens = new TokenRepository(this.options.db);
-    const now = this.clock.now();
-    await tokens.invalidateOutstanding(input.email, TokenPurpose.member_invitation, now);
-
-    const raw = generateToken();
-    await tokens.create({
-      purpose: TokenPurpose.member_invitation,
-      tokenHash: hashToken(raw),
-      email: input.email,
-      accountId: input.accountId,
-      expiresAt: addMs(now, this.invitationTtlMs),
-      metadata: { memberId: input.memberId },
-    });
-
-    await this.deliver(
-      invitationTemplate(this.options.brand, {
-        email: input.email,
-        inviterName: input.inviterName,
-        accountName: input.accountName,
-        url: `${this.options.brand.appUrl}/accept-invitation?token=${encodeURIComponent(raw)}`,
-        expiresInDays: Math.round(this.invitationTtlMs / DAY),
-      }),
-      input.meta,
-    );
-  }
+  //
+  // Not here. `TeamService.sendInvitation` owns this, and this class held a complete second
+  // implementation of it - invalidate outstanding tokens, mint a `member_invitation` token, send
+  // the mail - that nothing ever called. Two ways to issue a credential is one way too many: the
+  // day somebody tightens the expiry, or adds a rate limit, or starts logging invitations, they
+  // will do it to one of them.
 
   // ---------------------------------------------------------------------------
   // Internals

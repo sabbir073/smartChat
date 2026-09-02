@@ -110,10 +110,22 @@ export interface PropertyDto {
   installedAt: string | null;
   lastWidgetRequestAt: string | null;
   domains: { id: string; pattern: string; isWildcard: boolean }[];
+  /**
+   * Whether this website's widget is currently taking new conversations.
+   *
+   * False when the subscription is paused, or when a downgrade left the account with more
+   * websites than the plan covers and this is one of the excess. Nothing about the website has
+   * been deleted or changed - so the dashboard has to say which ones stopped, or the customer
+   * finds out from a visitor who could not reach them.
+   */
+  serving: boolean;
   createdAt: string;
 }
 
-export function toPropertyDto(property: Property & { domains?: PropertyDomain[] }): PropertyDto {
+export function toPropertyDto(
+  property: Property & { domains?: PropertyDomain[] },
+  serving: boolean,
+): PropertyDto {
   return {
     id: property.id,
     publicId: property.publicId,
@@ -132,6 +144,7 @@ export function toPropertyDto(property: Property & { domains?: PropertyDomain[] 
       pattern: domain.pattern,
       isWildcard: domain.isWildcard,
     })),
+    serving,
     createdAt: property.createdAt.toISOString(),
   };
 }

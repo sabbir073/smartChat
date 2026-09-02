@@ -1,6 +1,8 @@
 import type { Database } from '@smartchat/database';
 import type { StorageService } from '../storage/storage.service.js';
 import { systemClock, type Clock } from '../time.js';
+import { FeatureKey } from '@smartchat/types';
+import type { EntitlementService } from './entitlement.service.js';
 
 /**
  * Data retention.
@@ -30,6 +32,15 @@ export interface RetentionServiceOptions {
   db: Database;
   /** Optional: without it, the rows go and the objects behind them do not. See `deleteObjects`. */
   storage?: StorageService;
+  /**
+   * The plan's cap on how far back conversation history goes.
+   *
+   * Required, because `max_conversation_history_days` is sold on the pricing page - Free keeps
+   * ninety days, Pro keeps everything - and before this it was enforced nowhere. An account could
+   * set its own retention to null and keep history for ever on a plan that does not include it,
+   * which made the number on the pricing page decoration.
+   */
+  entitlements: EntitlementService;
   clock?: Clock;
 }
 
@@ -61,8 +72,9 @@ export class RetentionService {
   }
 
   async apply(): Promise<RetentionOutcome> {
+    // Every account, not only those with a policy of their own: the plan can impose one.
     const accounts = await this.options.db.account.findMany({
-      where: { deletedAt: null, dataRetentionDays: { not: null } },
+      where: { deletedAt: null },
       select: { id: true, dataRetentionDays: true },
     });
 
@@ -75,7 +87,22 @@ export class RetentionService {
     };
 
     for (const account of accounts) {
-      const days = account.dataRetentionDays;
+      /**
+       * The shorter of what the account asked for and what its plan includes.
+       *
+       * Both are real policies and they answer different questions. The account's own setting is
+       * a privacy promise it made to its customers; the plan's cap is what it is paying to keep.
+       * Whichever is shorter wins, because honouring the longer one would break the other.
+       */
+      const planCap = await this.options.entitlements.limit(
+        account.id,
+        FeatureKey.MAX_CONVERSATION_HISTORY_DAYS,
+      );
+      const candidates = [account.dataRetentionDays, planCap].filter(
+        (value): value is number => typeof value === 'number' && value >= 1,
+      );
+      const days = candidates.length > 0 ? Math.min(...candidates) : null;
+
       // Belt and braces: a zero or negative window would delete everything, including the
       // conversation somebody is having right now. A policy that aggressive has to be a
       // deliberate act somewhere else, not an accident of an unvalidated column.

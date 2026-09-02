@@ -34,6 +34,10 @@ export const urlsEnvSchema = z.object({
 
 export const databaseEnvSchema = z.object({
   DATABASE_URL: z.string().min(1).startsWith('postgres'),
+  /**
+   * Connections per process. Applied by `createPrismaClient`, which puts it on the connection
+   * string - Prisma has no other way to set it, which is why this sat unread for fifteen phases.
+   */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(500).default(20),
 });
 
@@ -41,13 +45,22 @@ export const redisEnvSchema = z.object({
   REDIS_URL: z.string().min(1).startsWith('redis'),
 });
 
+/**
+ * The secrets that actually do something.
+ *
+ * This used to also demand `SESSION_SECRET`, `JWT_SECRET`, `ENCRYPTION_KEY` and
+ * `ACCESS_TOKEN_TTL_MINUTES`, each validated as a mandatory 32-character secret and each read by
+ * exactly nothing: sessions are opaque random tokens compared by hash, there are no JWTs in this
+ * product, and the AES module the encryption key was for was never called from anywhere.
+ *
+ * A required secret that has no effect is worse than an absent one. It fails a deploy for no
+ * reason, and - the part that matters - an operator who rotates it after a suspected compromise
+ * believes they have changed something. `VISITOR_TOKEN_SECRET` stays, because it signs the
+ * visitor tokens the widget carries and rotating it really does invalidate them.
+ */
 export const secretsEnvSchema = z.object({
-  SESSION_SECRET: secret,
-  JWT_SECRET: secret,
   VISITOR_TOKEN_SECRET: secret,
-  ENCRYPTION_KEY: secret,
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
-  ACCESS_TOKEN_TTL_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
 });
 
 export const storageEnvSchema = z.object({

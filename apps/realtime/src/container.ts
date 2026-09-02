@@ -1,6 +1,9 @@
 import {
   AutomationRunner,
   ConversationService,
+  EntitlementService,
+  FeatureFlagService,
+  PlanGuard,
   PresenceService,
   WebhookService,
   RedisEventPublisher,
@@ -43,6 +46,7 @@ export interface RealtimeContainer {
 export function createRealtimeContainer(config: RealtimeConfig, logger: Logger): RealtimeContainer {
   const db = createPrismaClient({
     databaseUrl: config.DATABASE_URL,
+    poolMax: config.DATABASE_POOL_MAX,
     onWarning: (message) => logger.warn({ message }, 'database warning'),
   });
 
@@ -69,10 +73,32 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
    * has no queue producer - which costs the delivery up to a minute of latency and nothing else:
    * the row is durable, and the worker's sweep finds it.
    */
-  const webhooks = new WebhookService({ db, clock });
+
+  /**
+   * The plan guard, in the process where most conversations actually begin.
+   *
+   * This matters more here than anywhere else: the monthly conversation allowance is spent by a
+   * visitor opening the widget, which happens over a socket and never touches the API. A guard
+   * wired only into the API would leave the single most-used limit in the product unenforced.
+   */
+  const plans = new PlanGuard(db, new EntitlementService(db));
+
+  /**
+   * The platform's kill switches, in the gateway too.
+   *
+   * The `webhooks` flag is documented as stopping new deliveries being queued, and it did - in the
+   * API. The gateway constructed its WebhookService without `flags`, and the comment eight lines
+   * above says why that mattered: almost every conversation starts over a socket, so
+   * `conversation.started` and `conversation.closed` kept queueing after an operator threw the
+   * switch. A kill switch that covers some of the processes is not a kill switch.
+   */
+  const flags = new FeatureFlagService(db);
+
+  const webhooks = new WebhookService({ db, plan: plans, flags, clock });
 
   const conversations = new ConversationService({
     db,
+    plan: plans,
     events: new RedisEventPublisher(redis, (error) =>
       logger.error({ err: error }, 'failed to publish domain event'),
     ),

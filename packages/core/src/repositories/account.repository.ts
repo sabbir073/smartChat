@@ -3,6 +3,7 @@ import { MemberRole, MemberStatus } from '@smartchat/database';
 import { DEFAULT_ROLE_PERMISSIONS } from '@smartchat/types';
 import type { TenantContext } from '@smartchat/types';
 import { tenantScope } from './scope.js';
+import { ensureSubscription } from '../billing/bootstrap.js';
 
 export type MembershipWithRole = AccountMember & {
   role: Role | null;
@@ -75,6 +76,16 @@ export class AccountRepository {
         joinedAt: new Date(),
       },
     });
+
+    /**
+     * A subscription, before the account is handed back.
+     *
+     * Here rather than in the service that calls this, because this is the only place an account
+     * comes into existence and an account without a subscription has no entitlements - which the
+     * entitlement service reads as "no limits" rather than "no plan". One account created down a
+     * path that forgot this step is one customer on an unmetered plan.
+     */
+    await ensureSubscription(this.db, account.id);
 
     return { account, membership };
   }
@@ -224,9 +235,4 @@ export class AccountRepository {
     return rows.map((row) => row.id);
   }
 
-  countActiveMembers(context: TenantContext): Promise<number> {
-    return this.db.accountMember.count({
-      where: { ...tenantScope(context), deletedAt: null, status: { not: MemberStatus.disabled } },
-    });
-  }
 }

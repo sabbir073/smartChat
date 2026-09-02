@@ -10,7 +10,7 @@ import {
 } from '@smartchat/types';
 import type { CreateApiKeyInput } from '@smartchat/validation';
 import { generateToken, hashToken, safeEqual, tokenFingerprint } from '../crypto/tokens.js';
-import { AuditRepository } from '../repositories/audit.repository.js';
+import { AuditAction, AuditRepository } from '../repositories/audit.repository.js';
 import { tenantScope } from '../repositories/scope.js';
 import { requirePermission } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
@@ -151,7 +151,7 @@ export class ApiKeyService {
       accountId: context.accountId,
       actorType: DbActorType.user,
       actorId: context.userId ?? null,
-      action: 'api_key.created',
+      action: AuditAction.APIKEY_CREATED,
       resourceType: 'api_key',
       resourceId: key.id,
       ip: context.ip ?? null,
@@ -185,7 +185,7 @@ export class ApiKeyService {
       accountId: context.accountId,
       actorType: DbActorType.user,
       actorId: context.userId ?? null,
-      action: 'api_key.revoked',
+      action: AuditAction.APIKEY_REVOKED,
       resourceType: 'api_key',
       resourceId: id,
       ip: context.ip ?? null,

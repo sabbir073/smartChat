@@ -53,11 +53,22 @@ are not followed, the timeout is hard, and the response body is capped as it arr
 IPv6, 6to4, NAT64, carrier-grade NAT and the cloud metadata address are all refused. See ADR-085 and
 `packages/core/src/integrations/outbound.ts`.
 
-**Malicious upload** — extension allowlist, MIME allowlist, magic-byte sniffing of the real content,
-size cap, randomly generated storage keys (client filename never becomes a path), served from a
-separate bucket with `Content-Disposition: attachment` and a non-executing content type, private by
-default behind short-lived signed URLs. Path traversal is structurally impossible because the client
-never supplies a path.
+**Malicious upload** — the file's real type is decided by **magic-byte sniffing of the stored
+object**, after the upload, against an allowlist of kinds. The declared MIME type and the file name
+are treated as claims and neither decides anything: a client that says `image/png` and uploads an
+executable has its object deleted. Plus a size cap re-measured against the real object, randomly
+generated storage keys (the client filename never becomes a path), `Content-Disposition:
+attachment` with a non-executing content type, and private-by-default access behind short-lived
+signed URLs. Path traversal is structurally impossible because the client never supplies a path.
+
+One bucket, not two — this said "a separate bucket" and there has only ever been `S3_BUCKET`.
+Separation is by key prefix and by the response headers above, which is what actually stops a
+stored file being served as script.
+
+**Per-agent reporting is account-wide**, and a member scoped to particular websites is refused it
+rather than shown it. `daily_agent_metrics` counts per agent, not per website, so there is nothing
+to filter by; answering with unfiltered numbers would leak colleagues' activity on websites the
+member cannot otherwise see.
 
 **Brute force / credential stuffing** — Argon2id hashing, per-IP and per-account login rate limits
 with exponential lockout, constant-time comparison, generic failure messages, and an audit event for

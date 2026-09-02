@@ -397,9 +397,4 @@ export class ConversationRepository {
     });
   }
 
-  countOpen(context: TenantContext): Promise<number> {
-    return this.db.conversation.count({
-      where: { ...tenantScope(context), ...notDeleted(), status: 'open' },
-    });
-  }
 }

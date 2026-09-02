@@ -42,6 +42,7 @@
     "e2e:reports": "node scripts/e2e-reports.mjs",
     "e2e:integrations": "node scripts/e2e-integrations.mjs",
     "e2e:platform": "node scripts/e2e-platform.mjs",
+    "e2e:billing": "node scripts/e2e-billing.mjs",
     "e2e:retention": "node scripts/e2e-retention.mjs",
     "e2e:isolation": "node scripts/e2e-isolation.mjs",
     "e2e:abuse": "node scripts/e2e-abuse.mjs",

@@ -75,13 +75,6 @@ export class PropertyRepository {
     });
   }
 
-  /** Widget surface lookup: by public id, with no tenant context because none exists yet. */
-  findByPublicId(publicId: string): Promise<PropertyWithDomains | null> {
-    return this.db.property.findFirst({
-      where: { publicId, deletedAt: null, account: { deletedAt: null, status: 'active' } },
-      include: { domains: true },
-    });
-  }
 
   async create(context: TenantContext, data: CreatePropertyData): Promise<Property> {
     return this.db.property.create({

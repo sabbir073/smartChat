@@ -31,13 +31,13 @@ const icon = (path: string) => (
 
 const NAV: NavItem[] = [
   {
-    href: '/',
+    href: '/app',
     label: 'Overview',
     available: true,
     icon: icon('M4 13h6V4H4v9Zm0 7h6v-5H4v5Zm10 0h6v-9h-6v9Zm0-16v5h6V4h-6Z'),
   },
   {
-    href: '/inbox',
+    href: '/app/inbox',
     label: 'Inbox',
     available: true,
     icon: icon(
@@ -45,7 +45,7 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/properties',
+    href: '/app/properties',
     label: 'Websites',
     available: true,
     icon: icon(
@@ -53,7 +53,7 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/team',
+    href: '/app/team',
     label: 'Team',
     available: true,
     icon: icon(
@@ -61,7 +61,7 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/contacts',
+    href: '/app/contacts',
     label: 'Contacts',
     available: true,
     icon: icon(
@@ -69,13 +69,13 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/automation',
+    href: '/app/automation',
     label: 'Automation',
     available: true,
     icon: icon('M13 3 4 14h6l-1 7 9-11h-6l1-7Z'),
   },
   {
-    href: '/tickets',
+    href: '/app/tickets',
     label: 'Tickets',
     available: true,
     icon: icon(
@@ -83,7 +83,7 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/kb',
+    href: '/app/kb',
     label: 'Help centre',
     available: true,
     icon: icon(
@@ -91,13 +91,13 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/reports',
+    href: '/app/reports',
     label: 'Reports',
     available: true,
     icon: icon('M4 20V10m5 10V4m5 16v-7m5 7V8'),
   },
   {
-    href: '/integrations',
+    href: '/app/integrations',
     label: 'Integrations',
     available: true,
     icon: icon(
@@ -105,7 +105,13 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/settings',
+    href: '/app/settings/billing',
+    label: 'Billing',
+    available: true,
+    icon: icon('M3 8h18M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Zm4 7h4'),
+  },
+  {
+    href: '/app/settings',
     label: 'Settings',
     available: true,
     icon: icon(
@@ -144,9 +150,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
         );
       })}
 
-      <div className="mt-auto rounded-[var(--radius-control)] bg-surface-raised p-3 text-[12px] leading-relaxed text-ink-subtle">
-        The platform console arrives in a later phase. Nothing is listed here before it works.
-      </div>
     </nav>
   );
 }

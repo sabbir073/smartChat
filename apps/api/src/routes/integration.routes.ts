@@ -4,6 +4,8 @@ import {
   createApiKeySchema,
   createWebhookSchema,
   developmentWebhookUrlSchema,
+  notEmpty,
+  updateWebhookFields,
   updateWebhookSchema,
 } from '@smartchat/validation';
 import { AppError, ErrorCode } from '@smartchat/types';
@@ -25,7 +27,12 @@ function webhookSchemas(allowPrivate: boolean) {
   return allowPrivate
     ? {
         create: createWebhookSchema.extend({ url: developmentWebhookUrlSchema }),
-        update: updateWebhookSchema,
+        // The relaxation has to cover update too. It did not, so in development you could point a
+        // webhook at a local receiver when you created it and then never move it - the PATCH kept
+        // the production rule and answered 422 on the same URL the POST had just accepted.
+        update: updateWebhookFields
+          .extend({ url: developmentWebhookUrlSchema.optional() })
+          .refine(notEmpty, 'Nothing to update'),
       }
     : { create: createWebhookSchema, update: updateWebhookSchema };
 }

@@ -21,6 +21,8 @@ export interface PropertyDto {
   installedAt: string | null;
   lastWidgetRequestAt: string | null;
   domains: PropertyDomainDto[];
+  /** False when the plan no longer covers this website, or the subscription is paused. */
+  serving: boolean;
   createdAt: string;
 }
 

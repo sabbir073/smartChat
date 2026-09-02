@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import type { Database } from '@smartchat/database';
 import {
+  EntitlementService,
   MaintenanceJob,
   RetentionService,
   SessionRepository,
@@ -48,7 +49,11 @@ export async function processMaintenanceJob(
        * customers' transcripts were being deleted; they were not. That is the worst kind of
        * unimplemented feature - not a visible gap, but a promise quietly unkept.
        */
-      const outcome = await new RetentionService({ db, ...(storage ? { storage } : {}) }).apply();
+      const outcome = await new RetentionService({
+        db,
+        entitlements: new EntitlementService(db),
+        ...(storage ? { storage } : {}),
+      }).apply();
       logger.info(outcome, 'retention applied');
       if (outcome.objectsOrphaned > 0) {
         // Said loudly, because the alternative is discovering it from a storage bill.

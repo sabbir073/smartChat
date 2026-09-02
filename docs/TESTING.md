@@ -11,7 +11,7 @@ kind of lie as a "Coming soon" button. If a row is here, `pnpm` can run it today
 | Unit | Vitest | domain logic in `@smartchat/core`, validation schemas, the rule engine, cursors, the markdown renderer, the SigV4 signer, the webhook signature, the outbound address guard, config loading | every commit, no I/O |
 | Component | Vitest + Testing Library + jsdom | the dashboard components whose bugs are invisible server-side — the modal's focus management is pinned here because that bug was found in a browser and no server test could have seen it | every commit |
 | Migrations | `prisma migrate deploy` + `migrate diff --exit-code` | every migration applied in order to an *empty* database, then checked for drift against the schema Prisma expects | every commit |
-| End-to-end | Node scripts in `scripts/`, against the real Docker stack | thirteen suites, listed below. Real HTTP with a cookie jar, real sockets, real Postgres, real Redis, real MinIO, real SMTP | every commit |
+| End-to-end | Node scripts in `scripts/`, against the real Docker stack | fourteen suites, listed below. Real HTTP with a cookie jar, real sockets, real Postgres, real Redis, real MinIO, real SMTP | every commit |
 | Isolation (security) | `scripts/e2e-isolation.mjs` | cross-tenant access, per resource, on every path | **blocking**, every commit |
 | Abuse control | `scripts/e2e-abuse.mjs` | a ban that survives the reload that is meant to defeat it | every commit |
 | Load | `scripts/loadtest.mjs` | concurrent sockets and message throughput — and, more importantly, whether sequence numbers stay gapless while busy | before release |
@@ -40,7 +40,7 @@ this repository can honestly make.
 
 ## 2a. Scripted checks that run against the live stack
 
-Thirteen scripts exist so that "it works" is a command rather than an opinion. All need
+Fourteen scripts exist so that "it works" is a command rather than an opinion. All need
 `docker compose up -d` and each creates its own throwaway account, so they can be run repeatedly.
 
 | Command | What it proves |
@@ -66,6 +66,8 @@ Thirteen scripts exist so that "it works" is a command rather than an opinion. A
 
 | `pnpm e2e:retention` | Phase 13: a conversation past the retention window deleted along with its messages and its storage objects, and the tickets, contacts and audit rows that must survive it surviving it. |
 
+| `pnpm e2e:billing` | Phase 15: the pricing page's data with no credential; that a new account really has a subscription; that a Free plan is refused what Free excludes, **with a negative control on a plan that includes it**; the request / approve / refuse cycle and a customer being unable to approve their own; a downgrade that is dated rather than lost; annual billing as a real interval; switching interval on the same plan; pause meaning every read still works and every write is refused; a downgrade leaving the excess website read-only rather than removed; and invoices staying inside one account. |
+
 | `pnpm e2e:isolation` | Phase 14, and the one that blocks: see §3. |
 
 | `pnpm e2e:abuse` | Phase 14: a banned visitor refused on the token they hold, on a fresh gateway ticket, **and on the page reload that mints a new token** — which is the door the ban used to leave open. Plus: the ban is one person and not the website, an agent cannot apply one, another account cannot apply one to your visitor, a ban that ends in the past is refused, and lifting it lifts it. |
@@ -77,6 +79,13 @@ Thirteen scripts exist so that "it works" is a command rather than an opinion. A
 `pnpm e2e:files` is also what proves the hand-written SigV4 signer (ADR-043) actually works, which
 is the only way that decision was defensible: it uploads with a signed URL, downloads with another,
 and compares the bytes.
+
+`pnpm e2e:billing` found two things in its first run, both of the same shape - code that reported
+success and did nothing. Registration created accounts with **no subscription at all**, which made
+every plan limit resolve to "unlimited" while the pricing page advertised numbers (ADR-089); and a
+downgrade to a cheaper paid plan returned "applied", wrote no request row, and left the customer on
+the expensive plan for ever. Neither was visible in the code, which read correctly in both cases,
+and neither would have been caught by a test that only checked for a 200.
 
 `pnpm e2e:automation` earned its place immediately: it found ADR-037, where the server validated
 form answers against "no configuration" on any property whose widget row had not been created yet -

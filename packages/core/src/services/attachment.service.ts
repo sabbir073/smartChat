@@ -1,5 +1,11 @@
 import type { Attachment, Database } from '@smartchat/database';
-import { AppError, ErrorCode, Permission, type TenantContext } from '@smartchat/types';
+import {
+  AppError,
+  ErrorCode,
+  FeatureKey,
+  Permission,
+  type TenantContext,
+} from '@smartchat/types';
 import { AttachmentRepository } from '../repositories/attachment.repository.js';
 import { ConversationRepository } from '../repositories/conversation.repository.js';
 import { attachmentKey, downloadName, safeFileName } from '../storage/keys.js';
@@ -9,9 +15,12 @@ import type { ConversationService, VisitorIdentity } from './conversation.servic
 import type { MessageDto } from '../realtime/events.js';
 import { requirePermission } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
+import type { PlanGuard } from './plan-guard.js';
 
 export interface AttachmentServiceOptions {
   db: Database;
+  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
+  plan: PlanGuard;
   storage: StorageService;
   conversations: ConversationService;
   maxBytes: number;
@@ -255,6 +264,16 @@ export class AttachmentService {
     // Nothing new is signed while the switch is off. Files already uploaded stay readable, which
     // is the difference between a kill switch and data loss.
     await this.options.flags?.assertEnabled('uploads', input.accountId);
+
+    // The plan's turn. Both sides of a conversation upload files and only the agent has a signed-in
+    // identity, so this is checked by account - the entitlement being spent belongs to the account
+    // either way. Signing is the right place: it is the single point both paths pass through, and
+    // refusing here means nothing is written and no storage is touched.
+    await this.options.plan.assertFeatureForAccount(
+      input.accountId,
+      FeatureKey.FEATURE_FILE_ATTACHMENTS,
+    );
+    await this.options.plan.assertStorageRoom(input.accountId, input.byteSize);
 
     // A provisional name, so the row is readable in the database while the upload is in flight.
     // It is replaced at verification with one whose extension matches the real bytes.

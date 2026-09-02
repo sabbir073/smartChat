@@ -93,15 +93,6 @@ export function buildTenantContext(input: BuildTenantContextInput): TenantContex
   return context;
 }
 
-/** A context for background work that legitimately acts on behalf of one account. */
-export function systemContext(accountId: string, requestId: string): TenantContext {
-  return {
-    accountId,
-    actorType: ActorType.SYSTEM,
-    permissions: new Set(Object.values(Permission)),
-    requestId,
-  };
-}
 
 export function requirePermission(context: TenantContext, permission: Permission): void {
   if (!context.permissions.has(permission)) {

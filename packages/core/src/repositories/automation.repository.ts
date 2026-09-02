@@ -217,11 +217,6 @@ export class TriggerRepository {
     });
   }
 
-  async countFirings(context: TenantContext, triggerId: string): Promise<number> {
-    return this.db.triggerFiring.count({
-      where: { ...tenantScope(context), triggerId },
-    });
-  }
 }
 
 export class ShortcutRepository {

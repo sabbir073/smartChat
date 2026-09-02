@@ -176,8 +176,3 @@ export const WebhookDeliveryStatus = {
 export type WebhookDeliveryStatus =
   (typeof WebhookDeliveryStatus)[keyof typeof WebhookDeliveryStatus];
 
-export const BanScope = {
-  VISITOR: 'visitor',
-  IP: 'ip',
-} as const;
-export type BanScope = (typeof BanScope)[keyof typeof BanScope];

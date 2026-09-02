@@ -1,4 +1,4 @@
-import type { Attachment, Database, DatabaseOrTransaction } from '@smartchat/database';
+import type { Attachment, DatabaseOrTransaction } from '@smartchat/database';
 import type { TenantContext } from '@smartchat/types';
 import { notDeleted, tenantScope } from './scope.js';
 
@@ -91,20 +91,3 @@ export class AttachmentRepository {
   }
 }
 
-/**
- * Uploads that were signed and then abandoned, or rejected.
- *
- * Separate from the repository because it is the retention job's concern rather than a request's:
- * it runs without a tenant context and deliberately reaches across accounts.
- */
-export function findStaleAttachments(
-  db: Database,
-  before: Date,
-  limit: number,
-): Promise<Attachment[]> {
-  return db.attachment.findMany({
-    where: { status: { in: ['pending', 'rejected'] }, createdAt: { lt: before } },
-    orderBy: { createdAt: 'asc' },
-    take: limit,
-  });
-}

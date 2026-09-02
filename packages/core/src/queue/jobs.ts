@@ -6,12 +6,18 @@ export const QueueName = {
   WEBHOOK: 'webhook',
   ANALYTICS: 'analytics',
   MAINTENANCE: 'maintenance',
-  TRIGGER: 'trigger',
 } as const;
 export type QueueName = (typeof QueueName)[keyof typeof QueueName];
 
 export const EmailJob = {
   SEND: 'email.send',
+  /**
+   * A billing event that owes somebody an email.
+   *
+   * A separate job name rather than a pre-rendered message, because the worker is where mail
+   * templates live and the API should not be composing copy it cannot see rendered.
+   */
+  SEND_BILLING: 'email.billing',
 } as const;
 
 export const AnalyticsJob = {
@@ -27,6 +33,11 @@ export const MaintenanceJob = {
   PURGE_EXPIRED_SESSIONS: 'maintenance.purge_expired_sessions',
   PURGE_EXPIRED_TOKENS: 'maintenance.purge_expired_tokens',
   APPLY_RETENTION: 'maintenance.apply_retention',
+  /**
+   * Roll subscriptions forward: end trials, start new periods, issue invoices, apply the grace
+   * window. Idempotent, so it is safe to run hourly even though it usually finds nothing.
+   */
+  SUBSCRIPTION_LIFECYCLE: 'maintenance.subscription_lifecycle',
 } as const;
 
 export interface SendEmailPayload {
@@ -56,14 +67,32 @@ export interface AnalyticsRollupPayload {
   days?: number;
 }
 
+/**
+ * What a billing notification carries.
+ *
+ * The event, not a rendered message. Keeping the payload this small means a queued job that runs
+ * after a deploy renders with the *current* template rather than one that was current when it was
+ * enqueued - and an email whose wording changed while it sat in a queue is a small mystery nobody
+ * needs.
+ */
+export interface BillingNotificationPayload {
+  event: {
+    type: string;
+    accountId: string;
+    [key: string]: unknown;
+  };
+}
+
 export type JobPayloadMap = {
   [EmailJob.SEND]: SendEmailPayload;
+  [EmailJob.SEND_BILLING]: BillingNotificationPayload;
   [AnalyticsJob.ROLLUP]: AnalyticsRollupPayload;
   [WebhookJob.DELIVER]: { deliveryId: string };
   [WebhookJob.SWEEP]: Record<string, never>;
   [MaintenanceJob.PURGE_EXPIRED_SESSIONS]: Record<string, never>;
   [MaintenanceJob.PURGE_EXPIRED_TOKENS]: Record<string, never>;
   [MaintenanceJob.APPLY_RETENTION]: Record<string, never>;
+  [MaintenanceJob.SUBSCRIPTION_LIFECYCLE]: Record<string, never>;
 };
 
 export type JobName = keyof JobPayloadMap;

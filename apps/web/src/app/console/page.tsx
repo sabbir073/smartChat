@@ -44,7 +44,44 @@ interface AuditRow {
   createdAt: string;
 }
 
-const TABS = ['accounts', 'flags', 'health', 'audit'] as const;
+const TABS = ['accounts', 'billing', 'flags', 'health', 'audit'] as const;
+
+/** A plan change waiting on somebody here. */
+interface PlanChangeRow {
+  id: string;
+  accountId: string;
+  accountName: string;
+  fromPlan: string;
+  toPlan: string;
+  toPlanName: string;
+  interval: string;
+  createdAt: string;
+  kind: 'scheduled_downgrade' | 'upgrade_request';
+  effectiveAt: string | null;
+}
+
+interface InvoiceRow {
+  id: string;
+  accountId: string;
+  accountName: string;
+  number: number;
+  planName: string;
+  amountCents: number;
+  currency: string;
+  status: 'issued' | 'paid' | 'void';
+  periodStart: string;
+  periodEnd: string;
+  issuedAt: string;
+  paidAt: string | null;
+  reference: string | null;
+}
+
+function money(cents: number, currency: string): string {
+  const symbols: Record<string, string> = { USD: '$', EUR: '€', GBP: '£' };
+  const symbol = symbols[currency.toUpperCase()] ?? '';
+  const amount = cents % 100 === 0 ? String(cents / 100) : (cents / 100).toFixed(2);
+  return symbol ? `${symbol}${amount}` : `${amount} ${currency.toUpperCase()}`;
+}
 
 /**
  * The platform console.
@@ -66,6 +103,12 @@ export default function ConsolePage() {
   const [busy, setBusy] = useState(true);
   const [suspending, setSuspending] = useState<AccountRow | null>(null);
   const [reason, setReason] = useState('');
+  const [planChanges, setPlanChanges] = useState<PlanChangeRow[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
+  const [rejecting, setRejecting] = useState<PlanChangeRow | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
+  const [paying, setPaying] = useState<InvoiceRow | null>(null);
+  const [payRef, setPayRef] = useState('');
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -79,6 +122,13 @@ export default function ConsolePage() {
           query: { ...(search.trim() ? { search: search.trim() } : {}), limit: 100 },
         });
         setAccounts(result.data);
+      } else if (tab === 'billing') {
+        const [changes, bills] = await Promise.all([
+          api.get<PlanChangeRow[]>('/platform/plan-changes', { query: { status: 'pending' } }),
+          api.get<InvoiceRow[]>('/platform/invoices'),
+        ]);
+        setPlanChanges(changes.data);
+        setInvoices(bills.data);
       } else if (tab === 'flags') {
         setFlags((await api.get<FlagRow[]>('/platform/flags')).data);
       } else if (tab === 'health') {
@@ -122,6 +172,45 @@ export default function ConsolePage() {
     }
   }
 
+  /**
+   * Approve a plan change.
+   *
+   * Approving is one click because the customer already asked for it and the operator is agreeing.
+   * Refusing opens a dialog, because a refusal without a reason is the thing the customer will
+   * write in about - and the note goes to them.
+   */
+  async function decide(
+    change: PlanChangeRow,
+    decision: 'approved' | 'rejected',
+    note?: string,
+  ): Promise<void> {
+    try {
+      await api.post(`/platform/plan-changes/${change.id}/decide`, {
+        decision,
+        ...(note?.trim() ? { note: note.trim() } : {}),
+      });
+      setRejecting(null);
+      setRejectNote('');
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'That could not be recorded.');
+    }
+  }
+
+  async function recordPayment(): Promise<void> {
+    if (!paying) return;
+    try {
+      await api.post(`/platform/invoices/${paying.id}/paid`, {
+        ...(payRef.trim() ? { reference: payRef.trim() } : {}),
+      });
+      setPaying(null);
+      setPayRef('');
+      await load();
+    } catch (caught) {
+      setError(caught instanceof ApiError ? caught.message : 'That could not be recorded.');
+    }
+  }
+
   async function toggleFlag(flag: FlagRow): Promise<void> {
     try {
       await api.patch(`/platform/flags/${flag.key}`, { enabled: !flag.enabled });
@@ -135,6 +224,9 @@ export default function ConsolePage() {
     await api.post('/platform/auth/logout').catch(() => undefined);
     router.replace('/console/login');
   }
+
+  const upgrades = planChanges.filter((change) => change.kind !== 'scheduled_downgrade');
+  const scheduled = planChanges.filter((change) => change.kind === 'scheduled_downgrade');
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
@@ -242,6 +334,163 @@ export default function ConsolePage() {
             ))}
           </div>
         </>
+      )}
+
+      {!busy && tab === 'billing' && (
+        <div className="space-y-8">
+          <section>
+            <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-ink-inverted/50">
+              Plan changes waiting on us ({upgrades.length})
+            </h2>
+            {upgrades.length === 0 ? (
+              <p className="text-[13px] text-ink-inverted/50">
+                Nothing waiting. Moves to a free plan apply themselves, and a downgrade to a
+                cheaper paid plan is already agreed — both are listed below rather than here.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {upgrades.map((change) => (
+                  <div
+                    key={change.id}
+                    className="flex flex-wrap items-center justify-between gap-3 rounded-[var(--radius-card)] border border-ink-inverted/15 bg-ink-inverted/5 px-4 py-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-semibold">{change.accountName}</p>
+                      <p className="mt-0.5 text-[13px] text-ink-inverted/50">
+                        {change.fromPlan} → {change.toPlanName} ({change.interval}) · asked{' '}
+                        {new Date(change.createdAt).toLocaleDateString('en-GB')}
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRejecting(change);
+                          setRejectNote('');
+                        }}
+                        className="rounded-[var(--radius-control)] border border-danger/40 px-3 py-1.5 text-[13px] font-medium text-danger-soft"
+                      >
+                        Refuse
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void decide(change, 'approved')}
+                        className="rounded-[var(--radius-control)] bg-ink-inverted px-3 py-1.5 text-[13px] font-medium text-ink"
+                      >
+                        Approve
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          {scheduled.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-ink-inverted/50">
+                Downgrades already agreed ({scheduled.length})
+              </h2>
+              {/*
+                Deliberately without buttons. These are not decisions - the customer asked for a
+                cheaper plan and it lands when the period they have already paid for runs out.
+                An Approve button here would only be a way to take that period away early.
+              */}
+              <div className="space-y-2">
+                {scheduled.map((change) => (
+                  <div
+                    key={change.id}
+                    className="rounded-[var(--radius-card)] border border-ink-inverted/15 px-4 py-3"
+                  >
+                    <p className="text-[15px] font-semibold">{change.accountName}</p>
+                    <p className="mt-0.5 text-[13px] text-ink-inverted/50">
+                      {change.fromPlan} → {change.toPlanName} ({change.interval}) ·{' '}
+                      {change.effectiveAt
+                        ? `takes effect ${new Date(change.effectiveAt).toLocaleDateString('en-GB')}`
+                        : 'takes effect at the end of the period'}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <section>
+            <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide text-ink-inverted/50">
+              Invoices
+            </h2>
+            {invoices.length === 0 ? (
+              <p className="text-[13px] text-ink-inverted/50">
+                No invoices yet. Free plans do not raise one.
+              </p>
+            ) : (
+              <div className="overflow-x-auto rounded-[var(--radius-card)] border border-ink-inverted/15">
+                <table className="w-full min-w-[760px] text-[13px]">
+                  <thead>
+                    <tr className="border-b border-ink-inverted/15 text-left text-ink-inverted/50">
+                      <th className="px-4 py-2.5 font-medium">#</th>
+                      <th className="px-4 py-2.5 font-medium">Account</th>
+                      <th className="px-4 py-2.5 font-medium">Plan</th>
+                      <th className="px-4 py-2.5 font-medium">Amount</th>
+                      <th className="px-4 py-2.5 font-medium">Period</th>
+                      <th className="px-4 py-2.5 font-medium">Status</th>
+                      <th className="px-4 py-2.5" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invoices.map((invoice) => (
+                      <tr
+                        key={invoice.id}
+                        className="border-b border-ink-inverted/10 last:border-0"
+                      >
+                        <td className="px-4 py-2.5 font-medium">{invoice.number}</td>
+                        <td className="px-4 py-2.5">{invoice.accountName}</td>
+                        <td className="px-4 py-2.5 text-ink-inverted/60">{invoice.planName}</td>
+                        <td className="px-4 py-2.5">
+                          {money(invoice.amountCents, invoice.currency)}
+                        </td>
+                        <td className="px-4 py-2.5 text-ink-inverted/60">
+                          {new Date(invoice.periodStart).toLocaleDateString('en-GB')} –{' '}
+                          {new Date(invoice.periodEnd).toLocaleDateString('en-GB')}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <span
+                            className={
+                              invoice.status === 'paid'
+                                ? 'text-success-soft'
+                                : invoice.status === 'void'
+                                  ? 'text-ink-inverted/40'
+                                  : 'text-warning-soft'
+                            }
+                          >
+                            {invoice.status}
+                          </span>
+                          {invoice.reference && (
+                            <span className="ml-2 text-ink-inverted/40">{invoice.reference}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {invoice.status === 'issued' && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaying(invoice);
+                                setPayRef('');
+                              }}
+                              className="rounded-[var(--radius-control)] border border-ink-inverted/25 px-3 py-1.5 text-[13px] font-medium text-ink-inverted"
+                            >
+                              Record payment
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        </div>
       )}
 
       {!busy && tab === 'flags' && (
@@ -353,6 +602,97 @@ export default function ConsolePage() {
                 className="rounded-[var(--radius-control)] bg-danger px-3 py-1.5 text-[13px] font-medium text-ink-inverted disabled:opacity-50"
               >
                 Suspend
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rejecting && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6">
+          <div className="w-full max-w-md rounded-[var(--radius-card)] border border-ink-inverted/20 bg-ink p-5">
+            <h2 className="text-[17px] font-semibold">
+              Refuse the move to {rejecting.toPlanName}?
+            </h2>
+            <p className="mt-1.5 text-[13px] text-ink-inverted/60">
+              Nothing on {rejecting.accountName} changes - they stay on {rejecting.fromPlan} and keep
+              everything they have. The note below is what they are told, so write the thing they
+              need to do next.
+            </p>
+            <textarea
+              rows={3}
+              value={rejectNote}
+              onChange={(event) => setRejectNote(event.target.value)}
+              placeholder="We could not take payment for the first period - reply to this email once it is settled and we will approve it."
+              className="mt-3 w-full rounded-[var(--radius-control)] border border-ink-inverted/20 bg-ink-inverted/5 px-3 py-2 text-sm text-ink-inverted"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRejecting(null);
+                  setRejectNote('');
+                }}
+                className="rounded-[var(--radius-control)] px-3 py-1.5 text-[13px] text-ink-inverted/70"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={rejectNote.trim().length < 4}
+                onClick={() => void decide(rejecting, 'rejected', rejectNote)}
+                className="rounded-[var(--radius-control)] bg-danger px-3 py-1.5 text-[13px] font-medium text-ink-inverted disabled:opacity-50"
+              >
+                Refuse
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {paying && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-6">
+          <div className="w-full max-w-md rounded-[var(--radius-card)] border border-ink-inverted/20 bg-ink p-5">
+            <h2 className="text-[17px] font-semibold">
+              Record payment of {money(paying.amountCents, paying.currency)}?
+            </h2>
+            <p className="mt-1.5 text-[13px] text-ink-inverted/60">
+              Invoice #{paying.number} for {paying.accountName}. This marks it paid and, if the
+              account was past due or read-only, puts it back to normal straight away. It does not
+              move money - record it here only once the money has actually arrived.
+            </p>
+            <label
+              htmlFor="payment-reference"
+              className="mt-3 block text-[13px] text-ink-inverted/70"
+            >
+              Reference (optional)
+            </label>
+            <input
+              id="payment-reference"
+              type="text"
+              value={payRef}
+              onChange={(event) => setPayRef(event.target.value)}
+              placeholder="Bank transfer 2026-08-31, ref SC-1042"
+              maxLength={200}
+              className="mt-1.5 w-full rounded-[var(--radius-control)] border border-ink-inverted/20 bg-ink-inverted/5 px-3 py-2 text-sm text-ink-inverted"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setPaying(null);
+                  setPayRef('');
+                }}
+                className="rounded-[var(--radius-control)] px-3 py-1.5 text-[13px] text-ink-inverted/70"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void recordPayment()}
+                className="rounded-[var(--radius-control)] bg-ink-inverted px-3 py-1.5 text-[13px] font-medium text-ink"
+              >
+                Record payment
               </button>
             </div>
           </div>

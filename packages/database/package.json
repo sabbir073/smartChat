@@ -28,7 +28,7 @@
     "prebuild": "prisma generate",
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "prisma generate && tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "lint": "eslint src --max-warnings=0",
     "test": "vitest run --passWithNoTests",
     "test:unit": "vitest run --passWithNoTests",

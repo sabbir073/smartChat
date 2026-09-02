@@ -74,9 +74,9 @@ fi
 # ---------------------------------------------------------------------------
 # Checksums and the manifest
 # ---------------------------------------------------------------------------
-log "writing checksums"
-( cd "$STAGING" && find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS )
-
+# The manifest is written BEFORE the checksums, so that it is covered by them. It used to be
+# written after, which meant the one file a restore reads to decide whether the dump is usable was
+# the one file whose integrity was never verified.
 cat > "${STAGING}/manifest.txt" <<MANIFEST
 taken_at=${STAMP}
 host=$(hostname)
@@ -86,6 +86,9 @@ schema_version=$(docker compose exec -T postgres psql -U "${POSTGRES_USER:-smart
   -d "${POSTGRES_DB:-smartchat}" -tAc \
   "SELECT migration_name FROM _prisma_migrations WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1" 2>/dev/null || echo unknown)
 MANIFEST
+
+log "writing checksums"
+( cd "$STAGING" && find . -type f ! -name SHA256SUMS -exec sha256sum {} + > SHA256SUMS )
 
 mv "$STAGING" "$WORK"
 log "backup complete: ${WORK}"

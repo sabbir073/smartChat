@@ -35,7 +35,7 @@ export default function RegisterPage() {
         acceptTerms: accepted,
       });
       await refresh();
-      router.replace(data.requiresEmailVerification ? '/verify-email?pending=1' : '/');
+      router.replace(data.requiresEmailVerification ? '/verify-email?pending=1' : '/app');
     } catch (error) {
       if (error instanceof ApiError) {
         setFieldErrors(error.fieldErrors());

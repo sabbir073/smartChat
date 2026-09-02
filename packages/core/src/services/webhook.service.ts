@@ -3,6 +3,7 @@ import { ActorType as DbActorType } from '@smartchat/database';
 import {
   AppError,
   ErrorCode,
+  FeatureKey,
   Permission,
   WebhookEvent,
   type TenantContext,
@@ -18,10 +19,11 @@ import {
   nextAttemptDelayMs,
   signPayload,
 } from '../integrations/signature.js';
-import { AuditRepository } from '../repositories/audit.repository.js';
+import { AuditAction, AuditRepository } from '../repositories/audit.repository.js';
 import { notDeleted, tenantScope } from '../repositories/scope.js';
 import { requirePermission } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
+import type { PlanGuard } from './plan-guard.js';
 
 /**
  * Webhooks.
@@ -44,6 +46,8 @@ export const FAILURES_BEFORE_DISABLE = 20;
 
 export interface WebhookServiceOptions {
   db: Database;
+  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
+  plan: PlanGuard;
   clock?: Clock;
   /** Optional: nudge the dispatcher so a delivery does not wait for the next sweep. */
   notify?: (deliveryId: string) => Promise<void>;
@@ -98,6 +102,11 @@ export class WebhookService {
     input: CreateWebhookInput,
   ): Promise<{ webhook: WebhookWithoutSecret; secret: string }> {
     requirePermission(context, Permission.ACCOUNT_UPDATE);
+    // Both, and in this order: a plan that does not include webhooks at all should say so rather
+    // than complain about a count.
+    await this.options.plan.assertFeature(context, FeatureKey.FEATURE_WEBHOOKS);
+    await this.options.plan.assertCanAdd(context, FeatureKey.MAX_WEBHOOKS);
+
     const secret = `whsec_${generateToken(24)}`;
 
     const created = await this.options.db.webhook.create({
@@ -116,7 +125,7 @@ export class WebhookService {
       accountId: context.accountId,
       actorType: DbActorType.user,
       actorId: context.userId ?? null,
-      action: 'webhook.created',
+      action: AuditAction.WEBHOOK_CREATED,
       resourceType: 'webhook',
       resourceId: created.id,
       ip: context.ip ?? null,
@@ -151,16 +160,50 @@ export class WebhookService {
         ...(reviving ? { consecutiveFailures: 0, disabledAt: null, disabledReason: null } : {}),
       },
     });
+    /**
+     * Audited, like the creation was.
+     *
+     * Changing where a webhook points is the interesting half: a delivery carries conversation
+     * content, and moving the destination is how that content ends up somewhere it should not be.
+     * Creation was logged and this was not, which is the wrong way round if you only get one.
+     */
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId ?? null,
+      action: AuditAction.WEBHOOK_UPDATED,
+      resourceType: 'webhook',
+      resourceId: updated.id,
+      ip: context.ip ?? null,
+      metadata: {
+        urlBefore: existing.url,
+        urlAfter: updated.url,
+        eventsAfter: updated.events,
+        enabled: updated.enabled,
+      },
+    });
+
     const { secret: _secret, ...webhook } = updated;
     return webhook;
   }
 
   async remove(context: TenantContext, id: string): Promise<void> {
     requirePermission(context, Permission.ACCOUNT_UPDATE);
-    await this.find(context, id);
+    const existing = await this.find(context, id);
     await this.options.db.webhook.update({
       where: { id },
       data: { deletedAt: this.clock.now(), enabled: false },
+    });
+
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId ?? null,
+      action: AuditAction.WEBHOOK_DELETED,
+      resourceType: 'webhook',
+      resourceId: id,
+      ip: context.ip ?? null,
+      metadata: { url: existing.url, events: existing.events },
     });
   }
 

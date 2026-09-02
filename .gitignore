@@ -33,3 +33,5 @@ install.err.log
 
 # prisma CLI host connection
 packages/database/.env
+.tools/
+msg.txt

@@ -28,7 +28,11 @@ function LoginForm() {
       await api.post('/auth/login', { email, password, remember: true });
       await refresh();
       const next = params.get('next');
-      router.replace(next && next.startsWith('/') ? next : '/');
+      // Only a path on this site, and only one inside the application. `startsWith('/')` alone
+      // would accept `//evil.example`, which a browser reads as a protocol-relative URL to
+      // another host - an open redirect on the one page where somebody has just typed a password.
+      const safeNext = next && next.startsWith('/app') && !next.startsWith('//') ? next : '/app';
+      router.replace(safeNext);
     } catch (error) {
       if (error instanceof ApiError) {
         setFieldErrors(error.fieldErrors());
