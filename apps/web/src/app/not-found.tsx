@@ -12,12 +12,25 @@ export default function NotFound() {
           The link may be out of date, or the workspace it belonged to may no longer be yours.
         </p>
       </div>
-      <Link
-        href="/"
-        className="rounded-[var(--radius-control)] bg-brand px-4 py-2.5 text-sm font-medium text-ink-inverted hover:bg-brand-hover"
-      >
-        Back to the dashboard
-      </Link>
+      {/*
+        Two ways out, because this page is reachable from both halves of the site: a stranger who
+        mistyped a marketing URL and a signed-in person whose link went stale. One button pointing
+        at the dashboard sent the first of those to a sign-in screen for no reason.
+      */}
+      <div className="flex flex-wrap justify-center gap-2">
+        <Link
+          href="/"
+          className="rounded-[var(--radius-control)] bg-brand px-4 py-2.5 text-sm font-medium text-ink-inverted hover:bg-brand-hover"
+        >
+          Go to the homepage
+        </Link>
+        <Link
+          href="/app"
+          className="rounded-[var(--radius-control)] border border-border-strong bg-surface px-4 py-2.5 text-sm font-medium text-ink hover:bg-surface-raised"
+        >
+          Open the dashboard
+        </Link>
+      </div>
     </div>
   );
 }

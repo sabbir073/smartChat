@@ -55,9 +55,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -359,7 +364,11 @@ async function main() {
     ['an installation snippet', 'GET', `/properties/${a.property.id}/install`],
     ['a widget configuration', 'GET', `/properties/${a.property.id}/widget`],
     ['a webhook delivery log', 'GET', `/integrations/webhooks/${a.webhookId}/deliveries`],
-    ['a report filtered to their website', 'GET', `/reports/overview?from=2026-08-01&to=2026-08-30&propertyId=${a.property.id}`],
+    [
+      'a report filtered to their website',
+      'GET',
+      `/reports/overview?from=2026-08-01&to=2026-08-30&propertyId=${a.property.id}`,
+    ],
     ['a ticket queue filtered to their website', 'GET', `/tickets?propertyId=${a.property.id}`],
   ];
 
@@ -374,14 +383,34 @@ async function main() {
   }
 
   const writes = [
-    ['reply to a conversation', 'POST', `/conversations/${a.conversationId}/messages`, { body: 'Injected.', clientMessageId: ulid() }],
+    [
+      'reply to a conversation',
+      'POST',
+      `/conversations/${a.conversationId}/messages`,
+      { body: 'Injected.', clientMessageId: ulid() },
+    ],
     ['close a conversation', 'PATCH', `/conversations/${a.conversationId}`, { status: 'closed' }],
-    ['assign a conversation', 'POST', `/conversations/${a.conversationId}/assign`, { memberId: b.memberId }],
+    [
+      'assign a conversation',
+      'POST',
+      `/conversations/${a.conversationId}/assign`,
+      { memberId: b.memberId },
+    ],
     ['edit a contact', 'PATCH', `/contacts/${a.contactId}`, { name: 'Renamed by a stranger' }],
-    ['reply to a ticket', 'POST', `/tickets/${a.ticketId}/messages`, { body: 'Injected.', visibility: 'public' }],
+    [
+      'reply to a ticket',
+      'POST',
+      `/tickets/${a.ticketId}/messages`,
+      { body: 'Injected.', visibility: 'public' },
+    ],
     ['change a ticket', 'PATCH', `/tickets/${a.ticketId}`, { status: 'closed' }],
     ['delete a ticket', 'DELETE', `/tickets/${a.ticketId}`, undefined],
-    ['edit an article', 'PATCH', `/kb/articles/${a.articleId}`, { title: 'Rewritten by a stranger' }],
+    [
+      'edit an article',
+      'PATCH',
+      `/kb/articles/${a.articleId}`,
+      { title: 'Rewritten by a stranger' },
+    ],
     ['publish an article', 'PATCH', `/kb/articles/${a.articleId}`, { status: 'published' }],
     ['delete an article', 'DELETE', `/kb/articles/${a.articleId}`, undefined],
     ['delete a section', 'DELETE', `/kb/categories/${a.categoryId}`, undefined],
@@ -432,14 +461,21 @@ async function main() {
 
   section("...and A's data is genuinely unchanged afterwards");
   const conversation = await a.client.call('GET', `/conversations/${a.conversationId}`);
-  check('the conversation is still open', conversation.body.data.status === 'open', conversation.body.data?.status);
+  check(
+    'the conversation is still open',
+    conversation.body.data.status === 'open',
+    conversation.body.data?.status,
+  );
   const transcript = await a.client.call('GET', `/conversations/${a.conversationId}/messages`);
   check(
     'and nothing was injected into its transcript',
     !JSON.stringify(transcript.body.data).includes('Injected.'),
   );
   const ticket = await a.client.call('GET', `/tickets/${a.ticketId}`);
-  check('the ticket still exists and is still open', ticket.status === 200 && ticket.body.data.status === 'open');
+  check(
+    'the ticket still exists and is still open',
+    ticket.status === 200 && ticket.body.data.status === 'open',
+  );
   const article = await a.client.call('GET', `/kb/articles/${a.articleId}`);
   check(
     'the article is still a draft with its own title',
@@ -447,7 +483,10 @@ async function main() {
     `${article.body.data?.status} ${article.body.data?.title}`,
   );
   const property = await a.client.call('GET', `/properties/${a.property.id}`);
-  check('the website still belongs to A, with its own name', property.body.data.name === 'Alpha site');
+  check(
+    'the website still belongs to A, with its own name',
+    property.body.data.name === 'Alpha site',
+  );
 
   section("B's own lists never contain A's rows");
   const lists = [
@@ -472,7 +511,7 @@ async function main() {
     );
   }
 
-  section("An API key is scoped to its own account too");
+  section('An API key is scoped to its own account too');
   const keyReads = [
     ['a conversation', `/conversations/${a.conversationId}`],
     ['a ticket', `/tickets/${a.ticketId}`],
@@ -537,11 +576,7 @@ async function main() {
   const visitorClosesOther = await emitOutcome(bVisitor, 'conversation:close', {
     conversationId: a.conversationId,
   });
-  check(
-    'and cannot close it',
-    visitorClosesOther.ok === false,
-    JSON.stringify(visitorClosesOther),
-  );
+  check('and cannot close it', visitorClosesOther.ok === false, JSON.stringify(visitorClosesOther));
   bVisitor.close();
 
   // A refusal is only worth something if the thread really is untouched afterwards.
@@ -559,10 +594,7 @@ async function main() {
     page: { url: `${ORIGIN}/`, title: 'Isolation' },
   });
   check('a session for another website issues its own identity', crossProperty.status === 200);
-  check(
-    'and not the one that was presented',
-    crossProperty.body.data.token !== b.visitorToken,
-  );
+  check('and not the one that was presented', crossProperty.body.data.token !== b.visitorToken);
 
   const noToken = await widgetCall('GET', '/widget/me');
   check(
@@ -602,7 +634,11 @@ async function main() {
   const oneShot = await widgetCall('POST', '/widget/realtime-ticket', {}, b.visitorToken);
   const firstUse = await connectVisitorGateway(oneShot.body.data.ticket);
   const secondUse = await connectVisitorGateway(oneShot.body.data.ticket);
-  check('a freshly issued gateway ticket connects once', firstUse === 'connected', `got ${firstUse}`);
+  check(
+    'a freshly issued gateway ticket connects once',
+    firstUse === 'connected',
+    `got ${firstUse}`,
+  );
   check(
     'and the very same ticket a second time does not',
     secondUse === 'unauthorised',
@@ -644,14 +680,18 @@ async function main() {
     `/conversations?cursor=${Buffer.from('2030-01-01T00:00:00.000Z|' + a.conversationId).toString('base64url')}`,
   );
   check(
-    'a cursor forged from another account\'s row returns nothing of theirs',
+    "a cursor forged from another account's row returns nothing of theirs",
     forgedCursor.status === 200 &&
       !JSON.stringify(forgedCursor.body.data).includes(a.conversationId),
     `got ${forgedCursor.status}`,
   );
 
   const nonsenseId = await b.client.call('GET', '/conversations/not-a-uuid');
-  check('an id that is not an id is a validation failure, not a 500', nonsenseId.status === 422, `got ${nonsenseId.status}`);
+  check(
+    'an id that is not an id is a validation failure, not a 500',
+    nonsenseId.status === 422,
+    `got ${nonsenseId.status}`,
+  );
 
   section('Signed out is signed out');
   const anonymous = new Http('anonymous');

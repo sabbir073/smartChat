@@ -174,7 +174,7 @@ export class AppError extends Error {
       cause?: unknown;
     },
   ) {
-    super(message ?? DEFAULT_MESSAGES[code] ?? 'Unexpected error');
+    super(message ?? DEFAULT_MESSAGES[code]);
     this.name = 'AppError';
     this.code = code;
     this.status = ERROR_STATUS[code] ?? 500;
@@ -201,7 +201,15 @@ export class AppError extends Error {
   }
 }
 
-const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
+/**
+ * The sentence a person reads when nothing more specific was written.
+ *
+ * Exhaustive by type, not by discipline. This was a `Partial` map, and three codes had quietly
+ * been added without one - a missing trigger, a missing shortcut and a duplicate shortcut key all
+ * answered "Unexpected error", which is both alarming and useless. `Record<ErrorCode, string>`
+ * means a new code without a written sentence does not compile.
+ */
+const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   INTERNAL_ERROR: 'An unexpected error occurred',
   VALIDATION_FAILED: 'The request contains invalid values',
   MALFORMED_REQUEST: 'The request could not be understood',
@@ -234,6 +242,9 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   TICKET_NOT_FOUND: 'Ticket not found',
   ARTICLE_NOT_FOUND: 'Article not found',
   WEBHOOK_NOT_FOUND: 'Webhook not found',
+  TRIGGER_NOT_FOUND: 'That automation rule no longer exists',
+  SHORTCUT_NOT_FOUND: 'That saved reply no longer exists',
+  SHORTCUT_KEY_TAKEN: 'Another saved reply already uses that shortcut',
   MEMBER_NOT_FOUND: 'Team member not found',
   MEMBER_ALREADY_EXISTS: 'That person is already on this team',
   DUPLICATE_SLUG: 'That slug is already in use',

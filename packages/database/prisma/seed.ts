@@ -1,9 +1,18 @@
 /**
- * Development seed.
+ * The seed.
  *
- * Idempotent: safe to run repeatedly against the same database. Every credential here is a
- * throwaway development value and must never appear in any other environment — the production
- * bootstrap path is a separate command that reads real values from the environment.
+ * Idempotent: safe to run repeatedly against the same database.
+ *
+ * It does two different jobs and they have different rules. Creating the **platform
+ * administrator** is a real bootstrap step that a production server needs. Creating the **demo
+ * account** - two users with a password published in this repository, and a website pointed at
+ * localhost - is a development fixture.
+ *
+ * The header used to say the demo credentials "must never appear in any other environment" and
+ * nothing whatsoever enforced it, while the deployment guide told an operator to run this file.
+ * That is the shape of defect this project keeps finding: a promise in a comment with no code
+ * behind it. Now production seeds the administrator and refuses the fixtures, and refuses the
+ * shipped default administrator password too.
  */
 import 'dotenv/config';
 import { hash } from '@node-rs/argon2';
@@ -16,6 +25,13 @@ const prisma = new PrismaClient();
 const ARGON2 = { algorithm: 2, memoryCost: 19_456, timeCost: 2, parallelism: 1, outputLen: 32 };
 
 const DEMO_PASSWORD = 'Demo!Passw0rd';
+
+/** Development fixtures are skipped here, and the defaults below are refused outright. */
+const IS_PRODUCTION = process.env['NODE_ENV'] === 'production';
+
+/** The values shipped in `.env.example`. Fine locally; a published credential in production. */
+const SHIPPED_ADMIN_EMAIL = 'admin@smartchat.local';
+const SHIPPED_ADMIN_PASSWORD = 'ChangeMe!SuperAdmin1';
 
 /**
  * A fixed public id for the demo property, so the test site's installation snippet can be baked in
@@ -121,8 +137,27 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
 };
 
 async function seedPlatformAdmin(): Promise<void> {
-  const email = process.env['SUPERADMIN_EMAIL'] ?? 'admin@smartchat.local';
-  const password = process.env['SUPERADMIN_PASSWORD'] ?? 'ChangeMe!SuperAdmin1';
+  const email = process.env['SUPERADMIN_EMAIL'] ?? SHIPPED_ADMIN_EMAIL;
+  const password = process.env['SUPERADMIN_PASSWORD'] ?? SHIPPED_ADMIN_PASSWORD;
+
+  /**
+   * The one account that can suspend every customer does not get a password from a public file.
+   *
+   * `loadConfig` refuses placeholder secrets, but this script reads `process.env` directly and
+   * never goes through it - so without this check, `prisma db seed` on a production server with
+   * no `SUPERADMIN_PASSWORD` set would quietly create the operator account with the password
+   * printed in `.env.example`.
+   */
+  if (IS_PRODUCTION && (password === SHIPPED_ADMIN_PASSWORD || email === SHIPPED_ADMIN_EMAIL)) {
+    throw new Error(
+      'Refusing to create the platform administrator with the credentials from .env.example. ' +
+        'Set SUPERADMIN_EMAIL and SUPERADMIN_PASSWORD to real values before seeding in production.',
+    );
+  }
+
+  if (IS_PRODUCTION && password.length < 12) {
+    throw new Error('SUPERADMIN_PASSWORD must be at least 12 characters in production.');
+  }
 
   await prisma.platformAdmin.upsert({
     where: { email },
@@ -266,6 +301,14 @@ async function seedDemoAccount(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  if (IS_PRODUCTION) {
+    console.log('Seeding SmartChat (production: platform administrator only)...');
+    await seedPlatformAdmin();
+    console.log('Skipping the demo account and demo website - development fixtures.');
+    console.log('Done.');
+    return;
+  }
+
   console.log('Seeding SmartChat development data...');
   await seedPlatformAdmin();
   await seedDemoAccount();

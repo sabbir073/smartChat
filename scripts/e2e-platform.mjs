@@ -47,9 +47,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -171,7 +176,11 @@ async function main() {
     language: 'en-GB',
     timezone: 'UTC',
   });
-  check('and the widget serves visitors', beforeWidget.status === 200, `got ${beforeWidget.status}`);
+  check(
+    'and the widget serves visitors',
+    beforeWidget.status === 200,
+    `got ${beforeWidget.status}`,
+  );
 
   section('The console is a different door with a different key');
   const consoleClient = new Http();
@@ -223,9 +232,16 @@ async function main() {
 
   section('Suspend an account, and watch access stop');
   const listed = await consoleClient.call('GET', `/platform/accounts?search=Suspendable ${stamp}`);
-  check('the account is visible to the console', listed.body.data.length === 1, `${listed.body.data.length}`);
+  check(
+    'the account is visible to the console',
+    listed.body.data.length === 1,
+    `${listed.body.data.length}`,
+  );
   const target = listed.body.data[0];
-  check('with the counts an operator needs', target.propertyCount === 1 && target.memberCount === 1);
+  check(
+    'with the counts an operator needs',
+    target.propertyCount === 1 && target.memberCount === 1,
+  );
 
   const noReason = await consoleClient.call('POST', `/platform/accounts/${target.id}/suspend`, {});
   check(
@@ -320,8 +336,10 @@ async function main() {
   check('the flags load', flags.status === 200, `got ${flags.status}`);
   check(
     'and are exactly the ones the code reads',
-    flags.body.data.map((flag) => flag.key).sort().join(',') ===
-      'public_help_centre,uploads,webhooks',
+    flags.body.data
+      .map((flag) => flag.key)
+      .sort()
+      .join(',') === 'public_help_centre,uploads,webhooks',
     flags.body.data.map((flag) => flag.key).join(','),
   );
 
@@ -379,7 +397,11 @@ async function main() {
   const audit = await consoleClient.call('GET', '/platform/audit?limit=50');
   check('the platform audit log loads', audit.status === 200, `got ${audit.status}`);
   const actions = audit.body.data.map((entry) => entry.action);
-  check('the suspension is in it', actions.includes('account.suspended'), actions.slice(0, 6).join(','));
+  check(
+    'the suspension is in it',
+    actions.includes('account.suspended'),
+    actions.slice(0, 6).join(','),
+  );
   check('so is the resume', actions.includes('account.resumed'));
   check('so is the flag change', actions.includes('flag.changed'));
   check('and the sign-in', actions.includes('platform.signed_in'));

@@ -36,7 +36,8 @@ Non-default host ports are deliberate: developer machines usually already have s
 
 ## 2. Production (single VPS)
 
-Full instructions in `PRODUCTION_DEPLOYMENT.md`. Shape:
+Step-by-step instructions, from a bare server to a working deployment, in
+[PRODUCTION_DEPLOYMENT.md](PRODUCTION_DEPLOYMENT.md). Shape:
 
 ```
 internet ──► nginx (TLS termination, Let's Encrypt)
@@ -105,6 +106,6 @@ expects the new schema.
 
 ## 6. Backups
 
-`BACKUP_RESTORE.md` has the full procedure. Nightly `pg_dump` with retention, object storage
+[BACKUPS.md](BACKUPS.md) has the full procedure. Nightly `pg_dump` with retention, object storage
 mirrored, and — the part that actually matters — a **scheduled restore rehearsal into a scratch
 database**. An untested backup is not a backup.

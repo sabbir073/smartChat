@@ -54,9 +54,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -195,7 +200,9 @@ async function invitationLinkFor(email, attempts = 20) {
         const found = await response.json();
         const latest = found.messages?.[0];
         if (latest) {
-          const detail = await fetch(`${MAILPIT}/api/v1/message/${latest.ID}`).then((r) => r.json());
+          const detail = await fetch(`${MAILPIT}/api/v1/message/${latest.ID}`).then((r) =>
+            r.json(),
+          );
           const text = `${detail.Text ?? ''} ${detail.HTML ?? ''}`;
           const match = /accept-invitation\?token=([A-Za-z0-9._~%-]+)/.exec(text);
           if (match) return decodeURIComponent(match[1]);
@@ -218,10 +225,7 @@ async function main() {
   const visitor = await newVisitor(owner.property.publicId, 'I am going to be difficult.');
   check('the visitor started a conversation', Boolean(visitor.conversationId));
 
-  const conversation = await owner.client.call(
-    'GET',
-    `/conversations/${visitor.conversationId}`,
-  );
+  const conversation = await owner.client.call('GET', `/conversations/${visitor.conversationId}`);
   const visitorId = conversation.body.data?.visitor?.id;
   check('the agent can see who they are talking to', Boolean(visitorId), `${visitorId}`);
   check(
@@ -281,7 +285,11 @@ async function main() {
 
   const audit = await owner.client.call('GET', '/account/audit-logs?action=visitor.banned&limit=5');
   const entry = (audit.body.data ?? [])[0];
-  check('and the audit log records it', audit.status === 200 && Boolean(entry), `got ${audit.status}`);
+  check(
+    'and the audit log records it',
+    audit.status === 200 && Boolean(entry),
+    `got ${audit.status}`,
+  );
   check(
     'against the right visitor, with the reason the manager typed',
     entry?.resourceId === visitorId && JSON.stringify(entry?.metadata).includes('Abusive language'),
@@ -327,11 +335,7 @@ async function main() {
   const past = await owner.client.call('POST', `/visitors/${visitorId}/ban`, {
     until: new Date(Date.now() - 60_000).toISOString(),
   });
-  check(
-    'a ban that ended before it began is refused',
-    past.status === 422,
-    `got ${past.status}`,
-  );
+  check('a ban that ended before it began is refused', past.status === 422, `got ${past.status}`);
 
   const hour = await owner.client.call('POST', `/visitors/${visitorId}/ban`, {
     until: new Date(Date.now() + 3_600_000).toISOString(),
@@ -368,11 +372,7 @@ async function main() {
   check('and can be accepted', accepted.status === 200, `got ${accepted.status}`);
 
   const agentAttempt = await agent.call('POST', `/visitors/${visitorId}/ban`, {});
-  check(
-    'an agent cannot ban anybody',
-    agentAttempt.status === 403,
-    `got ${agentAttempt.status}`,
-  );
+  check('an agent cannot ban anybody', agentAttempt.status === 403, `got ${agentAttempt.status}`);
 
   const agentLift = await agent.call('DELETE', `/visitors/${visitorId}/ban`);
   check('nor lift a ban', agentLift.status === 403, `got ${agentLift.status}`);
@@ -381,7 +381,7 @@ async function main() {
   const stranger = await newAccount('bystander', stamp);
   const crossBan = await stranger.client.call('POST', `/visitors/${visitorId}/ban`, {});
   check(
-    "another account cannot ban a visitor it does not own",
+    'another account cannot ban a visitor it does not own',
     crossBan.status === 404,
     `got ${crossBan.status}`,
   );

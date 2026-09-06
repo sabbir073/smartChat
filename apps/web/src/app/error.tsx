@@ -44,7 +44,7 @@ export default function ErrorBoundary({
           Try again
         </button>
         <a
-          href="/"
+          href="/app"
           className="rounded-[var(--radius-control)] border border-border-strong bg-surface px-4 py-2.5 text-sm font-medium text-ink hover:bg-surface-raised"
         >
           Back to the dashboard

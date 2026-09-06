@@ -115,7 +115,9 @@ function classifyMigrations() {
   return names.map((name) => {
     const sql = readFileSync(join(migrationsDir, name, 'migration.sql'), 'utf8');
     const reasons = DESTRUCTIVE.filter((pattern) => pattern.test(sql)).map((pattern) =>
-      String(pattern).replace(/[/\\^$]|\\s\+|i$/g, '').replace(/\.\*/g, ' … '),
+      String(pattern)
+        .replace(/[/\\^$]|\\s\+|i$/g, '')
+        .replace(/\.\*/g, ' … '),
     );
     return { name, destructive: reasons.length > 0, reasons };
   });
@@ -189,7 +191,12 @@ async function main() {
   const dump = execFileSync(
     'docker',
     [
-      'compose', 'exec', '-T', 'postgres', 'sh', '-c',
+      'compose',
+      'exec',
+      '-T',
+      'postgres',
+      'sh',
+      '-c',
       `pg_dump -U ${PGUSER} -d ${PGDB} --format=custom --compress=9 --no-owner --no-privileges | base64 -w 0`,
     ],
     { encoding: 'utf8', maxBuffer: 1024 * 1024 * 512 },
@@ -199,13 +206,22 @@ async function main() {
 
   psql('postgres', '-c', `DROP DATABASE IF EXISTS "${SCRATCH}";`);
   const created = psql('postgres', '-c', `CREATE DATABASE "${SCRATCH}";`);
-  check('a scratch database stands in for production', created.status === 0, created.stderr?.trim());
+  check(
+    'a scratch database stands in for production',
+    created.status === 0,
+    created.stderr?.trim(),
+  );
 
   const base64 = readFileSync(dumpPath).toString('base64');
   const restoreInto = spawnSync(
     'docker',
     [
-      'compose', 'exec', '-T', 'postgres', 'sh', '-c',
+      'compose',
+      'exec',
+      '-T',
+      'postgres',
+      'sh',
+      '-c',
       `base64 -d > /tmp/rollback.dump && pg_restore -U ${PGUSER} -d ${SCRATCH} ` +
         `--no-owner --no-privileges /tmp/rollback.dump`,
     ],
@@ -249,7 +265,10 @@ async function main() {
       ),
     ) === 0,
   );
-  check('and the rows are gone', Number(query(SCRATCH, 'SELECT count(*) FROM conversations;')) === 0);
+  check(
+    'and the rows are gone',
+    Number(query(SCRATCH, 'SELECT count(*) FROM conversations;')) === 0,
+  );
 
   section('Rolling back');
   const recreate = psql('postgres', '-c', `DROP DATABASE "${SCRATCH}";`);
@@ -259,7 +278,12 @@ async function main() {
   const rollback = spawnSync(
     'docker',
     [
-      'compose', 'exec', '-T', 'postgres', 'sh', '-c',
+      'compose',
+      'exec',
+      '-T',
+      'postgres',
+      'sh',
+      '-c',
       `pg_restore -U ${PGUSER} -d ${SCRATCH} --no-owner --no-privileges /tmp/rollback.dump`,
     ],
     { encoding: 'utf8', maxBuffer: 1024 * 1024 * 512 },
@@ -330,7 +354,9 @@ async function main() {
     cleanup();
     process.exit(1);
   }
-  process.stdout.write(`${passed} checks passed. The rollback procedure has been performed, not described.\n`);
+  process.stdout.write(
+    `${passed} checks passed. The rollback procedure has been performed, not described.\n`,
+  );
   cleanup();
 }
 

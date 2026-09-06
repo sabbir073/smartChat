@@ -44,9 +44,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -216,8 +221,7 @@ async function main() {
   );
   check(
     'and the key is built from ids, with nothing from the file name in it',
-    !signed.body.data.uploadUrl.includes('diagram') &&
-      !signed.body.data.uploadUrl.includes('.png'),
+    !signed.body.data.uploadUrl.includes('diagram') && !signed.body.data.uploadUrl.includes('.png'),
     signed.body.data.uploadUrl,
   );
 
@@ -227,7 +231,11 @@ async function main() {
   const confirmed = await owner.call('POST', `/uploads/${signed.body.data.attachmentId}/confirm`, {
     clientMessageId: ulid(),
   });
-  check('the upload was confirmed', confirmed.status === 200, JSON.stringify(confirmed.body?.error));
+  check(
+    'the upload was confirmed',
+    confirmed.status === 200,
+    JSON.stringify(confirmed.body?.error),
+  );
   check(
     'it became an image message',
     confirmed.body.data.message.type === 'image',
@@ -270,7 +278,11 @@ async function main() {
 
   // Declared as an image, named as an image, and an executable.
   const disguisedPut = await put(disguised.body.data.uploadUrl, ELF, 'image/png');
-  check('the store accepts the bytes, as it always will', disguisedPut === 200, `got ${disguisedPut}`);
+  check(
+    'the store accepts the bytes, as it always will',
+    disguisedPut === 200,
+    `got ${disguisedPut}`,
+  );
 
   const refused = await owner.call('POST', `/uploads/${disguised.body.data.attachmentId}/confirm`, {
     clientMessageId: ulid(),
@@ -319,9 +331,13 @@ async function main() {
   const bigPut = await put(understated.body.data.uploadUrl, big);
   check('the store takes the larger object', bigPut === 200, `got ${bigPut}`);
 
-  const tooBig = await owner.call('POST', `/uploads/${understated.body.data.attachmentId}/confirm`, {
-    clientMessageId: ulid(),
-  });
+  const tooBig = await owner.call(
+    'POST',
+    `/uploads/${understated.body.data.attachmentId}/confirm`,
+    {
+      clientMessageId: ulid(),
+    },
+  );
   check(
     'but the real object is measured and refused',
     tooBig.status === 413,
@@ -350,7 +366,11 @@ async function main() {
     },
     visitor.token,
   );
-  check('a visitor can get a target', visitorSigned.status === 200, JSON.stringify(visitorSigned.body?.error));
+  check(
+    'a visitor can get a target',
+    visitorSigned.status === 200,
+    JSON.stringify(visitorSigned.body?.error),
+  );
 
   const visitorPut = await put(visitorSigned.body.data.uploadUrl, PDF, 'application/pdf');
   check('and upload to it', visitorPut === 200, `got ${visitorPut}`);
@@ -361,7 +381,11 @@ async function main() {
     { clientMessageId: ulid() },
     visitor.token,
   );
-  check('the file becomes a message', visitorConfirm.status === 200, JSON.stringify(visitorConfirm.body?.error));
+  check(
+    'the file becomes a message',
+    visitorConfirm.status === 200,
+    JSON.stringify(visitorConfirm.body?.error),
+  );
   check(
     'from the visitor, as a file',
     visitorConfirm.body.data.message.senderType === 'visitor' &&
@@ -388,7 +412,7 @@ async function main() {
     JSON.stringify(withFiles[0]?.attachment),
   );
 
-  section('Nobody reaches anybody else\'s files');
+  section("Nobody reaches anybody else's files");
   const stranger = new Http();
   await stranger.call('POST', '/auth/register', {
     name: 'Someone Else',

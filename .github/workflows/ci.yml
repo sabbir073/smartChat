@@ -139,6 +139,19 @@ jobs:
           cp .env.example .env
           docker compose -f docker-compose.yml -f docker-compose.dev.yml build --pull
 
+      # The edge config is a template, so `nginx -t` against the file on disk proves nothing.
+      # This renders it the way the entrypoint does and asks nginx. Nobody would otherwise find
+      # out it was broken until a production container refused to start.
+      - name: The edge configuration
+        run: node scripts/qa-edge-config.mjs
+
+      # Two classes of breakage that survive typecheck, lint and unit tests: a client calling a
+      # route that no longer exists, and a link to a page that does not. Both have happened here -
+      # removing billing deleted nine routes, and moving the dashboard under /app left buttons
+      # pointing at the marketing home.
+      - name: Routes and links
+        run: node scripts/qa-route-coverage.mjs
+
   stack:
     name: End to end · The whole stack
     runs-on: ubuntu-latest
@@ -172,6 +185,16 @@ jobs:
             node scripts/e2e-$suite.mjs
             echo "::endgroup::"
           done
+
+      # What a person sees when something goes wrong, asserted rather than assumed.
+      #
+      # The suites above check that the right thing happens; this one provokes ~60 failures on
+      # purpose - malformed bodies, hostile strings, ids that are not ids, credentials that are
+      # wrong in every available way - and fails if any answer carries a stack frame, a SQL
+      # fragment, a Prisma code, a filesystem path, an internal hostname, or a message written
+      # for a machine rather than a person. It found two real leaks the first time it ran.
+      - name: Error surface
+        run: node scripts/qa-error-surface.mjs
 
       # The exit criterion of phase 13, run on every change: a backup that has never been
       # restored is not considered reliable, and "never" includes "not since that migration".

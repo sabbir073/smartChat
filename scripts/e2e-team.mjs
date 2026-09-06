@@ -47,11 +47,16 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null; ` +
-        `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'throttle:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null; ` +
+          `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'throttle:*' ` +
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -182,7 +187,9 @@ async function invitationLinkFor(email, attempts = 20) {
         const found = await response.json();
         const latest = found.messages?.[0];
         if (latest) {
-          const detail = await fetch(`${MAILPIT}/api/v1/message/${latest.ID}`).then((r) => r.json());
+          const detail = await fetch(`${MAILPIT}/api/v1/message/${latest.ID}`).then((r) =>
+            r.json(),
+          );
           const text = `${detail.Text ?? ''} ${detail.HTML ?? ''}`;
           const match = /accept-invitation\?token=([A-Za-z0-9._~%-]+)/.exec(text);
           if (match) return decodeURIComponent(match[1]);
@@ -452,11 +459,7 @@ async function main() {
     body: 'I should not be able to say this.',
     type: 'text',
   });
-  check(
-    'and it cannot be replied to',
-    replyToB.status === 404,
-    `got ${replyToB.status}`,
-  );
+  check('and it cannot be replied to', replyToB.status === 404, `got ${replyToB.status}`);
 
   section('Permission boundaries');
 
@@ -493,7 +496,11 @@ async function main() {
     email: `nope.${stamp}@example.test`,
     baseRole: 'admin',
   });
-  check('an agent cannot invite anybody', agentInvites.status === 403, `got ${agentInvites.status}`);
+  check(
+    'an agent cannot invite anybody',
+    agentInvites.status === 403,
+    `got ${agentInvites.status}`,
+  );
 
   const agentReadsTeam = await agent.call('GET', '/team/members');
   check(

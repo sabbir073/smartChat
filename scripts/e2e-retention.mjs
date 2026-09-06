@@ -57,9 +57,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -224,9 +229,7 @@ async function main() {
   });
   check('and a ticket', ticket.status === 201, `got ${ticket.status}`);
 
-  const accountId = sql(
-    `SELECT id FROM accounts WHERE name = 'Retention ${stamp}' LIMIT 1`,
-  );
+  const accountId = sql(`SELECT id FROM accounts WHERE name = 'Retention ${stamp}' LIMIT 1`);
   check('the account is findable', accountId.length === 36, accountId);
 
   section('A policy is set, and one conversation is made old');
@@ -264,7 +267,11 @@ async function main() {
   check('an operator can sign in', signedIn.status === 200, `got ${signedIn.status}`);
 
   const applied = await console_.call('POST', '/platform/maintenance/retention');
-  check('retention can be applied on demand', applied.status === 200, JSON.stringify(applied.body?.error));
+  check(
+    'retention can be applied on demand',
+    applied.status === 200,
+    JSON.stringify(applied.body?.error),
+  );
   check(
     'and it reports what it did',
     typeof applied.body.data.conversationsDeleted === 'number' &&
@@ -339,8 +346,9 @@ async function main() {
   check('a second account exists with no policy', keeperTicket.status === 201);
   check(
     'and its retention is genuinely null, not a hidden default',
-    sql(`SELECT coalesce(data_retention_days::text, 'null') FROM accounts WHERE id = '${keeperAccount}'`) ===
-      'null',
+    sql(
+      `SELECT coalesce(data_retention_days::text, 'null') FROM accounts WHERE id = '${keeperAccount}'`,
+    ) === 'null',
   );
 
   const secondRun = await console_.call('POST', '/platform/maintenance/retention');
@@ -351,7 +359,7 @@ async function main() {
     JSON.stringify(secondRun.body.data),
   );
   check(
-    "the account with no policy still has everything",
+    'the account with no policy still has everything',
     sql(`SELECT count(*) FROM tickets WHERE account_id = '${keeperAccount}'`) === '1',
   );
 

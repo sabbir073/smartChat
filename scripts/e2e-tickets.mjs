@@ -53,9 +53,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -69,7 +74,19 @@ function sql(query) {
   try {
     return execFileSync(
       'docker',
-      ['compose', 'exec', '-T', 'postgres', 'psql', '-U', 'smartchat', '-d', 'smartchat', '-tAc', query],
+      [
+        'compose',
+        'exec',
+        '-T',
+        'postgres',
+        'psql',
+        '-U',
+        'smartchat',
+        '-d',
+        'smartchat',
+        '-tAc',
+        query,
+      ],
       { stdio: ['pipe', 'pipe', 'pipe'] },
     )
       .toString()
@@ -240,7 +257,11 @@ async function main() {
   );
 
   const listed = await owner.call('GET', '/tickets');
-  check('the ticket is in the queue', listed.status === 200 && listed.body.data.length === 1, `got ${listed.status}`);
+  check(
+    'the ticket is in the queue',
+    listed.status === 200 && listed.body.data.length === 1,
+    `got ${listed.status}`,
+  );
   const ticket = listed.body.data[0];
   check('the first ticket in an account is number 1', ticket?.number === 1, `${ticket?.number}`);
   check(
@@ -249,11 +270,20 @@ async function main() {
     ticket?.subject,
   );
   check('the requester was captured', ticket?.requesterEmail === requester, ticket?.requesterEmail);
-  check('it is open and unassigned', ticket?.status === 'open' && ticket?.assignedMemberId === null);
-  check('and it remembers the chat it came from', ticket?.conversationId === left.body.data.conversationId);
+  check(
+    'it is open and unassigned',
+    ticket?.status === 'open' && ticket?.assignedMemberId === null,
+  );
+  check(
+    'and it remembers the chat it came from',
+    ticket?.conversationId === left.body.data.conversationId,
+  );
 
   const thread = await owner.call('GET', `/tickets/${ticket.id}/messages`);
-  check('the thread starts with what they wrote', thread.body.data?.[0]?.body.includes('wrong VAT rate'));
+  check(
+    'the thread starts with what they wrote',
+    thread.body.data?.[0]?.body.includes('wrong VAT rate'),
+  );
   check('attributed to them, not to us', thread.body.data?.[0]?.authorType === 'contact');
 
   section('...and sends mail');
@@ -304,7 +334,11 @@ async function main() {
     afterReplyTicket.body.data.status,
   );
   const firstResponseAt = afterReplyTicket.body.data.firstResponseAt;
-  check('and the response clock started', typeof firstResponseAt === 'string', `${firstResponseAt}`);
+  check(
+    'and the response clock started',
+    typeof firstResponseAt === 'string',
+    `${firstResponseAt}`,
+  );
 
   section('An internal note reaches nobody');
   const before = (await inbox(requester)).length;
@@ -329,7 +363,7 @@ async function main() {
 
   const noteRow = sql(
     `SELECT count(*) FROM email_deliveries d JOIN ticket_messages m ON m.id = d.ticket_message_id ` +
-    `WHERE m.visibility = 'internal'`,
+      `WHERE m.visibility = 'internal'`,
   );
   check('no delivery was even created for an internal note', noteRow === '0', `rows: ${noteRow}`);
 
@@ -369,7 +403,11 @@ async function main() {
   const badAddress = await owner.call('PATCH', `/properties/${propertyA.id}`, {
     supportEmail: 'not-an-address',
   });
-  check('a support address that is not one is refused', badAddress.status === 422, `got ${badAddress.status}`);
+  check(
+    'a support address that is not one is refused',
+    badAddress.status === 422,
+    `got ${badAddress.status}`,
+  );
 
   section('Status timestamps record transitions, not edits');
   const resolved = await owner.call('PATCH', `/tickets/${ticket.id}`, { status: 'resolved' });
@@ -420,7 +458,11 @@ async function main() {
   check('and it is number 2', second.body.data.number === 2, `${second.body.data.number}`);
 
   const silent = await inbox(`caller.${stamp}@example.test`);
-  check('a ticket raised with notification off sends nothing', silent.length === 0, `${silent.length}`);
+  check(
+    'a ticket raised with notification off sends nothing',
+    silent.length === 0,
+    `${silent.length}`,
+  );
 
   const third = await owner.call('POST', '/tickets', {
     propertyId: propertyB.id,
@@ -429,7 +471,11 @@ async function main() {
     requesterEmail: `third.${stamp}@example.test`,
     notifyRequester: false,
   });
-  check('numbering keeps going across websites', third.body.data.number === 3, `${third.body.data.number}`);
+  check(
+    'numbering keeps going across websites',
+    third.body.data.number === 3,
+    `${third.body.data.number}`,
+  );
 
   const stranger = new Http();
   await stranger.call('POST', '/auth/register', {
@@ -470,7 +516,7 @@ async function main() {
 
   const strangerList = await stranger.call('GET', '/tickets');
   check(
-    "and their queue holds only their own",
+    'and their queue holds only their own',
     strangerList.body.data.length === 1,
     `${strangerList.body.data.length}`,
   );
@@ -482,7 +528,11 @@ async function main() {
     restrictedToProperties: true,
     propertyIds: [propertyB.id],
   });
-  check('an agent was invited, scoped to one website', invite.status === 201, `got ${invite.status}`);
+  check(
+    'an agent was invited, scoped to one website',
+    invite.status === 201,
+    `got ${invite.status}`,
+  );
 
   const token = await invitationTokenFor(agentEmail);
   const agent = new Http();
@@ -494,12 +544,16 @@ async function main() {
   check('the invitation was accepted', accepted.status === 200, `got ${accepted.status}`);
 
   const agentQueue = await agent.call('GET', '/tickets');
-  check('their queue holds only their website', agentQueue.body.data.length === 1, `${agentQueue.body.data.length}`);
+  check(
+    'their queue holds only their website',
+    agentQueue.body.data.length === 1,
+    `${agentQueue.body.data.length}`,
+  );
   check('and it is the right one', agentQueue.body.data[0]?.number === 3);
 
   const agentReads = await agent.call('GET', `/tickets/${ticket.id}`);
   check(
-    "a ticket on a website they do not work on is a 404, not a 403",
+    'a ticket on a website they do not work on is a 404, not a 403',
     agentReads.status === 404,
     `got ${agentReads.status}`,
   );
@@ -521,12 +575,15 @@ async function main() {
   const assigned = await owner.call('PATCH', `/tickets/${third.body.data.id}`, {
     assignedMemberId: scoped.id,
   });
-  check('the ticket was assigned', assigned.status === 200 && assigned.body.data.assignedMemberId === scoped.id);
+  check(
+    'the ticket was assigned',
+    assigned.status === 200 && assigned.body.data.assignedMemberId === scoped.id,
+  );
   const agentMail = await waitForMail(agentEmail, 2);
   check('and the assignee was emailed', agentMail.length >= 2, `${agentMail.length}`);
   const assignmentBody = agentMail[0] ? await messageBody(agentMail[0].ID) : '';
   check(
-    'the notification carries the subject but not the customer\'s message',
+    "the notification carries the subject but not the customer's message",
     assignmentBody.includes('A third one') && !assignmentBody.includes('Third.'),
   );
 
@@ -545,14 +602,25 @@ async function main() {
 
   section('Finding one again');
   const byNumber = await owner.call('GET', '/tickets?search=%232');
-  check('a ticket can be found by the number people quote', byNumber.body.data.length === 1, `${byNumber.body.data.length}`);
+  check(
+    'a ticket can be found by the number people quote',
+    byNumber.body.data.length === 1,
+    `${byNumber.body.data.length}`,
+  );
   check('and it is the right one', byNumber.body.data[0]?.number === 2);
 
   const bySubject = await owner.call('GET', '/tickets?search=phone%20call');
-  check('or by a word in the subject', bySubject.body.data.some((entry) => entry.number === 2));
+  check(
+    'or by a word in the subject',
+    bySubject.body.data.some((entry) => entry.number === 2),
+  );
 
   const mine = await owner.call('GET', '/tickets?assigned=me');
-  check('"assigned to me" resolves from the session, not the query', mine.body.data.length === 1, `${mine.body.data.length}`);
+  check(
+    '"assigned to me" resolves from the session, not the query',
+    mine.body.data.length === 1,
+    `${mine.body.data.length}`,
+  );
 
   process.stdout.write('\n');
   if (failures.length === 0) {

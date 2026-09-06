@@ -88,7 +88,12 @@ async function main() {
   const dump = execFileSync(
     'docker',
     [
-      'compose', 'exec', '-T', 'postgres', 'sh', '-c',
+      'compose',
+      'exec',
+      '-T',
+      'postgres',
+      'sh',
+      '-c',
       `pg_dump -U ${PGUSER} -d ${PGDB} --format=custom --compress=9 --no-owner --no-privileges | base64 -w 0`,
     ],
     { encoding: 'utf8', maxBuffer: 1024 * 1024 * 512 },
@@ -158,7 +163,12 @@ async function main() {
   const restored = spawnSync(
     'docker',
     [
-      'compose', 'exec', '-T', 'postgres', 'sh', '-c',
+      'compose',
+      'exec',
+      '-T',
+      'postgres',
+      'sh',
+      '-c',
       `base64 -d | pg_restore -U ${PGUSER} -d ${SCRATCH} --no-owner --no-privileges --exit-on-error`,
     ],
     { input: dump, encoding: 'utf8', maxBuffer: 1024 * 1024 * 512 },
@@ -198,10 +208,7 @@ async function main() {
   );
   check('a tenant-scoped join runs on the restored copy', Number(joined) >= 0, joined);
 
-  const search = query(
-    SCRATCH,
-    `SELECT count(*) FROM messages WHERE body ILIKE '%the%'`,
-  );
+  const search = query(SCRATCH, `SELECT count(*) FROM messages WHERE body ILIKE '%the%'`);
   check('a substring search runs', Number(search) >= 0, search);
 
   const indexes = Number(
@@ -213,7 +220,10 @@ async function main() {
   check('the trigram indexes came with it', indexes >= 4, `${indexes} gin indexes`);
 
   const enums = Number(
-    query(SCRATCH, `SELECT count(*) FROM pg_type WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace`),
+    query(
+      SCRATCH,
+      `SELECT count(*) FROM pg_type WHERE typtype = 'e' AND typnamespace = 'public'::regnamespace`,
+    ),
   );
   check('so did the enum types', enums >= 15, `${enums} enums`);
 

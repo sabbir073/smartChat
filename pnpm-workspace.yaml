@@ -1,3 +1,19 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# Transitive dependencies pinned above a published advisory.
+#
+# Neither is a direct dependency: postcss arrives through next, and deepmerge-ts through
+# @prisma/config. Waiting for those two to bump their own ranges leaves a known vulnerability in
+# the tree for as long as they take, so the version is fixed here and removed again when the
+# parent catches up.
+overrides:
+  # GHSA advisories through 8.5.22: arbitrary file read, path traversal via source-map
+  # auto-loading, and XSS via an unescaped </style> in stringify output.
+  postcss: ^8.5.28
+  # Stack exhaustion when merging a recursive object graph.
+  deepmerge-ts: ^8.0.2
+  # Reached only through tsup at build time and never present in a runtime image, but there is
+  # no reason to ship a known-vulnerable bundler either.
+  esbuild: ^0.28.1

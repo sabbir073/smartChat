@@ -5,6 +5,14 @@
   "type": "module",
   "description": "SmartChat \u2014 multi-tenant live chat SaaS platform",
   "packageManager": "pnpm@9.15.9",
+  "pnpm": {
+    "//": "Duplicated in pnpm-workspace.yaml on purpose: pnpm 9 reads overrides from here, pnpm 10+ reads them from there, and this repo must resolve the same way under both.",
+    "overrides": {
+      "postcss": "^8.5.28",
+      "deepmerge-ts": "^8.0.2",
+      "esbuild": "^0.28.1"
+    }
+  },
   "engines": {
     "node": ">=20.11.0"
   },
@@ -16,8 +24,8 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:unit": "turbo run test:unit",
-    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
-    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md,yml,yaml,css}\"",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,mjs,json,md,yml,yaml,css}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mjs,json,md,yml,yaml,css}\"",
     "clean": "turbo run clean && rimraf node_modules",
     "db:generate": "pnpm --filter @smartchat/database generate",
     "db:migrate": "pnpm --filter @smartchat/database migrate:dev",
@@ -45,6 +53,10 @@
     "e2e:retention": "node scripts/e2e-retention.mjs",
     "e2e:isolation": "node scripts/e2e-isolation.mjs",
     "e2e:abuse": "node scripts/e2e-abuse.mjs",
+    "qa:errors": "node scripts/qa-error-surface.mjs",
+    "qa:edge": "node scripts/qa-edge-config.mjs",
+    "qa:routes": "node scripts/qa-route-coverage.mjs",
+    "qa:all": "node scripts/qa-all.mjs",
     "loadtest": "node scripts/loadtest.mjs",
     "backup:rehearse": "node scripts/restore-rehearsal.mjs",
     "rollback:rehearse": "node scripts/rollback-rehearsal.mjs"
@@ -60,6 +72,6 @@
     "turbo": "^2.3.4",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.21.0",
-    "vitest": "^2.1.8"
+    "vitest": "^3.2.6"
   }
 }

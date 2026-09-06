@@ -29,11 +29,16 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null; ` +
-        `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'throttle:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null; ` +
+          `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'throttle:*' ` +
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -192,7 +197,11 @@ async function main() {
     locale: 'en',
     acceptTerms: true,
   });
-  check('a second, unrelated account registered', registerB.status === 201, `got ${registerB.status}`);
+  check(
+    'a second, unrelated account registered',
+    registerB.status === 201,
+    `got ${registerB.status}`,
+  );
 
   const weak = await new Client().call('POST', '/auth/register', {
     name: 'Weak',
@@ -266,15 +275,33 @@ async function main() {
     !JSON.stringify(me.body).toLowerCase().includes('passwordhash'),
   );
 
-  const noCsrf = await a.call('POST', '/properties', { name: 'x', websiteUrl: 'example.com' }, {
-    csrf: null,
-  });
-  check('mutation without a CSRF header is rejected (403)', noCsrf.status === 403, `got ${noCsrf.status}`);
+  const noCsrf = await a.call(
+    'POST',
+    '/properties',
+    { name: 'x', websiteUrl: 'example.com' },
+    {
+      csrf: null,
+    },
+  );
+  check(
+    'mutation without a CSRF header is rejected (403)',
+    noCsrf.status === 403,
+    `got ${noCsrf.status}`,
+  );
 
-  const badCsrf = await a.call('POST', '/properties', { name: 'x', websiteUrl: 'example.com' }, {
-    csrf: 'not-the-real-token',
-  });
-  check('mutation with a wrong CSRF token is rejected (403)', badCsrf.status === 403, `got ${badCsrf.status}`);
+  const badCsrf = await a.call(
+    'POST',
+    '/properties',
+    { name: 'x', websiteUrl: 'example.com' },
+    {
+      csrf: 'not-the-real-token',
+    },
+  );
+  check(
+    'mutation with a wrong CSRF token is rejected (403)',
+    badCsrf.status === 403,
+    `got ${badCsrf.status}`,
+  );
 
   const wrongPassword = await new Client().call('POST', '/auth/login', {
     email: emailA,
@@ -327,7 +354,11 @@ async function main() {
   );
 
   const bareWildcard = await a.call('POST', `/properties/${property.id}/domains`, { pattern: '*' });
-  check('a bare wildcard domain is rejected', bareWildcard.status === 422, `got ${bareWildcard.status}`);
+  check(
+    'a bare wildcard domain is rejected',
+    bareWildcard.status === 422,
+    `got ${bareWildcard.status}`,
+  );
 
   const tldWildcard = await a.call('POST', `/properties/${property.id}/domains`, {
     pattern: '*.com',
@@ -338,7 +369,10 @@ async function main() {
   section('Tenant isolation');
   const cases = [
     ["read A's property", await b.call('GET', `/properties/${property.id}`)],
-    ["update A's property", await b.call('PATCH', `/properties/${property.id}`, { name: 'hijacked' })],
+    [
+      "update A's property",
+      await b.call('PATCH', `/properties/${property.id}`, { name: 'hijacked' }),
+    ],
     ["delete A's property", await b.call('DELETE', `/properties/${property.id}`)],
     ["read A's installation snippet", await b.call('GET', `/properties/${property.id}/install`)],
     [
@@ -358,7 +392,11 @@ async function main() {
   );
 
   const switchAccount = await b.call('POST', '/auth/switch-account', { accountId: accountA });
-  check("B cannot switch into A's account", switchAccount.status === 404, `got ${switchAccount.status}`);
+  check(
+    "B cannot switch into A's account",
+    switchAccount.status === 404,
+    `got ${switchAccount.status}`,
+  );
 
   const borrowed = await b.call('GET', '/properties', undefined, { accountId: accountA });
   check(
@@ -372,7 +410,6 @@ async function main() {
     "A's property survived every attempt, unchanged",
     survived.status === 200 && survived.body?.data?.name === 'Smoke Site',
   );
-
 
   // --- widget surface -------------------------------------------------------
   //
@@ -436,7 +473,11 @@ async function main() {
   );
 
   const malformedId = await widgetCall('GET', '/widget/config?p=not-a-public-id');
-  check('a malformed public id is rejected', malformedId.status === 422, `got ${malformedId.status}`);
+  check(
+    'a malformed public id is rejected',
+    malformedId.status === 422,
+    `got ${malformedId.status}`,
+  );
 
   const bootstrapped = await widgetCall('POST', '/widget/session', {
     p: widgetPublicId,
@@ -444,9 +485,16 @@ async function main() {
     language: 'en-GB',
     timezone: 'Europe/London',
   });
-  check('a visitor session can be created', bootstrapped.status === 200, `got ${bootstrapped.status}`);
+  check(
+    'a visitor session can be created',
+    bootstrapped.status === 200,
+    `got ${bootstrapped.status}`,
+  );
   const visitorToken = bootstrapped.body?.data?.token;
-  check('the session returns a visitor token', typeof visitorToken === 'string' && visitorToken.length > 40);
+  check(
+    'the session returns a visitor token',
+    typeof visitorToken === 'string' && visitorToken.length > 40,
+  );
   check(
     'the session response never contains an account id',
     !JSON.stringify(bootstrapped.body).includes(accountA),
@@ -456,7 +504,11 @@ async function main() {
   check('the visitor token authenticates', visitorMe.status === 200, `got ${visitorMe.status}`);
 
   const noToken = await widgetCall('GET', '/widget/me');
-  check('the widget surface refuses an unauthenticated request', noToken.status === 401, `got ${noToken.status}`);
+  check(
+    'the widget surface refuses an unauthenticated request',
+    noToken.status === 401,
+    `got ${noToken.status}`,
+  );
 
   const garbageToken = await widgetCall('GET', '/widget/me', undefined, {
     token: 'not.a.real.token.at.all.but.long.enough',
@@ -524,7 +576,11 @@ async function main() {
   const logout = await a.call('POST', '/auth/logout');
   check('logout returns 204', logout.status === 204, `got ${logout.status}`);
   const afterLogout = await a.call('GET', '/auth/me');
-  check('the session is dead immediately after logout', afterLogout.status === 401, `got ${afterLogout.status}`);
+  check(
+    'the session is dead immediately after logout',
+    afterLogout.status === 401,
+    `got ${afterLogout.status}`,
+  );
 
   // A rejected session must take its cookie with it. The dashboard middleware routes on the
   // cookie being present, not valid, so a cookie left behind after the server has refused it

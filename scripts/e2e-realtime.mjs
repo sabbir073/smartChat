@@ -49,11 +49,16 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null; ` +
-        `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'throttle:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null; ` +
+          `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'throttle:*' ` +
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -275,29 +280,54 @@ async function main() {
   });
   const conversationId = started.conversationId;
   check('conversation started', typeof conversationId === 'string');
-  check('the first message is seq 1', Number(started.message.seq) === 1, `got ${started.message.seq}`);
+  check(
+    'the first message is seq 1',
+    Number(started.message.seq) === 1,
+    `got ${started.message.seq}`,
+  );
 
   const first = await agentSawFirst;
-  check('the agent received the visitor message live', first.message.body === 'My order arrived damaged.');
-  check('the message carries the conversation it belongs to', first.message.conversationId === conversationId);
+  check(
+    'the agent received the visitor message live',
+    first.message.body === 'My order arrived damaged.',
+  );
+  check(
+    'the message carries the conversation it belongs to',
+    first.message.conversationId === conversationId,
+  );
 
   section('Idempotent retry');
   const retry = await emit(visitor, 'conversation:start', {
     clientMessageId: startId,
     body: 'My order arrived damaged.',
   });
-  check('a retry with the same client id returns the same message', retry.message.id === started.message.id);
-  check('a retry does not advance the sequence', Number(retry.message.seq) === 1, `got ${retry.message.seq}`);
+  check(
+    'a retry with the same client id returns the same message',
+    retry.message.id === started.message.id,
+  );
+  check(
+    'a retry does not advance the sequence',
+    Number(retry.message.seq) === 1,
+    `got ${retry.message.seq}`,
+  );
 
   section('Agent to visitor');
-  const visitorSawReply = waitFor(visitor, 'message:new', (p) => p?.message?.senderType === 'agent');
+  const visitorSawReply = waitFor(
+    visitor,
+    'message:new',
+    (p) => p?.message?.senderType === 'agent',
+  );
   const reply = await emit(inbox, 'message:send', {
     conversationId,
     clientMessageId: ulid(),
     body: 'Sorry about that - a replacement is on the way.',
     type: 'text',
   });
-  check('the agent reply was persisted at seq 2', Number(reply.message.seq) === 2, `got ${reply.message.seq}`);
+  check(
+    'the agent reply was persisted at seq 2',
+    Number(reply.message.seq) === 2,
+    `got ${reply.message.seq}`,
+  );
 
   const delivered = await visitorSawReply;
   check('the visitor received the reply live', delivered.message.body === reply.message.body);
@@ -309,7 +339,11 @@ async function main() {
 
   section('Internal notes stay internal');
   const noteBody = 'Internal: refund pre-approved by finance.';
-  const visitorStayedQuiet = expectSilence(visitor, 'message:new', (p) => p?.message?.body === noteBody);
+  const visitorStayedQuiet = expectSilence(
+    visitor,
+    'message:new',
+    (p) => p?.message?.body === noteBody,
+  );
   const note = await emit(inbox, 'note:add', {
     conversationId,
     clientMessageId: ulid(),
@@ -321,18 +355,35 @@ async function main() {
 
   const visitorHistory = await emit(visitor, 'conversation:history', { conversationId, limit: 50 });
   const visitorBodies = visitorHistory.messages.map((entry) => entry.body);
-  check('the visitor history excludes the note', !visitorBodies.includes(noteBody), visitorBodies.join(' | '));
-  check('the visitor history has both real messages', visitorBodies.length === 2, `got ${visitorBodies.length}`);
+  check(
+    'the visitor history excludes the note',
+    !visitorBodies.includes(noteBody),
+    visitorBodies.join(' | '),
+  );
+  check(
+    'the visitor history has both real messages',
+    visitorBodies.length === 2,
+    `got ${visitorBodies.length}`,
+  );
 
-  const agentHistory = await agent.call('GET', `/conversations/${conversationId}/messages?limit=50`);
+  const agentHistory = await agent.call(
+    'GET',
+    `/conversations/${conversationId}/messages?limit=50`,
+  );
   const replayedReply = agentHistory.body.data.find((entry) => entry.senderType === 'agent');
   check(
     'replayed history attributes the agent, exactly as live delivery did',
     replayedReply?.senderName === 'E2E Agent',
     `got ${JSON.stringify(replayedReply?.senderName)}`,
   );
-  check('the agent history includes the note', agentHistory.body.data.some((entry) => entry.body === noteBody));
-  check('the agent history is gapless', agentHistory.body.data.map((entry) => Number(entry.seq)).join(',') === '1,2,3');
+  check(
+    'the agent history includes the note',
+    agentHistory.body.data.some((entry) => entry.body === noteBody),
+  );
+  check(
+    'the agent history is gapless',
+    agentHistory.body.data.map((entry) => Number(entry.seq)).join(',') === '1,2,3',
+  );
 
   section('Durability across a reconnect');
   visitor.close();
@@ -378,7 +429,10 @@ async function main() {
     `got ${foreignAssign.status}`,
   );
   const stillMine = await agent.call('GET', `/conversations/${conversationId}`);
-  check('the refused assignment changed nothing', stillMine.body.data.assignedMemberId === myMemberId);
+  check(
+    'the refused assignment changed nothing',
+    stillMine.body.data.assignedMemberId === myMemberId,
+  );
 
   // Tags and priority.
   const tagged = await agent.call('PATCH', `/conversations/${conversationId}`, {
@@ -392,12 +446,18 @@ async function main() {
     'filtering by tag finds it',
     byTag.body.data.some((row) => row.id === conversationId),
   );
-  const byBothTags = await agent.call('GET', '/conversations?tags=refund&tags=hardware&status=open');
+  const byBothTags = await agent.call(
+    'GET',
+    '/conversations?tags=refund&tags=hardware&status=open',
+  );
   check(
     'filtering by two tags still finds it - filters narrow, they do not widen',
     byBothTags.body.data.some((row) => row.id === conversationId),
   );
-  const byMissingTag = await agent.call('GET', '/conversations?tags=refund&tags=billing&status=open');
+  const byMissingTag = await agent.call(
+    'GET',
+    '/conversations?tags=refund&tags=billing&status=open',
+  );
   check(
     'a tag it does not carry excludes it',
     !byMissingTag.body.data.some((row) => row.id === conversationId),
@@ -420,7 +480,9 @@ async function main() {
 
   section('Close and reopen');
 
-  const closed = await agent.call('PATCH', `/conversations/${conversationId}`, { status: 'closed' });
+  const closed = await agent.call('PATCH', `/conversations/${conversationId}`, {
+    status: 'closed',
+  });
   check('the conversation can be closed', closed.body.data.status === 'closed');
 
   const openList = await agent.call('GET', '/conversations?status=open');
@@ -456,10 +518,15 @@ async function main() {
     `got ${noteWhenClosed.status}`,
   );
 
-  const reopened = await agent.call('PATCH', `/conversations/${conversationId}`, { status: 'open' });
+  const reopened = await agent.call('PATCH', `/conversations/${conversationId}`, {
+    status: 'open',
+  });
   check('the conversation can be reopened', reopened.body.data.status === 'open');
 
-  const reopenTranscript = await agent.call('GET', `/conversations/${conversationId}/messages?limit=50`);
+  const reopenTranscript = await agent.call(
+    'GET',
+    `/conversations/${conversationId}/messages?limit=50`,
+  );
   const reopenEntry = reopenTranscript.body.data.find(
     (entry) => entry.event?.kind === 'conversation.reopened',
   );
@@ -475,7 +542,11 @@ async function main() {
     body: 'Reopened - anything else I can help with?',
     type: 'text',
   });
-  check('replying works again after reopening', afterReopen.status === 201, `got ${afterReopen.status}`);
+  check(
+    'replying works again after reopening',
+    afterReopen.status === 201,
+    `got ${afterReopen.status}`,
+  );
 
   section('The visitor ends their own chat');
 
@@ -503,7 +574,11 @@ async function main() {
   const unreadBefore = beforeClose.body.data.agentUnreadCount;
 
   // The agent must learn about this without polling.
-  const agentSeesClose = waitFor(inbox, 'conversation:closed', (p) => p?.conversationId === otherId);
+  const agentSeesClose = waitFor(
+    inbox,
+    'conversation:closed',
+    (p) => p?.conversationId === otherId,
+  );
   const systemToAgent = waitFor(
     inbox,
     'message:new',
@@ -518,7 +593,10 @@ async function main() {
   check('and told it was the visitor who ended it', closeEvent.closedBy === 'visitor');
 
   const systemMessage = (await systemToAgent).message;
-  check('the ending is written into the transcript as a system message', systemMessage.type === 'system');
+  check(
+    'the ending is written into the transcript as a system message',
+    systemMessage.type === 'system',
+  );
   check('the system message says who ended it', systemMessage.event?.by === 'visitor');
   check(
     'and what happened',
@@ -547,7 +625,7 @@ async function main() {
     () => false,
     () => true,
   );
-  check('a visitor cannot end somebody else\'s chat', notMine);
+  check("a visitor cannot end somebody else's chat", notMine);
 
   // Starting again gives a brand new conversation rather than resuming the closed one.
   const fresh = await emit(other, 'conversation:start', {

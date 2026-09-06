@@ -57,9 +57,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -245,7 +250,11 @@ async function main() {
       clientMessageId: ulid(),
     });
     if (sent.status !== 201 && sent.status !== 200) {
-      check(`agent reply accepted (${body.slice(0, 20)})`, false, `got ${sent.status} ${JSON.stringify(sent.body?.error)}`);
+      check(
+        `agent reply accepted (${body.slice(0, 20)})`,
+        false,
+        `got ${sent.status} ${JSON.stringify(sent.body?.error)}`,
+      );
     }
   }
   const note = await owner.call('POST', `/conversations/${third.conversationId}/messages`, {
@@ -253,7 +262,11 @@ async function main() {
     clientMessageId: ulid(),
     type: 'note',
   });
-  check('an internal note was written', note.status === 201 || note.status === 200, `got ${note.status}`);
+  check(
+    'an internal note was written',
+    note.status === 201 || note.status === 200,
+    `got ${note.status}`,
+  );
 
   const closed = await owner.call('PATCH', `/conversations/${first.conversationId}`, {
     status: 'closed',
@@ -285,14 +298,22 @@ async function main() {
   const day = today();
   const rebuilt = await owner.call('POST', '/reports/rebuild', { from: day, to: day });
   check('a rebuild can be requested', rebuilt.status === 200, JSON.stringify(rebuilt.body?.error));
-  check('and it covers the day asked for', rebuilt.body.data.days === 1, `${rebuilt.body.data?.days}`);
+  check(
+    'and it covers the day asked for',
+    rebuilt.body.data.days === 1,
+    `${rebuilt.body.data?.days}`,
+  );
 
   section('The numbers match what we actually did');
   const overview = await owner.call('GET', `/reports/overview?from=${day}&to=${day}`);
   check('the overview loads', overview.status === 200, JSON.stringify(overview.body?.error));
   const totals = overview.body.data.totals;
 
-  check('3 conversations started', totals.conversationsStarted === 3, `${totals.conversationsStarted}`);
+  check(
+    '3 conversations started',
+    totals.conversationsStarted === 3,
+    `${totals.conversationsStarted}`,
+  );
   check('1 conversation closed', totals.conversationsClosed === 1, `${totals.conversationsClosed}`);
   check('6 visitor messages', totals.messagesFromVisitors === 6, `${totals.messagesFromVisitors}`);
   check(
@@ -320,11 +341,19 @@ async function main() {
     'GET',
     `/reports/overview?from=${new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)}&to=${day}`,
   );
-  check('a week of report has seven points', week.body.data.series.length === 7, `${week.body.data.series.length}`);
-  check('six of them are empty', week.body.data.series.filter((point) => point.conversationsStarted === 0).length === 6);
+  check(
+    'a week of report has seven points',
+    week.body.data.series.length === 7,
+    `${week.body.data.series.length}`,
+  );
+  check(
+    'six of them are empty',
+    week.body.data.series.filter((point) => point.conversationsStarted === 0).length === 6,
+  );
   check(
     'and the totals over the week are the same as the totals for the one busy day',
-    week.body.data.totals.conversationsStarted === 3 && week.body.data.totals.messagesFromAgents === 4,
+    week.body.data.totals.conversationsStarted === 3 &&
+      week.body.data.totals.messagesFromAgents === 4,
     JSON.stringify(week.body.data.totals),
   );
 
@@ -374,7 +403,11 @@ async function main() {
     agent?.messagesSent === 4,
     `${agent?.messagesSent}`,
   );
-  check('and with closing 1 conversation', agent?.conversationsClosed === 1, `${agent?.conversationsClosed}`);
+  check(
+    'and with closing 1 conversation',
+    agent?.conversationsClosed === 1,
+    `${agent?.conversationsClosed}`,
+  );
   check('and answering 2 first', agent?.firstResponseCount === 2, `${agent?.firstResponseCount}`);
 
   section('Rebuilding is idempotent');
@@ -435,17 +468,21 @@ async function main() {
   );
 
   const strangerTickets = await stranger.call('GET', `/tickets?propertyId=${property.id}`);
-  check(
-    'and of the ticket queue',
-    strangerTickets.status === 404,
-    `got ${strangerTickets.status}`,
-  );
+  check('and of the ticket queue', strangerTickets.status === 404, `got ${strangerTickets.status}`);
 
   section('The range is bounded, and the dates have to be dates');
   const backwards = await owner.call('GET', `/reports/overview?from=${day}&to=2020-01-01`);
-  check('a range that ends before it starts is refused', backwards.status === 422, `got ${backwards.status}`);
+  check(
+    'a range that ends before it starts is refused',
+    backwards.status === 422,
+    `got ${backwards.status}`,
+  );
   const enormous = await owner.call('GET', `/reports/overview?from=2000-01-01&to=${day}`);
-  check('and one nobody can read is refused too', enormous.status === 422, `got ${enormous.status}`);
+  check(
+    'and one nobody can read is refused too',
+    enormous.status === 422,
+    `got ${enormous.status}`,
+  );
   const nonsense = await owner.call('GET', `/reports/overview?from=yesterday&to=${day}`);
   check('"yesterday" is not a date', nonsense.status === 422, `got ${nonsense.status}`);
 

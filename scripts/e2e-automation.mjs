@@ -50,9 +50,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -269,12 +274,17 @@ async function main() {
   check('a text field offers text operators', urlField?.operators.includes('contains') === true);
   check(
     'and never offers one it cannot honour',
-    urlField?.operators.includes('gt') === false && secondsField?.operators.includes('contains') === false,
+    urlField?.operators.includes('gt') === false &&
+      secondsField?.operators.includes('contains') === false,
     JSON.stringify(secondsField?.operators),
   );
 
   section('A rule that could not work is refused, not stored');
-  const noWait = await owner.call('POST', '/automation/triggers', trigger({ event: 'time_on_site' }));
+  const noWait = await owner.call(
+    'POST',
+    '/automation/triggers',
+    trigger({ event: 'time_on_site' }),
+  );
   check('a time rule with no wait is refused', noWait.status === 422, `got ${noWait.status}`);
 
   const strayWait = await owner.call(
@@ -282,7 +292,11 @@ async function main() {
     '/automation/triggers',
     trigger({ event: 'page_viewed', afterSeconds: 20 }),
   );
-  check('and a wait on an event that does not wait', strayWait.status === 422, `got ${strayWait.status}`);
+  check(
+    'and a wait on an event that does not wait',
+    strayWait.status === 422,
+    `got ${strayWait.status}`,
+  );
 
   const orphanTag = await owner.call(
     'POST',
@@ -326,7 +340,11 @@ async function main() {
   );
 
   const noneStored = await owner.call('GET', '/automation/triggers');
-  check('none of them were stored', noneStored.body.data.length === 0, `${noneStored.body.data.length} stored`);
+  check(
+    'none of them were stored',
+    noneStored.body.data.length === 0,
+    `${noneStored.body.data.length} stored`,
+  );
 
   section('A trigger fires on a real visit');
   const greeting = await owner.call(
@@ -364,11 +382,19 @@ async function main() {
   const inbox = await owner.call('GET', '/conversations?status=open&limit=50');
   const created = inbox.body.data.find((entry) => entry.id === botMessage?.conversationId);
   check('it opened a conversation in the inbox', Boolean(created), 'not in the list');
-  check('the tag action was applied', created?.tags.includes('pricing') === true, JSON.stringify(created?.tags));
+  check(
+    'the tag action was applied',
+    created?.tags.includes('pricing') === true,
+    JSON.stringify(created?.tags),
+  );
   check('and so was the priority', created?.priority === 'high', created?.priority);
 
   const counted = await owner.call(`GET`, `/automation/triggers/${greeting.body.data.id}`);
-  check('the fire count is real', counted.body.data.fireCount === 1, `${counted.body.data.fireCount}`);
+  check(
+    'the fire count is real',
+    counted.body.data.fireCount === 1,
+    `${counted.body.data.fireCount}`,
+  );
   check('and it records when', Boolean(counted.body.data.lastFiredAt));
 
   section('Once per visit means once');
@@ -403,7 +429,11 @@ async function main() {
   somebodyElse.close();
 
   const twice = await owner.call('GET', `/automation/triggers/${greeting.body.data.id}`);
-  check('and the count reflects both people', twice.body.data.fireCount === 2, `${twice.body.data.fireCount}`);
+  check(
+    'and the count reflects both people',
+    twice.body.data.fireCount === 2,
+    `${twice.body.data.fireCount}`,
+  );
 
   section('Conditions actually narrow');
   const elsewhere = await new Visitor(shop.publicId, `${ORIGIN}/about`).connect();
@@ -585,7 +615,10 @@ async function main() {
   const renamed = await owner.call('PATCH', `/automation/shortcuts/${shortcut.body.data.id}`, {
     title: 'Refunds',
   });
-  check('a shortcut can be renamed', renamed.status === 200 && renamed.body.data.title === 'Refunds');
+  check(
+    'a shortcut can be renamed',
+    renamed.status === 200 && renamed.body.data.title === 'Refunds',
+  );
 
   const removed = await owner.call('DELETE', `/automation/shortcuts/${shortcut.body.data.id}`);
   check('and removed', removed.status === 204, `got ${removed.status}`);

@@ -44,13 +44,27 @@ async function request<T>(
   // third-party cookies are both blocked by default and the wrong tool here.
   if (options.token) headers.authorization = `Bearer ${options.token}`;
 
-  const response = await fetch(`${API_URL}/api/v1${path}`, {
-    method: options.method ?? 'GET',
-    headers,
-    credentials: 'omit',
-    mode: 'cors',
-    ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
-  });
+  /**
+   * A failed connection is an error with a sentence, not a raw `TypeError: Failed to fetch`.
+   *
+   * This runs on somebody else's website, where an ad blocker, an offline laptop or a corporate
+   * proxy are all ordinary. Every one of those rejects the promise rather than resolving it, and
+   * a caller that only knows about `WidgetApiError` would let the browser's own wording reach a
+   * visitor. `status: 0` is the agreed signal for "never got an answer", which is what the panel
+   * already branches on to choose its own wording.
+   */
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/api/v1${path}`, {
+      method: options.method ?? 'GET',
+      headers,
+      credentials: 'omit',
+      mode: 'cors',
+      ...(options.body !== undefined ? { body: JSON.stringify(options.body) } : {}),
+    });
+  } catch {
+    throw new WidgetApiError('NETWORK_ERROR', 'Could not reach the chat service', 0);
+  }
 
   if (response.status === 204) return undefined as T;
 

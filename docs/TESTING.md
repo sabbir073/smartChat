@@ -70,6 +70,14 @@ Fourteen scripts exist so that "it works" is a command rather than an opinion. A
 
 | `pnpm e2e:abuse` | Phase 14: a banned visitor refused on the token they hold, on a fresh gateway ticket, **and on the page reload that mints a new token** — which is the door the ban used to leave open. Plus: the ban is one person and not the website, an agent cannot apply one, another account cannot apply one to your visitor, a ban that ends in the past is refused, and lifting it lifts it. |
 
+| `pnpm qa:errors` | What a person sees when something goes wrong. Provokes ~60 failures on purpose - malformed bodies, hostile strings, ids that are not ids, credentials wrong in every available way, routes and methods that do not exist - and fails if any answer carries a stack frame, a SQL fragment, a Prisma code, a filesystem path, an internal hostname, or a message written for a machine. It found two real leaks on its first run: Fastify's own routing errors bypassed the error handler entirely and answered in the framework's envelope with the caller's URL echoed back, and three error codes had no written sentence so a missing automation rule reported "Unexpected error". |
+
+| `pnpm qa:edge` | The edge configuration, as nginx will actually read it. `edge.conf` is a *template*, so `nginx -t` against the file on disk fails on the `${VAR}` syntax and proves nothing; this renders it the way the entrypoint does, plants four throwaway certificates, and asks nginx. Also asserts the properties that are silent when missing - the 443 `default_server` that stops an unknown Host being served the dashboard, `server_tokens off`, the denied health endpoints, and the JSON error pages. |
+
+| `pnpm qa:routes` | Two kinds of breakage that survive typecheck, lint and unit tests: a client calling a route the API no longer registers, and a link to a page that does not exist. Both have happened here - removing billing deleted nine routes, and moving the dashboard under `/app` left buttons pointing at the marketing home. Checked against the route files and the Next app directory rather than a list somebody maintains. |
+
+| `pnpm qa:all` | Every suite above against a running stack, with one verdict at the end. It also sets the `SMOKE_*` variables itself, defaulting to `127.0.0.1` rather than `localhost` - on a host where `localhost` resolves to `::1` first and Docker publishes only on IPv4, every suite hangs against a stack that is working perfectly, which reads exactly like a broken application and is not. |
+
 | `pnpm loadtest` | Correctness under concurrency: forty visitors sending ten messages each over real sockets, then every transcript re-read to confirm the count, that sequence numbers are strictly increasing and unique, and that nothing was written twice. Latency percentiles are reported; they are the least interesting output. |
 
 | `pnpm backup:rehearse` / `pnpm rollback:rehearse` | See §7. |

@@ -53,9 +53,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -286,7 +291,11 @@ async function main() {
   );
 
   const readTickets = await withKey(key, 'GET', '/tickets');
-  check('the key can do what it was given', readTickets.status === 200, `got ${readTickets.status}`);
+  check(
+    'the key can do what it was given',
+    readTickets.status === 200,
+    `got ${readTickets.status}`,
+  );
 
   const writeTicket = await withKey(key, 'POST', '/tickets', {
     propertyId: property.id,
@@ -295,11 +304,7 @@ async function main() {
     requesterEmail: `nope.${stamp}@example.test`,
     notifyRequester: false,
   });
-  check(
-    'and cannot do what it was not',
-    writeTicket.status === 403,
-    `got ${writeTicket.status}`,
-  );
+  check('and cannot do what it was not', writeTicket.status === 403, `got ${writeTicket.status}`);
 
   const readContacts = await withKey(key, 'GET', '/contacts');
   check(
@@ -377,7 +382,11 @@ async function main() {
     url: 'not a url at all',
     events: ['ping'],
   });
-  check('and something that is not a URL is refused', notAUrl.status === 422, `got ${notAUrl.status}`);
+  check(
+    'and something that is not a URL is refused',
+    notAUrl.status === 422,
+    `got ${notAUrl.status}`,
+  );
 
   const noEvents = await owner.call('POST', '/integrations/webhooks', {
     name: 'Silent',
@@ -401,13 +410,13 @@ async function main() {
   });
   check('a webhook can be created', hook.status === 201, JSON.stringify(hook.body?.error));
   const secret = hook.body.data.secretShownOnce;
-  check('with a signing secret shown once', typeof secret === 'string' && secret.startsWith('whsec_'));
+  check(
+    'with a signing secret shown once',
+    typeof secret === 'string' && secret.startsWith('whsec_'),
+  );
 
   const hooks = await owner.call('GET', '/integrations/webhooks');
-  check(
-    'and never returned again',
-    !JSON.stringify(hooks.body.data).includes(secret),
-  );
+  check('and never returned again', !JSON.stringify(hooks.body.data).includes(secret));
 
   const pinged = await owner.call('POST', `/integrations/webhooks/${hook.body.data.id}/ping`);
   check('a test can be sent', pinged.status === 201, JSON.stringify(pinged.body?.error));
@@ -474,7 +483,12 @@ async function main() {
     check('with the ticket number in it', body.data.number === ticket.body.data.number);
     check(
       'and it verifies too',
-      verify(secret, ticketDelivery.raw, ticketDelivery.headers['x-smartchat-signature'], Math.floor(Date.now() / 1000)).valid,
+      verify(
+        secret,
+        ticketDelivery.raw,
+        ticketDelivery.headers['x-smartchat-signature'],
+        Math.floor(Date.now() / 1000),
+      ).valid,
     );
   }
 
@@ -530,7 +544,11 @@ async function main() {
   const replies = received
     .slice(before)
     .filter((entry) => entry.headers['x-smartchat-event'] === 'ticket.replied');
-  check('an event nobody subscribed to is not delivered', replies.length === 0, `${replies.length}`);
+  check(
+    'an event nobody subscribed to is not delivered',
+    replies.length === 0,
+    `${replies.length}`,
+  );
 
   section('A failing endpoint is retried, then given up on');
   const flaky = await owner.call('POST', '/integrations/webhooks', {

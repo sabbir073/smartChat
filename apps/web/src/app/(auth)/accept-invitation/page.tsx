@@ -42,7 +42,7 @@ function AcceptForm() {
       // the client-side auth context that mounted with the old identity, so the dashboard would
       // greet them by the wrong name until something forced a reload. Re-fetch, then hard-load.
       await refresh();
-      window.location.assign('/');
+      window.location.assign('/app');
     } catch (caught) {
       if (caught instanceof ApiError) {
         setFieldErrors(caught.fieldErrors());

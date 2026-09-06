@@ -51,9 +51,14 @@ function resetRateLimits() {
     execFileSync(
       'docker',
       [
-        'compose', 'exec', '-T', 'redis', 'sh', '-c',
+        'compose',
+        'exec',
+        '-T',
+        'redis',
+        'sh',
+        '-c',
         `redis-cli -a "${password}" --no-auth-warning --scan --pattern 'ratelimit:*' ` +
-        `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
+          `| xargs -r redis-cli -a "${password}" --no-auth-warning del > /dev/null`,
       ],
       { stdio: 'pipe' },
     );
@@ -139,7 +144,9 @@ async function invitationTokenFor(email, attempts = 20) {
         const found = await response.json();
         const latest = found.messages?.[0];
         if (latest) {
-          const detail = await fetch(`${MAILPIT}/api/v1/message/${latest.ID}`).then((r) => r.json());
+          const detail = await fetch(`${MAILPIT}/api/v1/message/${latest.ID}`).then((r) =>
+            r.json(),
+          );
           const text = `${detail.Text ?? ''} ${detail.HTML ?? ''}`;
           const match = /accept-invitation\?token=([A-Za-z0-9._~%-]+)/.exec(text);
           if (match) return decodeURIComponent(match[1]);
@@ -285,7 +292,11 @@ async function main() {
 
   section('A published article is reachable publicly');
   const index = await anonymous(`/public/kb/${propertyA.publicId}`);
-  check('the help centre answers a reader with no session', index.status === 200, `got ${index.status}`);
+  check(
+    'the help centre answers a reader with no session',
+    index.status === 200,
+    `got ${index.status}`,
+  );
   check(
     'it names the website',
     index.body.data.property.name === 'Depot',
@@ -329,7 +340,11 @@ async function main() {
 
   section('...and searchable');
   const byTitle = await anonymous(`/public/kb/${propertyA.publicId}/search`, { q: 'refunds' });
-  check('a title word finds it', byTitle.status === 200 && byTitle.body.data.length === 1, `got ${byTitle.status}`);
+  check(
+    'a title word finds it',
+    byTitle.status === 200 && byTitle.body.data.length === 1,
+    `got ${byTitle.status}`,
+  );
   check('and the result is the right article', byTitle.body.data[0]?.slug === 'how-refunds-work');
 
   const byBody = await anonymous(`/public/kb/${propertyA.publicId}/search`, { q: 'working days' });
@@ -339,8 +354,14 @@ async function main() {
     JSON.stringify(byBody.body.data?.map((a) => a.slug)),
   );
 
-  const bySection = await anonymous(`/public/kb/${propertyA.publicId}/search`, { category: 'billing' });
-  check('a section can be browsed on its own', bySection.body.data?.length === 1, `${bySection.status}`);
+  const bySection = await anonymous(`/public/kb/${propertyA.publicId}/search`, {
+    category: 'billing',
+  });
+  check(
+    'a section can be browsed on its own',
+    bySection.body.data?.length === 1,
+    `${bySection.status}`,
+  );
 
   const secret = await anonymous(`/public/kb/${propertyA.publicId}/search`, { q: 'margin' });
   check(
@@ -363,7 +384,11 @@ async function main() {
   const neverExisted = await anonymous(
     `/public/kb/${propertyA.publicId}/articles/no-such-article-at-all`,
   );
-  check('a draft is not readable publicly', draftBySlug.status === 404, `got ${draftBySlug.status}`);
+  check(
+    'a draft is not readable publicly',
+    draftBySlug.status === 404,
+    `got ${draftBySlug.status}`,
+  );
   check(
     'and the answer is indistinguishable from one that never existed',
     draftBySlug.status === neverExisted.status &&
@@ -372,9 +397,7 @@ async function main() {
   );
 
   section('The public id authorises nothing');
-  const wrongSite = await anonymous(
-    `/public/kb/${propertyB.publicId}/articles/how-refunds-work`,
-  );
+  const wrongSite = await anonymous(`/public/kb/${propertyB.publicId}/articles/how-refunds-work`);
   check(
     "another website's public id does not reach this article",
     wrongSite.status === 404,
@@ -382,7 +405,11 @@ async function main() {
   );
 
   const noSuchProperty = await anonymous('/public/kb/prp_0000000000000000');
-  check('an invented public id is refused', noSuchProperty.status === 404, `got ${noSuchProperty.status}`);
+  check(
+    'an invented public id is refused',
+    noSuchProperty.status === 404,
+    `got ${noSuchProperty.status}`,
+  );
 
   const malformed = await anonymous('/public/kb/../../accounts');
   check(
@@ -399,7 +426,11 @@ async function main() {
     restrictedToProperties: true,
     propertyIds: [propertyB.id],
   });
-  check('an agent was invited, scoped to the other website', invite.status === 201, `got ${invite.status}`);
+  check(
+    'an agent was invited, scoped to the other website',
+    invite.status === 201,
+    `got ${invite.status}`,
+  );
 
   const token = await invitationTokenFor(agentEmail);
   check('the invitation email arrived', typeof token === 'string' && token.length > 20);
@@ -413,11 +444,15 @@ async function main() {
   check('the invitation was accepted', accepted.status === 200, `got ${accepted.status}`);
 
   const agentReadsOwn = await agent.call('GET', `/kb/${propertyB.id}/articles`);
-  check('the agent can read their own website\'s help centre', agentReadsOwn.status === 200, `got ${agentReadsOwn.status}`);
+  check(
+    "the agent can read their own website's help centre",
+    agentReadsOwn.status === 200,
+    `got ${agentReadsOwn.status}`,
+  );
 
   const agentReadsOther = await agent.call('GET', `/kb/${propertyA.id}/articles`);
   check(
-    'but not the other website\'s',
+    "but not the other website's",
     agentReadsOther.status === 404,
     `got ${agentReadsOther.status}`,
   );
@@ -461,7 +496,11 @@ async function main() {
   const originalPublishedAt = article.body.data.publishedAt;
   await owner.call('PATCH', `/kb/articles/${article.body.data.id}`, { status: 'draft' });
   const hidden = await anonymous(`/public/kb/${propertyA.publicId}/articles/how-refunds-work`);
-  check('unpublishing removes it from the help centre', hidden.status === 404, `got ${hidden.status}`);
+  check(
+    'unpublishing removes it from the help centre',
+    hidden.status === 404,
+    `got ${hidden.status}`,
+  );
 
   const republished = await owner.call('PATCH', `/kb/articles/${article.body.data.id}`, {
     status: 'published',
@@ -483,7 +522,11 @@ async function main() {
   check('the section was removed', removed.status === 204, `got ${removed.status}`);
 
   const survivor = await anonymous(`/public/kb/${propertyA.publicId}/articles/how-refunds-work`);
-  check('the article is still published and readable', survivor.status === 200, `got ${survivor.status}`);
+  check(
+    'the article is still published and readable',
+    survivor.status === 200,
+    `got ${survivor.status}`,
+  );
   check('it simply has no section any more', survivor.body.data.category === null);
 
   section('Views are counted for readers, not for authors');
@@ -512,7 +555,11 @@ async function main() {
     slug: 'escaping',
     status: 'published',
   });
-  check('an article containing markup can be saved', hostile.status === 201, JSON.stringify(hostile.body?.error));
+  check(
+    'an article containing markup can be saved',
+    hostile.status === 201,
+    JSON.stringify(hostile.body?.error),
+  );
   check(
     'and it is stored exactly as written, not silently rewritten',
     hostile.body.data.body === HOSTILE_BODY,
@@ -529,21 +576,15 @@ async function main() {
     const html = await rendered.text();
     check('the rendered help-centre page was reachable', true);
     check(
-      'the author\'s script tag arrives as text, not as a tag',
+      "the author's script tag arrives as text, not as a tag",
       html.includes('&lt;script&gt;') && !html.includes('<script>window.__pwned'),
     );
     check(
       'an event-handler attribute cannot be smuggled through a code span',
       !/<img[^>]*onerror/i.test(html),
     );
-    check(
-      'a javascript: link is not turned into a link',
-      !/href="javascript:/i.test(html),
-    );
-    check(
-      'while an ordinary link still works',
-      html.includes('href="https://example.com/docs"'),
-    );
+    check('a javascript: link is not turned into a link', !/href="javascript:/i.test(html));
+    check('while an ordinary link still works', html.includes('href="https://example.com/docs"'));
     check(
       'and the title is escaped in the page as well',
       !html.includes('<script>alert(1)</script>'),

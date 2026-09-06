@@ -128,6 +128,13 @@ services:
   widget:
     <<: *hardening
 
+  # The acceptance harness - a fake customer website with the widget installed. It is
+  # how the end-to-end suites exercise a real installation, and it has no business
+  # running on a production server. A profile nothing activates here keeps it out of
+  # `docker compose up` without removing it from the development stack.
+  test-site:
+    profiles: ['acceptance']
+
   # ---------------------------------------------------------------------------
   # The edge: the only container the internet can reach.
   # ---------------------------------------------------------------------------
@@ -153,11 +160,19 @@ services:
       - ./infrastructure/nginx/edge.conf:/etc/nginx/templates/edge.conf.template:ro
       - ./infrastructure/nginx/certs:/etc/letsencrypt:ro
       - ./infrastructure/nginx/acme:/var/www/certbot
+    # This check used to end in `|| exit 0`, which means it passed whatever happened -
+    # a dead nginx reported healthy for as long as the container stayed up. It now asks
+    # the HTTP listener for the one thing it always answers without a certificate: the
+    # redirect to https. A 301 means nginx is running and its config loaded; nothing
+    # else does.
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider http://127.0.0.1/.well-known/acme-challenge/ || exit 0']
+      test:
+        - CMD-SHELL
+        - "wget -qS --spider --max-redirect=0 http://127.0.0.1/ 2>&1 | grep -q '301 Moved Permanently'"
       interval: 30s
       timeout: 5s
       retries: 3
+      start_period: 10s
     networks: [smartchat]
 
   # ---------------------------------------------------------------------------
