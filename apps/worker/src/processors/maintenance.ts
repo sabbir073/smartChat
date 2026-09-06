@@ -1,7 +1,6 @@
 import type { Job } from 'bullmq';
 import type { Database } from '@smartchat/database';
 import {
-  EntitlementService,
   MaintenanceJob,
   RetentionService,
   SessionRepository,
@@ -51,7 +50,6 @@ export async function processMaintenanceJob(
        */
       const outcome = await new RetentionService({
         db,
-        entitlements: new EntitlementService(db),
         ...(storage ? { storage } : {}),
       }).apply();
       logger.info(outcome, 'retention applied');

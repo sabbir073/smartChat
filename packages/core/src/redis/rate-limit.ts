@@ -92,8 +92,6 @@ export class RateLimiter {
     }
   }
 
-
-
   private async evaluate(key: string, args: string[]): Promise<unknown> {
     if (!this.scriptSha) {
       this.scriptSha = (await this.redis.script('LOAD', CONSUME_SCRIPT)) as string;
@@ -133,6 +131,14 @@ export const RATE_LIMITS = {
   offlineMessage: { limit: 5, windowMs: 60 * 60_000 },
   visitorUpload: { limit: 10, windowMs: 60 * 60_000 },
   dashboardApi: { limit: 600, windowMs: 60_000 },
+  /**
+   * The public API's daily ceiling, per account.
+   *
+   * The per-minute limit above bounds a burst; this bounds a sustained crawl. It is fixed rather
+   * than sold: the product is free, so nobody buys a bigger number, and the figure is set well
+   * above what an integration does and well below what a scraper wants.
+   */
+  publicApiDaily: { limit: 100_000, windowMs: 24 * 60 * 60_000 },
   mutation: { limit: 120, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 

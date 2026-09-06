@@ -131,7 +131,9 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       VisitorClientEvent.CONVERSATION_START,
       async (payload: unknown, callback: AckCallback<unknown>) => {
         try {
-          if (!(await guard.allowMessage(identity.visitorId, identity.visitorId, identity.propertyId))) {
+          if (
+            !(await guard.allowMessage(identity.visitorId, identity.visitorId, identity.propertyId))
+          ) {
             throw new AppError(ErrorCode.RATE_LIMITED);
           }
           const input = parsePayload(startConversationSchema, payload);
@@ -163,7 +165,9 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       VisitorClientEvent.MESSAGE_SEND,
       async (payload: unknown, callback: AckCallback<unknown>) => {
         try {
-          if (!(await guard.allowMessage(identity.visitorId, identity.visitorId, identity.propertyId))) {
+          if (
+            !(await guard.allowMessage(identity.visitorId, identity.visitorId, identity.propertyId))
+          ) {
             throw new AppError(ErrorCode.RATE_LIMITED);
           }
           const input = parsePayload(

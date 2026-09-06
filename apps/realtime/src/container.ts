@@ -1,9 +1,7 @@
 import {
   AutomationRunner,
   ConversationService,
-  EntitlementService,
   FeatureFlagService,
-  PlanGuard,
   PresenceService,
   WebhookService,
   RedisEventPublisher,
@@ -75,15 +73,6 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
    */
 
   /**
-   * The plan guard, in the process where most conversations actually begin.
-   *
-   * This matters more here than anywhere else: the monthly conversation allowance is spent by a
-   * visitor opening the widget, which happens over a socket and never touches the API. A guard
-   * wired only into the API would leave the single most-used limit in the product unenforced.
-   */
-  const plans = new PlanGuard(db, new EntitlementService(db));
-
-  /**
    * The platform's kill switches, in the gateway too.
    *
    * The `webhooks` flag is documented as stopping new deliveries being queued, and it did - in the
@@ -94,11 +83,10 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
    */
   const flags = new FeatureFlagService(db);
 
-  const webhooks = new WebhookService({ db, plan: plans, flags, clock });
+  const webhooks = new WebhookService({ db, flags, clock });
 
   const conversations = new ConversationService({
     db,
-    plan: plans,
     events: new RedisEventPublisher(redis, (error) =>
       logger.error({ err: error }, 'failed to publish domain event'),
     ),

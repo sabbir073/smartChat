@@ -3,7 +3,6 @@
 import { useState, type ReactNode } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { Sidebar } from '@/components/layout/sidebar';
-import { SubscriptionBanner } from '@/components/layout/subscription-banner';
 import { Topbar } from '@/components/layout/topbar';
 import { Spinner } from '@/components/ui';
 
@@ -47,7 +46,6 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-col">
         <Topbar onOpenNav={() => setNavOpen(true)} />
-        <SubscriptionBanner />
         <main id="main" className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
           <div className="mx-auto w-full max-w-6xl">{children}</div>
         </main>

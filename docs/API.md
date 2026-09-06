@@ -155,10 +155,6 @@ PATCH  /integrations/webhooks/:id     DELETE /integrations/webhooks/:id
 GET    /integrations/webhooks/:id/deliveries
 POST   /integrations/webhooks/:id/ping
 
-# billing, from the customer's side
-GET    /billing/subscription          GET    /billing/invoices
-POST   /billing/plan                  DELETE /billing/plan/:id
-POST   /billing/cancel                POST   /billing/resume
 
 # files
 POST   /uploads/sign                  POST   /uploads/:id/confirm
@@ -178,7 +174,6 @@ GET    /widget/attachments/:id/url    GET    /widget/me
 # ---------------------------------------------------------------------------
 # public. No credential of any kind, and its own scope with no auth hook.
 # ---------------------------------------------------------------------------
-GET    /public/plans
 GET    /public/kb/:publicId           GET    /public/kb/:publicId/search
 GET    /public/kb/:publicId/articles/:slug
 
@@ -190,14 +185,9 @@ POST   /platform/auth/login           POST   /platform/auth/logout
 GET    /platform/auth/me
 GET    /platform/accounts             GET    /platform/accounts/:id/usage
 POST   /platform/accounts/:id/suspend POST   /platform/accounts/:id/resume
-POST   /platform/accounts/:id/plan
-GET    /platform/plans
-GET    /platform/plan-changes         POST   /platform/plan-changes/:id/decide
-GET    /platform/invoices             POST   /platform/invoices/:id/paid
 GET    /platform/health               GET    /platform/audit
 GET    /platform/flags                PATCH  /platform/flags/:key
 POST   /platform/maintenance/retention
-POST   /platform/maintenance/subscriptions
 ```
 
 ## 6. Non-negotiable rules

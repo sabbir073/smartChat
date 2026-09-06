@@ -47,7 +47,7 @@ articles:write       reports:read
 Each expands to real `Permission` values, so a key ends up going through exactly the checks a
 member does. There is no second authorisation model to keep in step.
 
-There is **no scope that manages the team, the billing, other keys or webhooks**. A key that could
+There is **no scope that manages the team, other keys or webhooks**. A key that could
 mint another key would make revocation meaningless — revoke one and its children keep working — so
 the whole `/integrations` scope refuses API-key authentication outright rather than relying on
 scopes never happening to be wide enough.

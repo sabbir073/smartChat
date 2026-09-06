@@ -141,7 +141,7 @@ ban — it disconnects. A ban is a separate, deliberate act by an agent, and it 
 see `SECURITY.md`.
 
 The agent namespace has no abuse guard. Its sockets are authenticated members of an account, and
-the limits that matter to them are applied where their actions are: the API and the plan.
+the limits that matter to them are applied where their actions are: the API's own rate limits.
 
 ## 9. What we explicitly do not do
 

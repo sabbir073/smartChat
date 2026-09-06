@@ -396,5 +396,4 @@ export class ConversationRepository {
       data: { agentUnreadCount: 0 },
     });
   }
-
 }

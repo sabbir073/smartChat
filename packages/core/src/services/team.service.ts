@@ -10,7 +10,6 @@ import {
   AppError,
   DEFAULT_ROLE_PERMISSIONS,
   ErrorCode,
-  FeatureKey,
   Permission,
   type MemberRole,
   type TenantContext,
@@ -35,14 +34,11 @@ import { TokenRepository } from '../repositories/token.repository.js';
 import { UserRepository } from '../repositories/user.repository.js';
 import { requirePermission } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
-import type { PlanGuard } from './plan-guard.js';
 
 const DAY = 86_400_000;
 
 export interface TeamServiceOptions {
   db: Database;
-  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
-  plan: PlanGuard;
   mailer: MailProvider;
   brand: BrandContext;
   /** Hand the invitation email to the queue when there is one; otherwise send inline. */
@@ -111,7 +107,6 @@ export class TeamService {
     this.assertCanGrantRole(context, input.baseRole);
     // Counted before the invitation is sent, not when it is accepted: an invitation that cannot
     // be accepted is worse than one that was never sent.
-    await this.options.plan.assertCanAdd(context, FeatureKey.MAX_AGENTS);
 
     const email = input.email.trim().toLowerCase();
     const now = this.clock.now();
@@ -483,8 +478,6 @@ export class TeamService {
 
   async createRole(context: TenantContext, input: CreateRoleInput): Promise<Role> {
     requirePermission(context, Permission.ROLE_MANAGE);
-    // The four preset roles are always available; only defining your own is a paid capability.
-    await this.options.plan.assertFeature(context, FeatureKey.FEATURE_CUSTOM_ROLES);
     try {
       const role = await this.options.db.role.create({
         data: {

@@ -34,149 +34,9 @@ if (!isPublicId(DEMO_PROPERTY_PUBLIC_ID, ID_PREFIX.property)) {
   );
 }
 
-const PLANS = [
-  {
-    code: 'free',
-    name: 'Free',
-    tagline: 'Everything you need to answer your first thousand questions.',
-    priceMonthlyCents: 0,
-    // Free is free either way. Stored rather than special-cased, so the pricing page can render
-    // every plan with one code path.
-    priceYearlyCents: 0,
-    isContactSales: false,
-    sortOrder: 1,
-    features: {
-      max_properties: 1,
-      max_agents: 2,
-      max_monthly_conversations: 500,
-      max_storage_bytes: 1_073_741_824,
-      max_kb_articles: 25,
-      max_webhooks: 1,
-      max_triggers: 3,
-      max_shortcuts: 10,
-      max_api_requests_per_day: 1_000,
-      max_conversation_history_days: 90,
-    },
-    flags: {
-      feature_knowledge_base: true,
-      feature_tickets: false,
-      feature_triggers: true,
-      feature_webhooks: false,
-      feature_public_api: false,
-      feature_remove_branding: false,
-      feature_custom_roles: false,
-      feature_file_attachments: true,
-    },
-  },
-  {
-    code: 'starter',
-    name: 'Starter',
-    tagline: 'For a growing team that has outgrown one shared inbox.',
-    priceMonthlyCents: 2900,
-    // Twelve months for the price of ten. The discount is stored, not computed, so changing it is
-    // a commercial decision somebody makes rather than a constant somebody finds.
-    priceYearlyCents: 29_000,
-    isContactSales: false,
-    sortOrder: 2,
-    features: {
-      max_properties: 5,
-      max_agents: 10,
-      max_monthly_conversations: 10_000,
-      max_storage_bytes: 21_474_836_480,
-      max_kb_articles: 500,
-      max_webhooks: 10,
-      max_triggers: 50,
-      max_shortcuts: 200,
-      max_api_requests_per_day: 50_000,
-      max_conversation_history_days: 365,
-    },
-    flags: {
-      feature_knowledge_base: true,
-      feature_tickets: true,
-      feature_triggers: true,
-      feature_webhooks: true,
-      feature_public_api: true,
-      feature_remove_branding: true,
-      feature_custom_roles: true,
-      feature_file_attachments: true,
-    },
-  },
-  {
-    code: 'pro',
-    name: 'Pro',
-    tagline: 'Unlimited conversations, and the whole product switched on.',
-    priceMonthlyCents: 9900,
-    priceYearlyCents: 99_000,
-    isContactSales: false,
-    sortOrder: 3,
-    features: {
-      max_properties: 50,
-      max_agents: 100,
-      max_monthly_conversations: null,
-      max_storage_bytes: 214_748_364_800,
-      max_kb_articles: null,
-      max_webhooks: 100,
-      max_triggers: null,
-      max_shortcuts: null,
-      max_api_requests_per_day: 1_000_000,
-      max_conversation_history_days: null,
-    },
-    flags: {
-      feature_knowledge_base: true,
-      feature_tickets: true,
-      feature_triggers: true,
-      feature_webhooks: true,
-      feature_public_api: true,
-      feature_remove_branding: true,
-      feature_custom_roles: true,
-      feature_file_attachments: true,
-    },
-  },
-  /**
-   * Enterprise is a real plan row with real entitlements, and deliberately not self-serve.
-   *
-   * `isContactSales` is what makes that honest rather than decorative: the pricing page shows
-   * "Talk to us" instead of a price, and the API refuses a change request naming it. An operator
-   * assigns it in the console after an actual conversation. A plan a customer could select and
-   * then not be charged for would be exactly the fake button this project does not ship.
-   */
-  {
-    code: 'enterprise',
-    name: 'Enterprise',
-    tagline: 'Volume, procurement, and an agreement written for you.',
-    priceMonthlyCents: 0,
-    priceYearlyCents: 0,
-    isContactSales: true,
-    sortOrder: 4,
-    features: {
-      max_properties: null,
-      max_agents: null,
-      max_monthly_conversations: null,
-      max_storage_bytes: null,
-      max_kb_articles: null,
-      max_webhooks: null,
-      max_triggers: null,
-      max_shortcuts: null,
-      max_api_requests_per_day: null,
-      max_conversation_history_days: null,
-    },
-    flags: {
-      feature_knowledge_base: true,
-      feature_tickets: true,
-      feature_triggers: true,
-      feature_webhooks: true,
-      feature_public_api: true,
-      feature_remove_branding: true,
-      feature_custom_roles: true,
-      feature_file_attachments: true,
-    },
-  },
-];
-
 const ALL_PERMISSIONS = [
   'account:view',
   'account:update',
-  'account:billing',
   'account:delete',
   'member:view',
   'member:invite',
@@ -218,7 +78,7 @@ const ALL_PERMISSIONS = [
 
 const ROLE_PERMISSIONS: Record<string, string[]> = {
   owner: ALL_PERMISSIONS,
-  admin: ALL_PERMISSIONS.filter((p) => p !== 'account:delete' && p !== 'account:billing'),
+  admin: ALL_PERMISSIONS.filter((p) => p !== 'account:delete'),
   manager: [
     'account:view',
     'member:view',
@@ -260,64 +120,6 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   ],
 };
 
-async function seedPlans(): Promise<Map<string, string>> {
-  const ids = new Map<string, string>();
-
-  for (const plan of PLANS) {
-    const record = await prisma.plan.upsert({
-      where: { code: plan.code },
-      // Every field is in `update` as well as `create`. A seed that only sets a column on first
-      // insert silently stops maintaining it, and the price on an existing environment then
-      // disagrees with the price in this file - which is the sort of drift nobody notices until a
-      // customer is billed for it.
-      update: {
-        name: plan.name,
-        tagline: plan.tagline,
-        priceMonthlyCents: plan.priceMonthlyCents,
-        priceYearlyCents: plan.priceYearlyCents,
-        isContactSales: plan.isContactSales,
-        sortOrder: plan.sortOrder,
-      },
-      create: {
-        id: uuidv7(),
-        code: plan.code,
-        name: plan.name,
-        description: `${plan.name} plan`,
-        tagline: plan.tagline,
-        priceMonthlyCents: plan.priceMonthlyCents,
-        priceYearlyCents: plan.priceYearlyCents,
-        isContactSales: plan.isContactSales,
-        sortOrder: plan.sortOrder,
-      },
-    });
-    ids.set(plan.code, record.id);
-
-    for (const [key, limitValue] of Object.entries(plan.features)) {
-      await prisma.planFeature.upsert({
-        where: { planId_key: { planId: record.id, key } },
-        update: { limitValue: limitValue === null ? null : BigInt(limitValue) },
-        create: {
-          id: uuidv7(),
-          planId: record.id,
-          key,
-          limitValue: limitValue === null ? null : BigInt(limitValue),
-        },
-      });
-    }
-
-    for (const [key, boolValue] of Object.entries(plan.flags)) {
-      await prisma.planFeature.upsert({
-        where: { planId_key: { planId: record.id, key } },
-        update: { boolValue },
-        create: { id: uuidv7(), planId: record.id, key, boolValue },
-      });
-    }
-  }
-
-  console.log(`  plans: ${PLANS.map((p) => p.code).join(', ')}`);
-  return ids;
-}
-
 async function seedPlatformAdmin(): Promise<void> {
   const email = process.env['SUPERADMIN_EMAIL'] ?? 'admin@smartchat.local';
   const password = process.env['SUPERADMIN_PASSWORD'] ?? 'ChangeMe!SuperAdmin1';
@@ -333,7 +135,6 @@ async function seedPlatformAdmin(): Promise<void> {
       permissions: [
         'platform:account:view',
         'platform:account:suspend',
-        'platform:plan:manage',
         'platform:usage:view',
         'platform:system:view',
         'platform:flag:manage',
@@ -346,7 +147,7 @@ async function seedPlatformAdmin(): Promise<void> {
   console.log(`  platform admin: ${email}`);
 }
 
-async function seedDemoAccount(planIds: Map<string, string>): Promise<void> {
+async function seedDemoAccount(): Promise<void> {
   const passwordHash = await hash(DEMO_PASSWORD, ARGON2);
   const now = new Date();
 
@@ -385,10 +186,10 @@ async function seedDemoAccount(planIds: Map<string, string>): Promise<void> {
   /**
    * One transaction for the whole demo account.
    *
-   * An earlier version created the account, members and subscription as separate statements. When
-   * a later one failed, the account existed without its property - and because the guard above
-   * then saw an existing account, re-running the seed silently skipped the repair. Atomicity is
-   * what makes "safe to run repeatedly" actually true.
+   * An earlier version created the account, its members and its property as separate statements.
+   * When a later one failed, the account existed without its property - and because the guard
+   * above then saw an existing account, re-running the seed silently skipped the repair.
+   * Atomicity is what makes "safe to run repeatedly" actually true.
    */
   const property = await prisma.$transaction(async (tx) => {
     const account = await tx.account.create({
@@ -438,17 +239,6 @@ async function seedDemoAccount(planIds: Map<string, string>): Promise<void> {
       ],
     });
 
-    await tx.subscription.create({
-      data: {
-        id: uuidv7(),
-        accountId: account.id,
-        planId: planIds.get('starter')!,
-        status: 'active',
-        currentPeriodStart: now,
-        currentPeriodEnd: new Date(now.getTime() + 30 * 24 * 3600 * 1000),
-      },
-    });
-
     return tx.property.create({
       data: {
         id: uuidv7(),
@@ -477,9 +267,8 @@ async function seedDemoAccount(planIds: Map<string, string>): Promise<void> {
 
 async function main(): Promise<void> {
   console.log('Seeding SmartChat development data...');
-  const planIds = await seedPlans();
   await seedPlatformAdmin();
-  await seedDemoAccount(planIds);
+  await seedDemoAccount();
   console.log('Done.');
 }
 

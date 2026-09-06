@@ -1,12 +1,6 @@
 import type { Database, KbArticle, KbCategory } from '@smartchat/database';
 import { ActorType as DbActorType } from '@smartchat/database';
-import {
-  AppError,
-  ErrorCode,
-  FeatureKey,
-  Permission,
-  type TenantContext,
-} from '@smartchat/types';
+import { AppError, ErrorCode, Permission, type TenantContext } from '@smartchat/types';
 import {
   slugifyTitle,
   type CreateArticleInput,
@@ -22,7 +16,6 @@ import { notDeleted, tenantScope } from '../repositories/scope.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { assertPropertyInAccount } from '../tenancy/property-access.js';
 import { systemClock, type Clock } from '../time.js';
-import type { PlanGuard } from './plan-guard.js';
 
 export type ArticleWithCategory = KbArticle & { category: KbCategory | null };
 
@@ -38,8 +31,6 @@ export interface PublicArticle {
 
 export interface KbServiceOptions {
   db: Database;
-  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
-  plan: PlanGuard;
   /**
    * The platform kill switch for the public help centre. Optional so tests need not wire one.
    * Checked in `resolvePublic`, which every public read passes through; the authenticated side is
@@ -209,8 +200,6 @@ export class KbService {
     input: CreateArticleInput,
   ): Promise<ArticleWithCategory> {
     requirePermission(context, Permission.KB_MANAGE);
-    await this.options.plan.assertFeature(context, FeatureKey.FEATURE_KNOWLEDGE_BASE);
-    await this.options.plan.assertCanAdd(context, FeatureKey.MAX_KB_ARTICLES);
     await assertPropertyInAccount(this.options.db, context, propertyId);
 
     const slug = input.slug ?? slugifyTitle(input.title);

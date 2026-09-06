@@ -75,7 +75,6 @@ export class PropertyRepository {
     });
   }
 
-
   async create(context: TenantContext, data: CreatePropertyData): Promise<Property> {
     return this.db.property.create({
       data: {

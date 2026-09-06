@@ -57,22 +57,17 @@ export const ErrorCode = {
   FILE_TOO_LARGE: 'FILE_TOO_LARGE',
   UPLOAD_FAILED: 'UPLOAD_FAILED',
 
-  // --- entitlements --------------------------------------------------------
-  PLAN_LIMIT_REACHED: 'PLAN_LIMIT_REACHED',
+  // --- availability --------------------------------------------------------
+  /**
+   * The capability exists but is switched off for this website by its own configuration - the
+   * offline form, say. Not a commercial answer: there are no plans and nothing to upgrade to.
+   */
   FEATURE_NOT_AVAILABLE: 'FEATURE_NOT_AVAILABLE',
   /**
-   * The account's service is reduced to read-only: an unpaid subscription past its grace window,
-   * or one that was cancelled. 402 rather than 403 because it is answerable with money, and the
-   * message says plainly that nothing has been deleted - which is true, and is the first thing
-   * somebody seeing this wants to know.
-   */
-  SUBSCRIPTION_PAUSED: 'SUBSCRIPTION_PAUSED',
-  /**
-   * Switched off by the platform, not by the plan.
+   * Switched off by the platform, not by the customer.
    *
-   * Distinct from FEATURE_NOT_AVAILABLE on purpose: that one is 402 and means "upgrade", which
-   * would be an infuriating thing to tell somebody during an incident on our side. This is 503,
-   * which is what it actually is - and it tells a client that retrying later is reasonable.
+   * 503 rather than 403, because it is our outage and not their mistake - and it tells a client
+   * that retrying later is reasonable.
    */
   TEMPORARILY_UNAVAILABLE: 'TEMPORARILY_UNAVAILABLE',
 } as const;
@@ -128,9 +123,7 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   FILE_TOO_LARGE: 413,
   UPLOAD_FAILED: 500,
 
-  PLAN_LIMIT_REACHED: 402,
-  FEATURE_NOT_AVAILABLE: 402,
-  SUBSCRIPTION_PAUSED: 402,
+  FEATURE_NOT_AVAILABLE: 403,
   TEMPORARILY_UNAVAILABLE: 503,
 };
 
@@ -248,9 +241,6 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
   FILE_TYPE_NOT_ALLOWED: 'This file type is not allowed',
   FILE_TOO_LARGE: 'This file is too large',
   UPLOAD_FAILED: 'The upload could not be completed',
-  PLAN_LIMIT_REACHED: 'Your plan limit has been reached',
-  FEATURE_NOT_AVAILABLE: 'This feature is not available on your plan',
-  SUBSCRIPTION_PAUSED:
-    'This account is read-only until the subscription is renewed. Nothing has been deleted.',
+  FEATURE_NOT_AVAILABLE: 'That is switched off for this website',
   TEMPORARILY_UNAVAILABLE: 'This is temporarily unavailable. Please try again shortly.',
 };

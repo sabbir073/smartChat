@@ -115,7 +115,6 @@ export default function PropertiesPage() {
                     <div className="flex items-center gap-2">
                       <p className="truncate text-sm font-medium text-ink">{property.name}</p>
                       {property.status === 'paused' && <Badge tone="neutral">Paused</Badge>}
-                      {!property.serving && <Badge tone="danger">Outside your plan</Badge>}
                     </div>
                     <p className="mt-0.5 truncate text-[13px] text-ink-subtle">
                       {property.websiteUrl}

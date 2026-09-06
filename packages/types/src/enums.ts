@@ -175,4 +175,3 @@ export const WebhookDeliveryStatus = {
 } as const;
 export type WebhookDeliveryStatus =
   (typeof WebhookDeliveryStatus)[keyof typeof WebhookDeliveryStatus];
-

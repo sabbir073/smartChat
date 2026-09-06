@@ -3,7 +3,6 @@ import { ActorType as DbActorType } from '@smartchat/database';
 import {
   AppError,
   ErrorCode,
-  FeatureKey,
   Permission,
   type DeviceType,
   type TenantContext,
@@ -15,7 +14,6 @@ import {
   verifyVisitorToken,
 } from '../crypto/visitor-token.js';
 import { AuditRepository } from '../repositories/audit.repository.js';
-import type { PlanGuard } from './plan-guard.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { PropertyRepository } from '../repositories/property.repository.js';
 import { VisitorRepository } from '../repositories/visitor.repository.js';
@@ -53,16 +51,6 @@ export interface BootstrapResult {
   sessionId: string;
   property: { publicId: string; name: string };
   widget: { version: number; config: WidgetConfig };
-  /**
-   * Whether the widget shows "Powered by SmartChat".
-   *
-   * Decided here rather than in the widget, because it is something a plan sells and the widget
-   * runs on the customer's own page - anything it decided for itself would be one line of
-   * JavaScript away from being decided differently. `feature_remove_branding` was on the pricing
-   * page for three plans before anything read it, which made it a paid feature that was never
-   * delivered and a free plan that was never actually branded.
-   */
-  showBranding: boolean;
   /** Drives the widget's online/offline copy before the socket has connected. */
   agentsAvailable: boolean;
   /**
@@ -78,14 +66,6 @@ export interface BootstrapResult {
 export interface VisitorServiceOptions {
   db: Database;
   visitorTokenSecret: string;
-  /**
-   * The plan gate.
-   *
-   * Required, not optional. A widget that serves visitors on a website the plan no longer covers
-   * is the single most expensive way to get this wrong, and an optional dependency is one that
-   * gets left out. Making it required means the compiler refuses to build an unguarded gateway.
-   */
-  plan: PlanGuard;
   /** Development convenience: accept localhost origins whatever the allowed-domain list says. */
   allowLocalhostOrigins: boolean;
   /**
@@ -128,7 +108,6 @@ export class VisitorService {
     // the snippet is public, so this response must not become a probe.
     if (!property) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
 
-    await this.assertServing(property.accountId, property.propertyId);
     this.assertOriginAllowed(property, input.origin);
 
     const now = this.clock.now();
@@ -241,7 +220,6 @@ export class VisitorService {
       maxUploadBytes: this.options.maxUploadBytes ?? 10 * 1024 * 1024,
       property: { publicId: input.publicId, name: property.propertyName },
       widget: { version: property.version, config: property.config },
-      showBranding: await this.showBranding(property.accountId),
     };
   }
 
@@ -249,7 +227,6 @@ export class VisitorService {
   async publicConfig(publicId: string, origin: string | undefined) {
     const property = await this.widgets.findPublishedByPublicId(publicId);
     if (!property) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
-    await this.assertServing(property.accountId, property.propertyId);
     this.assertOriginAllowed(property, origin);
 
     /**
@@ -267,7 +244,6 @@ export class VisitorService {
     return {
       property: { publicId, name: property.propertyName },
       widget: { version: property.version, config: property.config },
-      showBranding: await this.showBranding(property.accountId),
     };
   }
 
@@ -316,26 +292,6 @@ export class VisitorService {
    * left on the row rather than cleaned up - it is the record of what happened, and a visitor who
    * comes back after it lapses is simply not banned any more.
    */
-  /**
-   * Stop serving a website the plan no longer covers.
-   *
-   * The same `PROPERTY_NOT_FOUND` a deleted or unpublished website gives, on purpose. A stranger
-   * on somebody else's page has no business learning that the page's owner is behind on a bill,
-   * and a distinguishable answer here would turn the public snippet into a way to ask.
-   *
-   * Nothing is deleted and nothing is edited: the conversations, the transcripts and the
-   * configuration are all still there, and the widget starts serving again the moment the plan
-   * covers the website again.
-   */
-  /** Branding stays unless the plan includes removing it. Absent entitlement means branded. */
-  private async showBranding(accountId: string): Promise<boolean> {
-    return !(await this.options.plan.isFeatureEnabled(accountId, FeatureKey.FEATURE_REMOVE_BRANDING));
-  }
-
-  private async assertServing(accountId: string, propertyId: string): Promise<void> {
-    if (await this.options.plan.isPropertyServing(accountId, propertyId)) return;
-    throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
-  }
 
   private assertNotBanned(visitor: Visitor): void {
     if (!visitor.isBanned) return;

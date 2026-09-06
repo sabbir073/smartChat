@@ -43,7 +43,7 @@ export default function ContactPage() {
     {
       title: 'Sales and Enterprise',
       email: sales,
-      body: 'Volume, procurement, an agreement written for you, or a plan that does not fit the ones on the pricing page. Enterprise is arranged this way on purpose rather than being a button.',
+      body: 'Volume, procurement, an agreement written for you, or help running it at a size the docs do not cover. The product is free; this is where the conversations that are not about the product happen.',
       hint: 'Tell us roughly how many websites and conversations a month you expect.',
     },
     {

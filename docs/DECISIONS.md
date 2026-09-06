@@ -1474,3 +1474,35 @@ an operator who rotates it after a suspected compromise believes they have chang
 to come back with a reader. The encryption module is recoverable from git if 2FA is ever built;
 what is not acceptable is shipping the key requirement before the feature.
 **Date** 2026-09-01
+
+---
+## ADR-093 — The product is free, so the plan machinery is deleted rather than switched off
+**Context** Phase 15 built a complete commercial model: a `plans` catalogue with `plan_features`,
+`subscriptions`, `plan_change_requests`, `invoices`, `usage_records`, a `BillingProvider` port with
+a working manual provider, a `PlanGuard` consulted by nine services, an `EntitlementService` with a
+30-second cache, a customer billing screen, an operator billing tab, a public pricing page, and a
+hourly subscription-lifecycle job. The decision was then taken to make the product free to
+everybody. The obvious cheap move was to leave all of it in place and seed a single unlimited plan
+that every account is put on.
+**Chosen** Delete it. The tables are dropped by migration, the services and the port are removed,
+`PlanGuard` and `EntitlementService` are gone rather than neutered, and the pricing page, the
+billing screen and the billing tab are removed rather than hidden.
+**Reason** A guard with nothing to refuse is not a safety net, it is scenery. It would still be
+read on nearly every mutation, still be a required constructor option on nine services, still be a
+30-second cache somebody has to reason about during an incident, and still be the first thing a new
+reader tries to understand — all to return `true`. Worse, it is the exact failure mode this project
+has found twenty-two times: code that runs, reports success, and does nothing. A single "unlimited"
+plan row would also be one careless edit away from silently metering a product we have told people
+is free. Git keeps every line of it; if charging is ever introduced, the commit is `e05d1cd` and
+the shape it should take is in the ADRs around 087.
+**What follows** Three things had to be replaced rather than merely removed, because the plan was
+carrying them. (1) The public API's daily allowance was a plan entitlement; it is now a fixed
+`publicApiDaily` limit in `RATE_LIMITS`, per account, because a free product needs *more* protection
+from a patient scraper than a paid one, not less. (2) `assertWritableIfMutating` enforced the
+"paused subscription is read-only" rule; account suspension by an operator is unaffected, because
+that was always enforced separately in `AccountService.requireMembership` and
+`ApiKeyService.authenticate`. (3) `PropertyDto.serving` reported whether a website was inside the
+plan's allowance; it is gone, and a property's own `status` is now the only thing that decides
+whether its widget serves. `FEATURE_NOT_AVAILABLE` survives but is no longer a commercial answer:
+it is 403, not 402, and it means the account switched the capability off itself.
+**Date** 2026-09-06

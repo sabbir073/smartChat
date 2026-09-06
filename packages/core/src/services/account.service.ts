@@ -5,7 +5,6 @@ import type { UpdateAccountInput } from '@smartchat/validation';
 import { AccountRepository, type MembershipWithRole } from '../repositories/account.repository.js';
 import { AuditAction, AuditRepository } from '../repositories/audit.repository.js';
 import { requirePermission } from '../tenancy/context.js';
-import type { EntitlementService } from './entitlement.service.js';
 
 export interface AccountSummary {
   id: string;
@@ -19,10 +18,7 @@ export class AccountService {
   private readonly repo: AccountRepository;
   private readonly audit: AuditRepository;
 
-  constructor(
-    db: Database,
-    private readonly entitlements: EntitlementService,
-  ) {
+  constructor(db: Database) {
     this.repo = new AccountRepository(db);
     this.audit = new AuditRepository(db);
   }
@@ -81,7 +77,6 @@ export class AccountService {
       metadata: { changed: Object.keys(input) },
     });
 
-    this.entitlements.invalidate(context.accountId);
     return account;
   }
 

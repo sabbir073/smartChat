@@ -1,7 +1,7 @@
 # SmartChat — The platform console
 
 A different product from the dashboard, sharing a database. Everything in it acts **on** accounts
-from outside them: suspending, changing a plan, switching a capability off.
+from outside them: suspending, resuming, switching a capability off.
 
 ## No TenantContext, anywhere
 
@@ -57,12 +57,6 @@ conversation can start from.
 
 Resuming restores the same live session. Nobody was signed out; they were refused.
 
-## Plans
-
-Assigning a plan changes what an account is **entitled** to. Nothing charges anybody — billing is
-not implemented and is not faked. `EntitlementService` caches for 30 seconds, so a change is
-visible while the operator is still looking at the page.
-
 ## Feature flags
 
 A **closed list**. Every key corresponds to one capability that is genuinely read in exactly one
@@ -89,9 +83,9 @@ nobody was thinking about silently turning off uploads for every customer.
 Each flag pauses *new* work and never destroys existing data. That distinction is what makes it
 safe to use at three in the morning.
 
-The refusal is `TEMPORARILY_UNAVAILABLE` (503), deliberately not `FEATURE_NOT_AVAILABLE` (402).
-402 means "upgrade your plan", which would be an infuriating thing to tell somebody during an
-incident on our side.
+The refusal is `TEMPORARILY_UNAVAILABLE` (503), deliberately not `FEATURE_NOT_AVAILABLE` (403).
+503 says "ours, and temporary", which is the true thing and the one that tells the caller to try
+again rather than to change something on their side.
 
 ## Health
 
@@ -118,7 +112,7 @@ either cry wolf or stay quiet during the outage.
 these are actions taken *on* accounts by people outside them. An account must not be able to read
 them, and a platform action must not be lost among a tenant's own.
 
-Sign-ins, suspensions, resumes, plan changes and flag changes are all recorded, with the operator
+Sign-ins, suspensions, resumes and flag changes are all recorded, with the operator
 named. Recording never fails the action it is recording.
 
 ## Endpoints
@@ -132,9 +126,7 @@ GET  /api/v1/platform/accounts?search=&status=&limit=
 POST /api/v1/platform/accounts/:id/suspend   { reason }
 POST /api/v1/platform/accounts/:id/resume
 GET  /api/v1/platform/accounts/:id/usage
-POST /api/v1/platform/accounts/:id/plan      { planCode }
 
-GET  /api/v1/platform/plans
 GET  /api/v1/platform/health
 GET  /api/v1/platform/flags
 PATCH /api/v1/platform/flags/:key            { enabled?, disabledAccountIds? }

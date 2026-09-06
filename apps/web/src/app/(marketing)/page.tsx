@@ -77,21 +77,21 @@ export default function HomePage() {
                   href="/register"
                   className="group relative overflow-hidden rounded-full bg-gradient-to-r from-brand to-accent-violet px-7 py-3.5 text-[15px] font-semibold text-ink-inverted shadow-lg shadow-brand/25 transition-transform hover:scale-[1.03]"
                 >
-                  <span className="relative">Start free — no card</span>
+                  <span className="relative">Create an account</span>
                 </Link>
                 <Link
-                  href="/pricing"
+                  href="/features"
                   className="rounded-full border border-border-strong bg-surface/70 px-7 py-3.5 text-[15px] font-medium text-ink backdrop-blur transition-colors hover:bg-surface-raised"
                 >
-                  See pricing
+                  See what it does
                 </Link>
               </div>
             </Reveal>
 
             <Reveal delay={320}>
               <p className="mt-5 text-[13.5px] text-ink-subtle">
-                Fourteen days of everything, no card. Then a free plan you can stay on — one
-                website, 500 conversations a month.
+                Free, in full. No card, no plans, no seat count — every feature on this page is the
+                one you get.
               </p>
             </Reveal>
           </div>
@@ -194,7 +194,10 @@ export default function HomePage() {
         <div className="mt-14 grid gap-8 sm:grid-cols-3">
           {[
             { value: 'Sub-second', label: 'Delivery over a socket, both directions' },
-            { value: 'Gapless', label: 'Sequence numbers, so a reconnect replays exactly what was missed' },
+            {
+              value: 'Gapless',
+              label: 'Sequence numbers, so a reconnect replays exactly what was missed',
+            },
             { value: 'Never sent', label: 'Internal notes are not in the visitor’s stream at all' },
           ].map((figure, index) => (
             <Reveal key={figure.value} delay={index * 80}>
@@ -265,7 +268,7 @@ export default function HomePage() {
             centered
             eyebrow="Why self-hosted"
             title="The conversations are your customers’ words. Keep them."
-            lead="A hosted chat tool means every message your customers write is stored on somebody else’s infrastructure, under somebody else’s retention policy, priced per seat."
+            lead="A hosted chat tool means every message your customers write is stored on somebody else’s infrastructure, under somebody else’s retention policy, and metered by the seat."
           />
         </Reveal>
 
@@ -284,7 +287,7 @@ export default function HomePage() {
             {
               title: 'Not priced per seat',
               icon: icons.users,
-              body: 'Plans include a number of team members, and adding a colleague within that number costs nothing. Websites, conversations and storage are what scale.',
+              body: 'Add the whole team. There is no seat count and no per-agent charge — what it costs to run is the server you already have.',
             },
             {
               title: 'One deployment',
@@ -302,22 +305,22 @@ export default function HomePage() {
       </Section>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Pricing teaser + CTA                                                */}
+      {/* What it costs + CTA                                                 */}
       {/* ------------------------------------------------------------------ */}
       <Section tone="surface">
         <div className="grid gap-10 rounded-3xl border border-border bg-canvas p-8 sm:p-12 lg:grid-cols-2 lg:items-center">
           <Reveal>
             <SectionHeading
-              eyebrow="Pricing"
-              title="Start free. Move up when you outgrow it."
-              lead="Every number on the pricing page is read from the same table the server enforces. If a plan says 500 conversations, that is the limit that applies."
+              eyebrow="What it costs"
+              title="Nothing. There is no paid tier to move up to."
+              lead="Every feature described on this site is switched on for every account, from the first one. No plans, no allowances, no card, and no screen that asks you to upgrade before it will do its job."
             />
             <div className="mt-7 flex flex-wrap gap-3">
               <Link
-                href="/pricing"
+                href="/register"
                 className="rounded-full bg-brand px-6 py-3 text-sm font-semibold text-ink-inverted transition-colors hover:bg-brand-hover"
               >
-                Compare the plans
+                Create an account
               </Link>
               <Link
                 href="/features"
@@ -330,10 +333,10 @@ export default function HomePage() {
 
           <Reveal delay={120}>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-7">
-              <Figure value="$0" label="Free forever — one website, 500 conversations a month" />
-              <Figure value="14 days" label="Of the whole product, with no card asked for" />
-              <Figure value="2 months" label="Free when you pay for a year up front" />
-              <Figure value="Read-only" label="What being over a limit means. Nothing is ever deleted" />
+              <Figure value="$0" label="The whole product, for every account" />
+              <Figure value="No card" label="Nothing to enter, at signup or afterwards" />
+              <Figure value="Unlimited" label="Websites, teammates and conversations" />
+              <Figure value="Your server" label="The only thing it costs is what you run it on" />
             </dl>
           </Reveal>
         </div>
@@ -343,8 +346,8 @@ export default function HomePage() {
         <Reveal>
           <CallToAction
             title="Put it on your own servers this afternoon."
-            lead="Create an account, add a website, paste one script tag. The free plan does not expire and does not ask for a card."
-            primary={{ href: '/register', label: 'Start free' }}
+            lead="Create an account, add a website, paste one script tag. Nothing expires, and nothing asks you for a card."
+            primary={{ href: '/register', label: 'Create an account' }}
             secondary={{ href: '/features', label: 'See what it does' }}
           />
         </Reveal>

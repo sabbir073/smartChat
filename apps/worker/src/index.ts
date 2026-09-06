@@ -10,12 +10,11 @@ import {
   type MailProvider,
   type SendEmailPayload,
 } from '@smartchat/core';
-import { AnalyticsJob, EmailJob, MaintenanceJob, WebhookJob } from '@smartchat/core';
+import { AnalyticsJob, MaintenanceJob, WebhookJob } from '@smartchat/core';
 import { createPrismaClient } from '@smartchat/database';
 import { createLogger, withLogContext } from '@smartchat/logger';
 import { loadWorkerConfig } from './config.js';
 import { processAnalyticsJob } from './processors/analytics.js';
-import { processBillingEmail, processSubscriptionLifecycle } from './processors/billing.js';
 import { processEmailJob } from './processors/email.js';
 import { processWebhookJob } from './processors/webhook.js';
 import { processMaintenanceJob } from './processors/maintenance.js';
@@ -73,33 +72,12 @@ async function main(): Promise<void> {
     forcePathStyle: config.S3_FORCE_PATH_STYLE,
   });
 
-  /**
-   * Our own branding, for the mail this process composes.
-   *
-   * The ticket templates carry the *customer's* name because they go to a customer's customer.
-   * Billing mail goes to our own customer about their account with us, so it carries ours.
-   */
-  const brand = {
-    productName: 'SmartChat',
-    appUrl: config.APP_URL,
-    supportEmail: config.MAIL_FROM_ADDRESS,
-  };
-
-  // Used by the lifecycle job to hand each billing event back to the email queue, rather than
-  // sending inline: a slow SMTP server must not stall the sweep for every other account.
-  const producer = new QueueProducer(connection);
-
   const workers: Worker[] = [
     new Worker(
       QueueName.EMAIL,
       (job: Job<SendEmailPayload>) =>
         withLogContext({ jobId: job.id ?? undefined, requestId: job.data.requestId }, () =>
-          // Two kinds of mail share one queue: one carries a rendered message, the other carries a
-          // billing event this process renders. Splitting on the job name here rather than adding
-          // a queue keeps a password reset and an invoice behind the same fair ordering.
-          job.name === EmailJob.SEND_BILLING
-            ? processBillingEmail(job, { db, mailer, brand, logger })
-            : processEmailJob(job, mailer, db, logger),
+          processEmailJob(job, mailer, db, logger),
         ),
       { connection, concurrency: config.WORKER_CONCURRENCY },
     ),
@@ -130,11 +108,7 @@ async function main(): Promise<void> {
       QueueName.MAINTENANCE,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined }, () =>
-          job.name === MaintenanceJob.SUBSCRIPTION_LIFECYCLE
-            ? processSubscriptionLifecycle(db, logger, (event) =>
-                producer.enqueue(EmailJob.SEND_BILLING, { event }).then(() => undefined),
-              )
-            : processMaintenanceJob(job, db, logger, storage),
+          processMaintenanceJob(job, db, logger, storage),
         ),
       { connection, concurrency: 1 },
     ),
@@ -170,7 +144,6 @@ async function main(): Promise<void> {
    * somebody wondering what happened; hourly bounds that. It is idempotent and almost always finds
    * nothing, so the cost of running it often is one indexed query.
    */
-  await scheduler.schedule(MaintenanceJob.SUBSCRIPTION_LIFECYCLE, {}, '5 * * * *');
 
   /**
    * A minimal health server.

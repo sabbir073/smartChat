@@ -66,8 +66,6 @@ Fourteen scripts exist so that "it works" is a command rather than an opinion. A
 
 | `pnpm e2e:retention` | Phase 13: a conversation past the retention window deleted along with its messages and its storage objects, and the tickets, contacts and audit rows that must survive it surviving it. |
 
-| `pnpm e2e:billing` | Phase 15: the pricing page's data with no credential; that a new account really has a subscription; that a Free plan is refused what Free excludes, **with a negative control on a plan that includes it**; the request / approve / refuse cycle and a customer being unable to approve their own; a downgrade that is dated rather than lost; annual billing as a real interval; switching interval on the same plan; pause meaning every read still works and every write is refused; a downgrade leaving the excess website read-only rather than removed; and invoices staying inside one account. |
-
 | `pnpm e2e:isolation` | Phase 14, and the one that blocks: see §3. |
 
 | `pnpm e2e:abuse` | Phase 14: a banned visitor refused on the token they hold, on a fresh gateway ticket, **and on the page reload that mints a new token** — which is the door the ban used to leave open. Plus: the ban is one person and not the website, an agent cannot apply one, another account cannot apply one to your visitor, a ban that ends in the past is refused, and lifting it lifts it. |
@@ -80,12 +78,11 @@ Fourteen scripts exist so that "it works" is a command rather than an opinion. A
 is the only way that decision was defensible: it uploads with a signed URL, downloads with another,
 and compares the bytes.
 
-`pnpm e2e:billing` found two things in its first run, both of the same shape - code that reported
-success and did nothing. Registration created accounts with **no subscription at all**, which made
-every plan limit resolve to "unlimited" while the pricing page advertised numbers (ADR-089); and a
-downgrade to a cheaper paid plan returned "applied", wrote no request row, and left the customer on
-the expensive plan for ever. Neither was visible in the code, which read correctly in both cases,
-and neither would have been caught by a test that only checked for a 200.
+There was a `pnpm e2e:billing` suite. It is gone with the feature it covered (ADR-093), and what
+it taught is worth keeping: both of the defects it found on its first run were code that reported
+success and did nothing, and neither was visible in a reading of the code. That is the shape every
+suite here is written to catch, which is why each one re-reads what it wrote and why the assertions
+that matter carry a negative control.
 
 `pnpm e2e:automation` earned its place immediately: it found ADR-037, where the server validated
 form answers against "no configuration" on any property whose widget row had not been created yet -

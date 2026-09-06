@@ -106,7 +106,7 @@ const GROUPS = [
       {
         title: 'Roles you can shape',
         icon: icons.users,
-        body: 'Owner, admin, manager and agent out of the box, plus custom roles on paid plans. Nobody can grant a permission they do not hold themselves.',
+        body: 'Owner, admin, manager and agent out of the box, plus custom roles you define yourself. Nobody can grant a permission they do not hold themselves.',
       },
       {
         title: 'Scoped to a website',
@@ -154,19 +154,19 @@ export default function FeaturesPage() {
             What it does, and <span className="mk-gradient-text">what that gets you.</span>
           </>
         }
-        lead="Everything on this page works today. Anything we have not built is on the pricing page's FAQ or in the docs, said plainly, rather than written here in the present tense."
+        lead="Everything on this page works today, on every account, with nothing to buy. Anything we have not built is said plainly in the docs rather than written here in the present tense."
       >
         <Link
           href="/register"
           className="rounded-full bg-gradient-to-r from-brand to-accent-violet px-6 py-3 text-sm font-semibold text-ink-inverted shadow-lg shadow-brand/25 transition-transform hover:scale-[1.03]"
         >
-          Start free
+          Create an account
         </Link>
         <Link
-          href="/pricing"
+          href="/about"
           className="rounded-full border border-border-strong bg-surface/70 px-6 py-3 text-sm font-medium text-ink backdrop-blur transition-colors hover:bg-surface-raised"
         >
-          See pricing
+          Why we built it
         </Link>
       </PageHero>
 
@@ -212,7 +212,7 @@ export default function FeaturesPage() {
           <CallToAction
             title="See it on your own website."
             lead="Create an account, paste one script tag, and watch a conversation arrive in your inbox."
-            secondary={{ href: '/pricing', label: 'See pricing' }}
+            secondary={{ href: '/about', label: 'Why we built it' }}
           />
         </Reveal>
       </Section>

@@ -181,7 +181,7 @@ Two honest qualifications. The metadata bag usually records *which* fields chang
 old and new values — enough to answer "who touched this and when", not enough to reconstruct a
 previous state; storing both versions of every field would put customer content in a table that
 outlives the retention window it was meant to respect. And platform-operator actions (suspending an
-account, changing a plan, toggling a flag) are written to `platform_audit_log`, a separate table with
+account, resuming one, toggling a flag) are written to `platform_audit_log`, a separate table with
 a separate actor space, not into any account's own log — see docs/PLATFORM.md.
 
 ## 6. Verification

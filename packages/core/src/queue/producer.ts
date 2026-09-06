@@ -14,14 +14,12 @@ import { DEFAULT_JOB_OPTIONS, QueueName, type JobName, type JobPayloadMap } from
  */
 const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'email.send': QueueName.EMAIL,
-  'email.billing': QueueName.EMAIL,
   'analytics.rollup': QueueName.ANALYTICS,
   'webhook.deliver': QueueName.WEBHOOK,
   'webhook.sweep': QueueName.WEBHOOK,
   'maintenance.purge_expired_sessions': QueueName.MAINTENANCE,
   'maintenance.purge_expired_tokens': QueueName.MAINTENANCE,
   'maintenance.apply_retention': QueueName.MAINTENANCE,
-  'maintenance.subscription_lifecycle': QueueName.MAINTENANCE,
 };
 
 /**

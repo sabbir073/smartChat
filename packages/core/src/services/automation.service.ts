@@ -1,12 +1,6 @@
 import type { Database, Shortcut } from '@smartchat/database';
 import { ActorType as DbActorType } from '@smartchat/database';
-import {
-  AppError,
-  ErrorCode,
-  FeatureKey,
-  Permission,
-  type TenantContext,
-} from '@smartchat/types';
+import { AppError, ErrorCode, Permission, type TenantContext } from '@smartchat/types';
 import {
   createShortcutSchema,
   createTriggerSchema,
@@ -23,12 +17,9 @@ import {
 } from '../repositories/automation.repository.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
-import type { PlanGuard } from './plan-guard.js';
 
 export interface AutomationServiceOptions {
   db: Database;
-  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
-  plan: PlanGuard;
   clock?: Clock;
 }
 
@@ -46,11 +37,9 @@ export class AutomationService {
   private readonly shortcuts: ShortcutRepository;
   private readonly audit: AuditRepository;
   private readonly db: Database;
-  private readonly plan: PlanGuard;
 
   constructor(options: AutomationServiceOptions) {
     this.db = options.db;
-    this.plan = options.plan;
     this.clock = options.clock ?? systemClock;
     this.triggers = new TriggerRepository(options.db);
     this.shortcuts = new ShortcutRepository(options.db);
@@ -82,8 +71,6 @@ export class AutomationService {
 
   async createTrigger(context: TenantContext, input: CreateTriggerInput): Promise<ResolvedTrigger> {
     requirePermission(context, Permission.TRIGGER_MANAGE);
-    await this.plan.assertFeature(context, FeatureKey.FEATURE_TRIGGERS);
-    await this.plan.assertCanAdd(context, FeatureKey.MAX_TRIGGERS);
     await this.assertPropertyUsable(context, input.propertyId);
     await this.assertDepartmentsExist(context, input);
 
@@ -244,7 +231,6 @@ export class AutomationService {
 
   async createShortcut(context: TenantContext, input: CreateShortcutInput): Promise<Shortcut> {
     requirePermission(context, Permission.SHORTCUT_MANAGE);
-    await this.plan.assertCanAdd(context, FeatureKey.MAX_SHORTCUTS);
     const parsed = createShortcutSchema.parse(input);
 
     const created = await this.shortcuts.create({

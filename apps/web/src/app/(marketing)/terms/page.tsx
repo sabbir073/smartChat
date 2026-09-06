@@ -30,21 +30,19 @@ export default function TermsPage() {
         </p>
       </Clause>
 
-      <Clause title="3. Plans, invoices and what happens if one goes unpaid">
+      <Clause title="3. What it costs">
         <p>
-          Plans are limits on websites, conversations, storage and related resources. The limits on
-          the pricing page are the ones the software applies.
+          Nothing. There are no plans, no per-seat charge, no metered allowance and no payment
+          screen. Every capability described on this site is available to every account.
         </p>
         <p>
-          Each period is invoiced at its start. If an invoice is unpaid, service continues for
-          fourteen days. After that the account becomes read-only: everything you have created
-          remains present and readable, the widget stops accepting new conversations, and settling
-          the invoice restores full service immediately. We do not delete your data because of an
-          unpaid invoice.
+          The service is subject to the abuse limits in section 4 and to the rate limits the
+          software applies, which exist to keep it working for everybody rather than to sell you a
+          larger number.
         </p>
         <p>
-          Moving to a cheaper plan takes effect at the end of the period you have already paid for.
-          Moving to a more expensive one takes effect immediately.
+          If charging is ever introduced, existing accounts will be told by email before it takes
+          effect, and this clause will be rewritten rather than quietly reinterpreted.
         </p>
       </Clause>
 
@@ -74,9 +72,9 @@ export default function TermsPage() {
 
       <Clause title="7. Ending it">
         <p>
-          You can cancel at any time from your billing settings. You keep full service until the end
-          of the period you have paid for, after which the account becomes read-only rather than
-          being deleted, so you can export or come back.
+          You can stop using it at any time. There is no self-serve close button in the product
+          today, so write to the support address on the contact page and we will close or delete the
+          account. Closing suspends rather than erases, so you can export first or come back.
         </p>
         <p>
           We may suspend an account that breaches section 4, and will say why. Suspension is not

@@ -8,14 +8,6 @@ import { PageHeader } from '@/components/layout/page-header';
 import { Alert, Badge, Button, Card, CardBody, CardHeader, EmptyState } from '@/components/ui';
 import type { MemberDto, PropertyDto } from '@/lib/types';
 
-interface AccountResponse {
-  account: { id: string; name: string; slug: string; timezone: string };
-  plan: { code: string; name: string };
-  limits: Record<string, number | null>;
-  permissions: string[];
-  role: string;
-}
-
 function Stat({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
   return (
     <Card>
@@ -30,11 +22,6 @@ function Stat({ label, value, hint }: { label: string; value: string | number; h
 
 export default function OverviewPage() {
   const { user, activeAccount } = useAuth();
-
-  const account = useResource<AccountResponse>(
-    (signal) => api.get<AccountResponse>('/account', { signal }).then((result) => result.data),
-    [activeAccount?.id],
-  );
 
   const properties = useResource<PropertyDto[]>(
     (signal) =>
@@ -53,18 +40,6 @@ export default function OverviewPage() {
     [activeAccount?.id],
   );
 
-  /**
-   * Three states, not two: a number, "unlimited", and "we were not allowed to ask".
-   *
-   * `/account` needs `account:view`, which an agent does not have, so for them this request is a
-   * 403 and `account.data` is null. Collapsing that into `null` and printing "Unlimited on your
-   * plan" told every agent in the product that their plan had no limit on websites — which is
-   * both false and false in the expensive direction. The card now says nothing when it does not
-   * know, which is the honest answer and the one the neighbouring "Only administrators can see
-   * the team" hint already gives.
-   */
-  const limitsVisible = account.data !== null;
-  const propertyLimit = account.data?.limits['max_properties'] ?? null;
   const memberCount = members.data?.members.length ?? null;
   const pendingCount =
     members.data?.members.filter((member) => member.status === 'invited').length ?? 0;
@@ -75,9 +50,7 @@ export default function OverviewPage() {
     <>
       <PageHeader
         title={`Welcome back, ${user?.name?.split(' ')[0] ?? 'there'}`}
-        description={
-          activeAccount ? `${activeAccount.name} · ${account.data?.plan.name ?? ''}` : undefined
-        }
+        description={activeAccount ? activeAccount.name : undefined}
       />
 
       {user && !user.emailVerified && (
@@ -96,13 +69,7 @@ export default function OverviewPage() {
         <Stat
           label="Websites"
           value={properties.loading ? '—' : count}
-          hint={
-            !limitsVisible
-              ? undefined
-              : propertyLimit === null
-                ? 'Unlimited on your plan'
-                : `${propertyLimit} on your plan`
-          }
+          hint={count === 0 ? 'Add the first one to get a snippet' : 'Add as many as you run'}
         />
         <Stat
           label="Widgets installed"

@@ -18,8 +18,7 @@ import {
   type StartConversationInput,
   type UpdateConversationInput,
 } from '@smartchat/validation';
-import { FeatureKey, WebhookEvent } from '@smartchat/types';
-import type { PlanGuard } from './plan-guard.js';
+import { WebhookEvent } from '@smartchat/types';
 import type { WebhookEmitter } from './webhook.service.js';
 import { AuditRepository } from '../repositories/audit.repository.js';
 import {
@@ -68,8 +67,6 @@ export interface OfflineTicketOpener {
 
 export interface ConversationServiceOptions {
   db: Database;
-  /** Required, not optional: an entitlement nobody is forced to wire up is one nobody wires up. */
-  plan: PlanGuard;
   events: EventPublisher;
   /**
    * Outbound integrations. Optional, and absent in tests that do not care.
@@ -159,28 +156,6 @@ export class ConversationService {
      * conversation they already started is not a second conversation, and counting it as one would
      * make the number on the invoice disagree with the number on the screen.
      */
-    if (!reusable) {
-      /**
-       * "Pause, never destroy", at the point a new chat would begin.
-       *
-       * A website outside the plan's allowance, or an account whose subscription has lapsed,
-       * stops taking *new* conversations here - not in the widget, not in the API route, but in
-       * the one method both of them go through. Continuing a thread that is already open is
-       * deliberately still allowed: the visitor is mid-sentence, and cutting them off punishes
-       * the wrong person for a bill they have never seen.
-       *
-       * The error is the one a deleted website gives, because the widget is public and a
-       * distinguishable answer would let a stranger ask about somebody else's account.
-       */
-      if (!(await this.options.plan.isPropertyServing(identity.accountId, identity.propertyId))) {
-        throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
-      }
-
-      await this.options.plan.assertCanAddForAccount(
-        identity.accountId,
-        FeatureKey.MAX_MONTHLY_CONVERSATIONS,
-      );
-    }
 
     /**
      * Pre-chat answers, reduced to the fields the customer actually configured.
@@ -280,10 +255,6 @@ export class ConversationService {
       identity.propertyId,
     );
     if (!config) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
-    // An offline message opens a conversation and, usually, a ticket. Same gate, same reason.
-    if (!(await this.options.plan.isPropertyServing(identity.accountId, identity.propertyId))) {
-      throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
-    }
     if (!config.behaviour.offlineFormEnabled) {
       throw new AppError(
         ErrorCode.FEATURE_NOT_AVAILABLE,

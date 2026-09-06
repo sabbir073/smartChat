@@ -10,9 +10,20 @@
  */
 
 const THREADS = [
-  { name: 'Rowan T.', preview: 'My order says delivered but noth…', time: 'now', unread: 2, active: true },
+  {
+    name: 'Rowan T.',
+    preview: 'My order says delivered but noth…',
+    time: 'now',
+    unread: 2,
+    active: true,
+  },
   { name: 'Priya N.', preview: 'Can I change the delivery address?', time: '4m', unread: 0 },
-  { name: 'Visitor · Pricing page', preview: 'Does the free plan include the h…', time: '11m', unread: 1 },
+  {
+    name: 'Visitor · Checkout',
+    preview: 'Card was declined but I was charg…',
+    time: '11m',
+    unread: 1,
+  },
   { name: 'Marcus D.', preview: 'Thanks, that sorted it', time: '38m', unread: 0 },
 ];
 
@@ -44,7 +55,9 @@ export function InboxPreview() {
         {/* Thread list */}
         <aside className="hidden border-r border-border bg-surface-raised/60 sm:block">
           <div className="flex gap-1.5 border-b border-border px-3 py-2.5 text-[11px]">
-            <span className="rounded-full bg-brand-soft px-2 py-0.5 font-medium text-brand">All</span>
+            <span className="rounded-full bg-brand-soft px-2 py-0.5 font-medium text-brand">
+              All
+            </span>
             <span className="rounded-full px-2 py-0.5 text-ink-subtle">Mine</span>
             <span className="rounded-full px-2 py-0.5 text-ink-subtle">Unassigned</span>
           </div>
@@ -125,7 +138,9 @@ export function InboxPreview() {
 
         {/* Visitor panel */}
         <aside className="hidden border-l border-border bg-surface-raised/60 px-3 py-3 lg:block">
-          <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">Visitor</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-ink-subtle">
+            Visitor
+          </p>
           <p className="mt-1.5 text-[12px] font-medium text-ink">Rowan T.</p>
           <p className="text-[11px] text-ink-subtle">rowan@example.com</p>
 

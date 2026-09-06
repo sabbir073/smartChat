@@ -18,12 +18,13 @@ previous one is green.
 | **9 — Tickets & email** ✅ | Tickets, ticket messages, email abstraction, notifications | Offline message becomes a ticket and sends mail (visible in Mailpit) |
 | **10 — Analytics** ✅ | Rollup tables, scheduled and on-demand rebuilds, reports | Metrics match hand-computed values on seeded data |
 | **11 — Integrations** ✅ | Webhooks with signing/retry/logs, scoped API keys on the same routes | Webhook delivered and verified; API key scoped and revocable |
-| **12 — Super admin** ✅ | Platform console: accounts, plans, entitlements, usage, health, audit, flags | Suspend an account and observe tenant access stop immediately |
+| **12 — Super admin** ✅ | Platform console: accounts, usage, health, audit, flags | Suspend an account and observe tenant access stop immediately |
 | **13 — Production** ✅ | Hardening, data retention, backups + restore rehearsal, metrics, edge proxy with TLS, CI/CD | Production images build; restore rehearsal succeeds |
 | **14 — Final QA** ✅ | Regression, security audit, load test, full E2E, rollback rehearsal | All thirteen suites green (664 checks) plus both rehearsals; `SECURITY_AUDIT.md` complete — and it found five documented controls that did not exist, which are now built |
-| **15 — Site & subscriptions** ✅ | Public marketing site, plans with annual billing, the `BillingProvider` port with a working manual provider, plan changes, invoices, `PlanGuard` enforcement, pause-never-destroy | A stranger can read the pricing page; a customer can change plan and an operator can decide it; a Free account is actually refused what Free excludes; a paused account keeps every read and loses every write |
+| **15 — Public site** ✅ | Public marketing site: what the product is, what it does, who it is for | A stranger can read every page, with no credential and no account |
+| **16 — Free for everyone** ✅ | Billing removed outright — no plans, subscriptions, invoices, entitlements or payment screens anywhere in the code, the schema or the copy | Every capability is available to a brand-new account; `grep -ri plan` finds no enforcement, and the platform console manages accounts rather than money |
 
-Deliberately **not** in scope for v1: card processing (the billing port and a complete manual
-provider are built and exercised end to end — see ADR-087; a hosted-checkout provider implements the
-same five methods), mobile apps, AI answering, voice/video, Slack/Teams integrations. Each has a
-designed extension point; none is implemented, and none is faked in the UI.
+Deliberately **not** in scope: billing of any kind (see ADR-093 — the product is free, and the
+plan machinery was removed rather than left switched off), mobile apps, AI answering, voice/video,
+Slack/Teams integrations. Each of the latter has a designed extension point; none is implemented,
+and none is faked in the UI.

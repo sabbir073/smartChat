@@ -235,7 +235,7 @@ async function main() {
   );
 
   const suspended = await consoleClient.call('POST', `/platform/accounts/${target.id}/suspend`, {
-    reason: 'Non-payment since March. Contact billing to resume.',
+    reason: 'Repeated spam complaints from visitors. Contact support to resume.',
   });
   check('it can be suspended', suspended.status === 200, JSON.stringify(suspended.body?.error));
   check('and says so', suspended.body.data.status === 'suspended');

@@ -20,7 +20,7 @@ export default function AboutPage() {
             <span className="mk-gradient-text">hold your conversations hostage.</span>
           </>
         }
-        lead="SmartChat exists because the useful chat tools are hosted, priced per seat, and store every word your customers write on infrastructure you have no say over."
+        lead="SmartChat exists because the useful chat tools are hosted, metered by the seat, and store every word your customers write on infrastructure you have no say over."
       />
 
       <Section>
@@ -35,10 +35,10 @@ export default function AboutPage() {
                 — not in a vendor's, under theirs.
               </p>
               <p>
-                Pricing should follow what costs something to run. Websites, conversations and
-                storage cost us something; a colleague joining your inbox does not. Charging per
-                seat quietly pushes teams to share one login, which is worse for everybody and
-                terrible for an audit trail.
+                You run it, so you pay for it: the server, the disk, the backups. There is nothing
+                for us to meter and nothing to sell you, which is why the whole product is switched
+                on for every account. Charging per seat quietly pushes teams to share one login,
+                which is worse for everybody and terrible for an audit trail.
               </p>
               <p>
                 And a product should do what it says. If a button exists, it works. If a feature is
@@ -77,9 +77,9 @@ export default function AboutPage() {
             </h2>
             <div className="mt-4 space-y-4 text-[15px] leading-relaxed text-ink-muted">
               <p>
-                No card payments yet. Plans are chosen in the product and invoiced by us; there is
-                no checkout button, because a checkout button that does not take money is worse
-                than none.
+                No billing at all. There are no plans, no limits sold as tiers, and no payment
+                screen anywhere in the product — not a disabled one, not a "coming soon" one. If
+                that ever changes, it will be said here first.
               </p>
               <p>
                 No AI answering, no voice or video, and no mobile apps. Each has an obvious place to
@@ -96,8 +96,8 @@ export default function AboutPage() {
 
       <Section tone="surface">
         <CallToAction
-          title="Try it on one website."
-          lead="The free plan is not a trial. If it does what you need at that size, stay on it."
+          title="Put it on your own server."
+          lead="Nothing here is a trial. Create an account, add a website, and keep using it for as long as it is useful."
           secondary={{ href: '/contact', label: 'Ask us something' }}
         />
       </Section>

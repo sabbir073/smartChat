@@ -45,13 +45,12 @@ accounts ──┬── users (via account_members) ── roles ── permiss
            │                ├── tickets ── ticket_messages
            │                └── webhooks ── webhook_deliveries
            ├── api_keys
-           ├── subscriptions ── plans ── plan_features ── usage_records
            ├── audit_logs
            └── notifications
 ```
 
-Platform-level tables that are **not** tenant-scoped: `plans`, `plan_features`, `feature_flags`,
-`platform_admins`, `system_settings`.
+Platform-level tables that are **not** tenant-scoped: `feature_flags`, `platform_admins`,
+`platform_sessions`, `platform_audit_logs`.
 
 ## 3. Tables that need care
 

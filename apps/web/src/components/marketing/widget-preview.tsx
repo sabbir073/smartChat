@@ -26,7 +26,11 @@ const SCRIPT: Line[] = [
   { from: 'visitor', text: 'My order says delivered but nothing arrived', after: 1900 },
   { from: 'agent', text: 'Sorry about that. Do you have the order number?', after: 2000 },
   { from: 'visitor', text: '#48120', after: 1400 },
-  { from: 'agent', text: "Found it — it went to the depot. I've booked redelivery for Thursday.", after: 2400 },
+  {
+    from: 'agent',
+    text: "Found it — it went to the depot. I've booked redelivery for Thursday.",
+    after: 2400,
+  },
 ];
 
 const RESET_PAUSE = 5200;
@@ -145,12 +149,20 @@ export function WidgetPreview() {
       <div className="flex items-center gap-2 border-t border-border bg-surface px-3 py-2.5">
         <span className="flex-1 text-[12.5px] text-ink-subtle">Write a message…</span>
         <span className="grid size-7 place-items-center rounded-full bg-brand text-ink-inverted">
-          <svg viewBox="0 0 24 24" className="size-3.5" fill="none" stroke="currentColor" strokeWidth="2.4">
+          <svg
+            viewBox="0 0 24 24"
+            className="size-3.5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+          >
             <path d="m5 12 14 0M13 6l6 6-6 6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </span>
       </div>
-      <p className="bg-surface pb-2 text-center text-[10px] text-ink-subtle">Powered by SmartChat</p>
+      <p className="bg-surface pb-2 text-center text-[10px] text-ink-subtle">
+        Powered by SmartChat
+      </p>
     </div>
   );
 }

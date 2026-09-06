@@ -20,8 +20,6 @@ import {
 
 interface AccountResponse {
   account: { id: string; name: string; slug: string; timezone: string; locale: string };
-  plan: { code: string; name: string };
-  limits: Record<string, number | null>;
   permissions: string[];
   role: string;
 }
@@ -165,11 +163,7 @@ export default function SettingsPage() {
         <Card>
           <CardHeader
             title="Workspace"
-            description={
-              account.data
-                ? `Plan: ${account.data.plan.name} · Your role: ${account.data.role}`
-                : undefined
-            }
+            description={account.data ? `Your role: ${account.data.role}` : undefined}
           />
           <form onSubmit={saveAccount}>
             <CardBody className="space-y-4">

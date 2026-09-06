@@ -174,5 +174,4 @@ export class PresenceService {
   async clearTyping(conversationId: string, actorId: string): Promise<void> {
     await this.redis.del(presenceKey.typing(conversationId, actorId));
   }
-
 }

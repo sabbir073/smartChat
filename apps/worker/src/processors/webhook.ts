@@ -1,5 +1,5 @@
 import type { Job } from 'bullmq';
-import { EntitlementService, PlanGuard, WebhookJob, WebhookService } from '@smartchat/core';
+import { WebhookJob, WebhookService } from '@smartchat/core';
 import type { Database } from '@smartchat/database';
 import type { Logger } from '@smartchat/logger';
 
@@ -27,13 +27,10 @@ export async function processWebhookJob(
   // address. See integrations/outbound.ts: the URL was validated when it was saved, but a name
   // resolves at delivery time, and it can resolve somewhere else than it did yesterday.
   //
-  // The plan guard is constructed here rather than passed in because this process only ever
-  // *delivers*; it never creates a webhook, so the entitlement it holds is never consulted. It is
-  // still required by the type, which is deliberate - the day this file does create one, the
-  // limit is already in place.
+  // This process only ever *delivers*; it never creates a webhook, so it needs nothing beyond
+  // the database and the SSRF policy.
   const webhooks = new WebhookService({
     db,
-    plan: new PlanGuard(db, new EntitlementService(db)),
     allowPrivateTargets: options.allowPrivateTargets,
   });
 

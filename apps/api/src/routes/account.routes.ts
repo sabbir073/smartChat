@@ -12,16 +12,10 @@ import { toAccountDto, toMemberDto } from './dto.js';
 export async function accountRoutes(app: FastifyInstance, container: Container): Promise<void> {
   app.get('/account', { preHandler: app.authenticateTenant }, async (request, reply) => {
     const tenant = requireTenant(request);
-    const [account, entitlements] = await Promise.all([
-      container.accounts.get(tenant),
-      container.entitlements.forAccount(tenant.accountId),
-    ]);
+    const account = await container.accounts.get(tenant);
 
     return ok(reply, {
       account: toAccountDto(account),
-      plan: { code: entitlements.planCode, name: entitlements.planName },
-      limits: entitlements.limits,
-      features: entitlements.features,
       permissions: [...tenant.permissions],
       role: tenant.role,
     });

@@ -93,7 +93,6 @@ export function buildTenantContext(input: BuildTenantContextInput): TenantContex
   return context;
 }
 
-
 export function requirePermission(context: TenantContext, permission: Permission): void {
   if (!context.permissions.has(permission)) {
     throw new AppError(ErrorCode.PERMISSION_DENIED, undefined, {

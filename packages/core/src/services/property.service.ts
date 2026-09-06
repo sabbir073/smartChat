@@ -3,7 +3,6 @@ import { ActorType as DbActorType } from '@smartchat/database';
 import {
   AppError,
   ErrorCode,
-  FeatureKey,
   Permission,
   type CursorPage,
   type TenantContext,
@@ -21,11 +20,9 @@ import {
 } from '../repositories/property.repository.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
-import type { EntitlementService } from './entitlement.service.js';
 
 export interface PropertyServiceOptions {
   db: Database;
-  entitlements: EntitlementService;
   widgetUrl: string;
   clock?: Clock;
 }
@@ -70,9 +67,6 @@ export class PropertyService {
    */
   async create(context: TenantContext, input: CreatePropertyInput): Promise<PropertyWithDomains> {
     requirePermission(context, Permission.PROPERTY_CREATE);
-
-    const current = await this.repo.count(context);
-    await this.options.entitlements.assertCanAdd(context, FeatureKey.MAX_PROPERTIES, current);
 
     const property = await this.repo.create(context, input);
 

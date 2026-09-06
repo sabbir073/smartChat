@@ -55,10 +55,7 @@ export function Eyebrow({ children, night = false }: { children: ReactNode; nigh
         night ? 'text-accent-cyan' : 'text-brand',
       )}
     >
-      <span
-        aria-hidden
-        className={cn('h-px w-6', night ? 'bg-accent-cyan/60' : 'bg-brand/40')}
-      />
+      <span aria-hidden className={cn('h-px w-6', night ? 'bg-accent-cyan/60' : 'bg-brand/40')} />
       {children}
     </p>
   );
@@ -128,7 +125,7 @@ export function FeatureCard({
 /**
  * A statement of fact about the product, sized to be read across a room.
  *
- * Only ever facts we can point at in the code - a plan limit, a delivery guarantee, a schedule.
+ * Only ever facts we can point at in the code - a retry schedule, a delivery guarantee, a limit.
  * Never a customer count, an uptime figure or a satisfaction score: this deployment has no
  * customers yet, and a number nobody can check is an invented one.
  */
@@ -162,7 +159,10 @@ export function Figure({
 export function Pill({ children }: { children: ReactNode }) {
   return (
     <span className="mx-1.5 inline-flex shrink-0 items-center gap-2 rounded-full border border-border bg-surface px-4 py-2 text-[13px] font-medium text-ink-muted">
-      <span aria-hidden className="size-1.5 rounded-full bg-gradient-to-br from-brand to-accent-violet" />
+      <span
+        aria-hidden
+        className="size-1.5 rounded-full bg-gradient-to-br from-brand to-accent-violet"
+      />
       {children}
     </span>
   );
@@ -254,7 +254,12 @@ export const icons = {
   ),
   bolt: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+      <path
+        d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinejoin="round"
+      />
     </svg>
   ),
   book: (
@@ -279,7 +284,12 @@ export const icons = {
   ),
   chart: (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
-      <path d="M4 20V10m6 10V4m6 16v-7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      <path
+        d="M4 20V10m6 10V4m6 16v-7"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
     </svg>
   ),
   shield: (

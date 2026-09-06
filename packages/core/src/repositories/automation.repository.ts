@@ -216,7 +216,6 @@ export class TriggerRepository {
       data: { fireCount: { increment: 1 }, lastFiredAt: now },
     });
   }
-
 }
 
 export class ShortcutRepository {

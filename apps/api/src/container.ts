@@ -15,11 +15,6 @@ import {
   ConversationService,
   EmailJob,
   WebhookJob,
-  EntitlementService,
-  ManualBillingProvider,
-  PlanGuard,
-  SubscriptionService,
-  type BillingProvider,
   LogMailProvider,
   LoginThrottle,
   PropertyService,
@@ -76,10 +71,6 @@ export interface Container {
   conversations: ConversationService;
   presence: PresenceService;
   connectionTickets: ConnectionTicketService;
-  entitlements: EntitlementService;
-  plans: PlanGuard;
-  subscriptions: SubscriptionService;
-  billing: BillingProvider;
   shutdown(): Promise<void>;
 }
 
@@ -131,14 +122,6 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
           logger.info({ to: message.to.email, subject: message.subject }, 'email (log driver)'),
         );
 
-  const entitlements = new EntitlementService(db);
-  /**
-   * The plan guard, constructed once and handed to every service that can create something a plan
-   * limits. It is a required option on each of those services rather than an optional one, so the
-   * compiler - not somebody's memory - is what keeps a new limit enforced.
-   */
-  const plans = new PlanGuard(db, entitlements);
-
   const brand = {
     productName: 'SmartChat',
     appUrl: config.APP_URL,
@@ -157,11 +140,10 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     autoVerifyEmail: config.AUTO_VERIFY_EMAIL,
   });
 
-  const accounts = new AccountService(db, entitlements);
+  const accounts = new AccountService(db);
 
   const team = new TeamService({
     db,
-    plan: plans,
     mailer,
     brand,
     // Same reasoning as the auth service: a slow SMTP server must never hold up an HTTP response.
@@ -177,7 +159,6 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
 
   const visitors = new VisitorService({
     db,
-    plan: plans,
     visitorTokenSecret: config.VISITOR_TOKEN_SECRET,
     allowLocalhostOrigins: config.ALLOW_LOCALHOST_ORIGINS,
     isAgentAvailable: (accountId) => presence.hasAvailableAgent(accountId),
@@ -194,12 +175,12 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
    */
   const flags = new FeatureFlagService(db);
 
-  const automation = new AutomationService({ db, plan: plans, clock });
+  const automation = new AutomationService({ db, clock });
   const contacts = new ContactService({ db, clock });
-  const kb = new KbService({ db, plan: plans, flags, clock });
+  const kb = new KbService({ db, flags, clock });
   const analytics = new AnalyticsService({ db, clock });
   const apiKeys = new ApiKeyService({ db, clock });
-  const platform = new PlatformService({ db, clock, entitlements });
+  const platform = new PlatformService({ db, clock });
 
   /**
    * Webhooks.
@@ -210,7 +191,6 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
    */
   const webhooks = new WebhookService({
     db,
-    plan: plans,
     clock,
     flags,
     allowPrivateTargets: config.ALLOW_PRIVATE_WEBHOOK_URLS,
@@ -253,7 +233,6 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
 
   const tickets = new TicketService({
     db,
-    plan: plans,
     brand,
     deliver: deliverTicketMail,
     webhooks,
@@ -267,7 +246,6 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
    */
   const conversations = new ConversationService({
     db,
-    plan: plans,
     events: new RedisEventPublisher(redis, (error) =>
       logger.error({ err: error }, 'failed to publish domain event'),
     ),
@@ -296,11 +274,10 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     clock,
   });
 
-  const retention = new RetentionService({ db, storage, entitlements, clock });
+  const retention = new RetentionService({ db, storage, clock });
 
   const attachments = new AttachmentService({
     db,
-    plan: plans,
     storage,
     conversations,
     maxBytes: config.UPLOAD_MAX_BYTES,
@@ -309,34 +286,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   });
   const properties = new PropertyService({
     db,
-    entitlements,
     widgetUrl: config.WIDGET_URL,
     clock,
-  });
-
-  /**
-   * Billing.
-   *
-   * `ManualBillingProvider` is the only implementation and a complete one: an operator approves
-   * plan changes and records payments. A card-processing provider would be constructed here
-   * instead, chosen by configuration; nothing above the `BillingProvider` seam would change.
-   */
-  const billing: BillingProvider = new ManualBillingProvider(db, clock);
-  const subscriptions = new SubscriptionService({
-    db,
-    provider: billing,
-    entitlements,
-    clock,
-    notify: async (event) => {
-      // The API only records that something happened; the worker is what sends the mail, for the
-      // same reason every other email in this product is queued rather than sent inline.
-      await queue
-        .enqueue(EmailJob.SEND_BILLING, { event })
-        .then(() => undefined)
-        .catch((error: unknown) =>
-          logger.error({ err: error, event: event.type }, 'billing notification not queued'),
-        );
-    },
   });
 
   return {
@@ -370,10 +321,6 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     conversations,
     presence,
     connectionTickets,
-    entitlements,
-    plans,
-    subscriptions,
-    billing,
     async shutdown() {
       await queue.close().catch(() => {});
       await mailer.close?.().catch(() => {});

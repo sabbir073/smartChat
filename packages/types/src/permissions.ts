@@ -9,7 +9,6 @@ export const Permission = {
   // account
   ACCOUNT_VIEW: 'account:view',
   ACCOUNT_UPDATE: 'account:update',
-  ACCOUNT_BILLING: 'account:billing',
   ACCOUNT_DELETE: 'account:delete',
 
   // members and roles
@@ -79,9 +78,7 @@ export const ALL_PERMISSIONS: readonly Permission[] = Object.values(Permission);
 export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permission[]>> = {
   owner: ALL_PERMISSIONS,
 
-  admin: ALL_PERMISSIONS.filter(
-    (p) => p !== Permission.ACCOUNT_DELETE && p !== Permission.ACCOUNT_BILLING,
-  ),
+  admin: ALL_PERMISSIONS.filter((p) => p !== Permission.ACCOUNT_DELETE),
 
   manager: [
     Permission.ACCOUNT_VIEW,
@@ -129,7 +126,6 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissi
 export const PlatformPermission = {
   ACCOUNT_VIEW: 'platform:account:view',
   ACCOUNT_SUSPEND: 'platform:account:suspend',
-  PLAN_MANAGE: 'platform:plan:manage',
   USAGE_VIEW: 'platform:usage:view',
   SYSTEM_VIEW: 'platform:system:view',
   FEATURE_FLAG_MANAGE: 'platform:flag:manage',

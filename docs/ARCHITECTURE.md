@@ -17,7 +17,7 @@ conversations from a shared dashboard.
 | Tenant data leakage is the worst possible bug | Tenancy enforced in a repository layer that cannot be bypassed, plus automated isolation tests |
 | The widget runs on **customer** websites | Widget must never break the host page; strict origin validation; no secrets in the snippet |
 | Real-time is the product | WebSocket-first, Redis pub/sub fan-out, Postgres as durable truth |
-| We will add features for years | Rule engine, permissions, entitlements and analytics are all data-driven, not hardcoded |
+| We will add features for years | Rule engine, permissions and analytics are all data-driven, not hardcoded |
 
 ## 3. Runtime topology
 

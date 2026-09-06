@@ -105,12 +105,6 @@ const NAV: NavItem[] = [
     ),
   },
   {
-    href: '/app/settings/billing',
-    label: 'Billing',
-    available: true,
-    icon: icon('M3 8h18M3 8a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8Zm4 7h4'),
-  },
-  {
     href: '/app/settings',
     label: 'Settings',
     available: true,
@@ -149,7 +143,6 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
           </Link>
         );
       })}
-
     </nav>
   );
 }
