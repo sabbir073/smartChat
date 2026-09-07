@@ -69,7 +69,10 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           id="main"
           className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 lg:px-8"
         >
-          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">{children}</div>
+          {/* `min-h-0` here too. Without it this wrapper keeps its content's height, grows past
+              the window, and puts the scrollbar back on the page - which undoes the whole thing
+              one element below where you would look for it. */}
+          <div className="mx-auto flex w-full min-h-0 max-w-6xl flex-1 flex-col">{children}</div>
         </main>
       </div>
     </div>

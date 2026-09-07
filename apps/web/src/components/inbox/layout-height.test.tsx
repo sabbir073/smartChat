@@ -36,6 +36,18 @@ describe('inbox height', () => {
   });
 
   /**
+   * Missed on the first pass, and it put the page scrollbar straight back.
+   *
+   * Every element between the shell and the transcript has to be allowed to shrink. One that is
+   * not keeps its content's height, grows past the window, and undoes the whole chain — one
+   * element below where anybody would think to look.
+   */
+  it('the centring wrapper can shrink too', () => {
+    expect(layout).toMatch(/max-w-6xl/);
+    expect(layout).toMatch(/mx-auto flex w-full min-h-0 max-w-6xl flex-1 flex-col/);
+  });
+
+  /**
    * The magic number. It subtracted the top bar and the main padding by hand: wrong by 16px on
    * every screen, and wrong by a whole row whenever the top bar wrapped.
    */
