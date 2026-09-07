@@ -1,0 +1,11 @@
+# Next.js serves everything in this directory at the site root.
+#
+# This file exists so the directory does, because git does not track empty
+# directories and the production Dockerfile copies this path unconditionally:
+#
+#   COPY --from=build /app/apps/web/public ./apps/web/public
+#
+# Locally the directory was present and the image built. On a fresh clone it was
+# not, and the web image failed to build with "/app/apps/web/public: not found" -
+# a break that could only ever appear on a first deploy, which is the worst
+# moment to discover it.
