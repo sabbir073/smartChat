@@ -117,6 +117,41 @@ describe.each(everyMessage)('%s', (name, message) => {
   });
 });
 
+describe('inbox preview', () => {
+  /**
+   * Without a preheader the client takes whatever text comes first in the body, and in a
+   * table-based layout that is the product name again — so the preview line in the inbox read
+   * "GetChat GetChat Confirm your email address" and told the reader nothing the subject had not
+   * already said.
+   */
+  it.each(everyMessage)('%s opens with a hidden preview line', (_name, message) => {
+    const preview = /<div style="display:none;[^"]*">([\s\S]*?)<\/div>/.exec(message.html)?.[1];
+    expect(preview, 'no preheader div found').toBeDefined();
+    const words = (preview ?? '').replace(/&#847;|&zwnj;|&nbsp;/g, '').trim();
+    expect(words.length).toBeGreaterThan(20);
+  });
+
+  it('says something the subject does not already say', () => {
+    const message = verifyEmailTemplate(brand, {
+      name: 'Ada',
+      email: 'ada@example.com',
+      url: 'https://getchat.site/verify?token=abc',
+      expiresInHours: 24,
+    });
+    const preview = /<div style="display:none;[^"]*">([\s\S]*?)<\/div>/.exec(message.html)?.[1];
+    expect(preview).toContain('24 hours');
+  });
+
+  it('escapes the preview line, which carries user-controlled text', () => {
+    const message = ticketReplyTemplate(ticket, {
+      reply: 'ok',
+      agentName: '<img src=x onerror=alert(1)>',
+    });
+    expect(message.html).not.toContain('<img src=x');
+    expect(message.html).toContain('&lt;img src=x');
+  });
+});
+
 describe('escaping', () => {
   /**
    * A display name is user-controlled and lands inside the HTML body. If it is not escaped, an

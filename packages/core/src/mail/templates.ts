@@ -21,12 +21,34 @@ function escapeHtml(value: string): string {
  * Table-based layout with inline styles, because email clients remain the least capable rendering
  * targets we ship to — flexbox and external stylesheets are not reliable there.
  */
-export function layout(brand: BrandContext, heading: string, bodyHtml: string): string {
+/**
+ * The line the inbox shows next to the subject, before anybody opens anything.
+ *
+ * Without one, Gmail and Apple Mail take whatever text comes first in the body — which in a
+ * table-based layout is the product name again, so the preview reads "GetChat GetChat Confirm
+ * your...". Hidden with the usual belt-and-braces: zero size, transparent, and pushed off-screen,
+ * because no single one of those works everywhere. The trailing filler stops the client from
+ * reaching past it into the real body.
+ */
+function preheader(text: string): string {
+  return `<div style="display:none;font-size:1px;color:#f4f5f7;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">${escapeHtml(
+    text,
+  )}${'&#847;&zwnj;&nbsp;'.repeat(30)}</div>`;
+}
+
+export function layout(
+  brand: BrandContext,
+  heading: string,
+  bodyHtml: string,
+  previewText?: string,
+): string {
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">
 <title>${escapeHtml(heading)}</title></head>
 <body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+${preheader(previewText ?? heading)}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:32px 16px;">
 <tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;border:1px solid #e4e6eb;overflow:hidden;">
@@ -40,7 +62,11 @@ ${bodyHtml}
 </table>
 <div style="max-width:560px;margin:16px auto 0;font-size:12px;line-height:1.6;color:#6b7280;text-align:center;">
 You received this because someone used this address at ${escapeHtml(brand.appUrl)}.<br>
-If it wasn't you, you can safely ignore this email.
+If it wasn't you, you can safely ignore this email.${
+    brand.supportEmail
+      ? `<br>Questions? Write to <a href="mailto:${escapeHtml(brand.supportEmail)}" style="color:#6b7280;">${escapeHtml(brand.supportEmail)}</a>.`
+      : ''
+  }
 </div>
 </td></tr></table></body></html>`;
 }
@@ -72,7 +98,12 @@ export function verifyEmailTemplate(
   return {
     to: { email: input.email, name: input.name },
     subject: `Confirm your email address · ${brand.productName}`,
-    html: layout(brand, heading, body),
+    html: layout(
+      brand,
+      heading,
+      body,
+      `One click and your ${brand.productName} account is ready. The link expires in ${input.expiresInHours} hours.`,
+    ),
     text: `Hi ${input.name},\n\nConfirm your email address to finish setting up your ${brand.productName} account:\n\n${input.url}\n\nThis link expires in ${input.expiresInHours} hours and can only be used once.\n\nIf you didn't create an account, you can ignore this email.`,
   };
 }
@@ -93,7 +124,12 @@ export function passwordResetTemplate(
   return {
     to: { email: input.email, name: input.name },
     subject: `Reset your password · ${brand.productName}`,
-    html: layout(brand, heading, body),
+    html: layout(
+      brand,
+      heading,
+      body,
+      `Choose a new password. This link expires in ${input.expiresInMinutes} minutes, and nothing has changed until you use it.`,
+    ),
     text: `Hi ${input.name},\n\nUse this link to choose a new password:\n\n${input.url}\n\nIt expires in ${input.expiresInMinutes} minutes and can only be used once.\n\nIf you didn't request this, nothing has changed.`,
   };
 }
@@ -115,7 +151,12 @@ export function passwordChangedTemplate(
   return {
     to: { email: input.email, name: input.name },
     subject: `Your password was changed · ${brand.productName}`,
-    html: layout(brand, heading, body),
+    html: layout(
+      brand,
+      heading,
+      body,
+      `Changed on ${input.when}. If it was not you, reset it now.`,
+    ),
     text: `Hi ${input.name},\n\nYour ${brand.productName} password was changed on ${input.when}. All other sessions were signed out.\n\nIf this was not you, reset your password now: ${brand.appUrl}/forgot-password`,
   };
 }
@@ -140,7 +181,12 @@ export function invitationTemplate(
   return {
     to: { email: input.email },
     subject: `${input.inviterName} invited you to ${input.accountName}`,
-    html: layout(brand, heading, body),
+    html: layout(
+      brand,
+      heading,
+      body,
+      `${input.inviterName} added you to ${input.accountName}. The invitation expires in ${input.expiresInDays} days.`,
+    ),
     text: `${input.inviterName} invited you to join ${input.accountName} on ${brand.productName}.\n\nAccept the invitation:\n${input.url}\n\nThis invitation expires in ${input.expiresInDays} days.`,
   };
 }
@@ -158,12 +204,15 @@ function ticketLayout(
   heading: string,
   bodyHtml: string,
   footerText: string,
+  previewText?: string,
 ): string {
   return `<!doctype html>
 <html lang="en">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light"><meta name="supported-color-schemes" content="light">
 <title>${escapeHtml(heading)}</title></head>
 <body style="margin:0;padding:0;background:#f4f5f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+${preheader(previewText ?? heading)}
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;padding:32px 16px;">
 <tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:12px;border:1px solid #e4e6eb;overflow:hidden;">
@@ -251,7 +300,13 @@ export function ticketReceivedTemplate(context: TicketMailContext, body: string)
       ...(context.requesterName ? { name: context.requesterName } : {}),
     },
     subject: `[#${context.ticketNumber}] ${context.subject}`,
-    html: ticketLayout(context.accountName, heading, html, replyFooter(context)),
+    html: ticketLayout(
+      context.accountName,
+      heading,
+      html,
+      replyFooter(context),
+      `${context.accountName} has your message and will reply to this address.`,
+    ),
     text: `${greeting(context.requesterName)}\n\nThanks for getting in touch with ${context.accountName}. Somebody will read this and reply to you at this address.\n\nThis is what we received:\n\n${body}\n\n${replyFooter(context)}`,
     ...replyHeaders(context),
   };
@@ -274,7 +329,13 @@ export function ticketReplyTemplate(
       ...(context.requesterName ? { name: context.requesterName } : {}),
     },
     subject: `[#${context.ticketNumber}] ${context.subject}`,
-    html: ticketLayout(context.accountName, heading, html, replyFooter(context)),
+    html: ticketLayout(
+      context.accountName,
+      heading,
+      html,
+      replyFooter(context),
+      `${input.agentName} at ${context.accountName} replied to you.`,
+    ),
     text: `${greeting(context.requesterName)}\n\n${input.reply}\n\n- ${input.agentName}, ${context.accountName}\n\n${replyFooter(context)}`,
     ...replyHeaders(context),
   };
@@ -295,7 +356,13 @@ export function ticketResolvedTemplate(context: TicketMailContext): MailMessage 
       ...(context.requesterName ? { name: context.requesterName } : {}),
     },
     subject: `[#${context.ticketNumber}] ${context.subject}`,
-    html: ticketLayout(context.accountName, heading, html, replyFooter(context)),
+    html: ticketLayout(
+      context.accountName,
+      heading,
+      html,
+      replyFooter(context),
+      `Say so if this is not resolved and ${context.accountName} will pick it up again.`,
+    ),
     text: `${greeting(context.requesterName)}\n\nWe have marked "${context.subject}" as resolved. If that is not right, say so and we will pick it up again.\n\n${replyFooter(context)}`,
     ...replyHeaders(context),
   };
@@ -330,7 +397,12 @@ export function ticketAssignedTemplate(
   return {
     to: { email: input.memberEmail, name: input.memberName },
     subject: `Ticket #${input.ticketNumber} assigned to you · ${brand.productName}`,
-    html: layout(brand, heading, body),
+    html: layout(
+      brand,
+      heading,
+      body,
+      `"${input.subject}" from ${input.requesterName} is waiting for you.`,
+    ),
     text: `Hi ${input.memberName},\n\n"${input.subject}" from ${input.requesterName} has been assigned to you.\n\nOpen it: ${input.url}`,
   };
 }

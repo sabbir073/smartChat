@@ -200,6 +200,20 @@ loopback, private-range or Docker-gateway address. Setting it for a relay on the
 hand every verification link and password reset to anything on the path, so the check exists to
 make that impossible rather than merely inadvisable.
 
+**Pin the host-gateway address in the Docker daemon.** `host-gateway` is resolved by the daemon
+from the default bridge at startup, and a daemon that starts before `docker0` is up resolves it to
+nothing — every container with `extra_hosts` then refuses to start with
+`could not parse extra host IP invalid IP`, which reads like a compose-file problem and is not one.
+It survives for as long as nobody restarts the daemon, which is to say until an unattended upgrade
+does. Say it explicitly in `/etc/docker/daemon.json`:
+
+```json
+{ "host-gateway-ip": "172.17.0.1" }
+```
+
+then `sudo systemctl restart docker`. Confirm with
+`docker run --rm --add-host=host.docker.internal:host-gateway alpine getent hosts host.docker.internal`.
+
 **Postfix must trust the container networks.** `mynetworks` needs the Docker bridge ranges the
 containers actually get — `172.17.0.0/16` and `172.18.0.0/16` on a default install — and not a
 blanket `172.16.0.0/12`, which on a cloud VM can swallow the VCN's own subnet and turn the host
