@@ -173,15 +173,21 @@ services:
       - ./infrastructure/nginx/edge.conf:/etc/nginx/templates/edge.conf.template:ro
       - ./infrastructure/nginx/certs:/etc/letsencrypt:ro
       - ./infrastructure/nginx/acme:/var/www/certbot
-    # This check used to end in `|| exit 0`, which means it passed whatever happened -
-    # a dead nginx reported healthy for as long as the container stayed up. It now asks
-    # the HTTP listener for the one thing it always answers without a certificate: the
-    # redirect to https. A 301 means nginx is running and its config loaded; nothing
-    # else does.
+    # Proof that nginx is answering, which two earlier versions of this check were not.
+    #
+    # The first ended in `|| exit 0` and could never fail. The second asked for `/` and
+    # matched the 301 to https - correct logic, but written with GNU wget's
+    # `--max-redirect`, and this image ships BusyBox wget, which rejects the option and
+    # exits non-zero every time. A container serving perfectly reported unhealthy.
+    #
+    # This asks for the ACME challenge directory instead: it is the one location on
+    # port 80 that does not redirect, so there is nothing to follow. Any HTTP status
+    # line back means nginx is up and its configuration loaded; 404 is the expected
+    # answer when no challenge is in flight.
     healthcheck:
       test:
         - CMD-SHELL
-        - "wget -qS --spider --max-redirect=0 http://127.0.0.1/ 2>&1 | grep -q '301 Moved Permanently'"
+        - "wget -qS --spider http://127.0.0.1/.well-known/acme-challenge/ 2>&1 | grep -qE 'HTTP/1\\.[01] (200|403|404)'"
       interval: 30s
       timeout: 5s
       retries: 3
