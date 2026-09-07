@@ -69,6 +69,27 @@ function clearSessionCookie(): void {
   document.cookie = 'sc_session=; path=/; max-age=0; SameSite=Lax';
 }
 
+/**
+ * Is a failed `/auth/me` worth sending this person to the sign-in page?
+ *
+ * Only inside the application. Everywhere else - the marketing site, the help centre, the
+ * sign-in pages themselves, the operator console with its separate identity - a 401 means
+ * "nobody is signed in", which for a stranger reading the homepage is the ordinary state of
+ * the world and not a problem to solve.
+ *
+ * Exported and tested because getting it wrong is invisible to every HTTP-level check: the
+ * server returns 200 for `/`, and the bounce happens in the browser a moment later. It shipped
+ * wrong once - the guard excluded only `/login`, so every anonymous visitor to the homepage was
+ * redirected to a sign-in page telling them their session had expired, and the public site was
+ * unusable for exactly the people it exists for.
+ *
+ * The rule deliberately matches the middleware's: `/app` needs a session and nothing else does.
+ * Two definitions of "protected" that disagree is how one of them ends up wrong.
+ */
+export function shouldRedirectToLogin(pathname: string): boolean {
+  return pathname === '/app' || pathname.startsWith('/app/');
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
   const [status, setStatus] = useState<AuthState['status']>('loading');
@@ -99,16 +120,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setStatus('anonymous');
 
         /**
-         * Drop the dead cookie and go to sign-in.
+         * Drop the dead cookie, and go to sign-in only if they were somewhere that needs one.
          *
          * The middleware routes on the *presence* of a session cookie, not its validity - it
-         * cannot check that. So a cookie the API has rejected leaves somebody stranded: every
-         * page says "your session has expired, please sign in again", and /login redirects them
-         * straight back out because the cookie is still there. Clearing it here is what makes
-         * that message actionable.
+         * cannot check that. So a cookie the API has rejected leaves somebody stranded inside
+         * the application: every page says "your session has expired", and /login sends them
+         * straight back because the cookie is still there. Clearing it is what makes that
+         * message actionable. On a public page there is nothing to be stranded from.
          */
         clearSessionCookie();
-        if (typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+        if (typeof window !== 'undefined' && shouldRedirectToLogin(window.location.pathname)) {
           router.replace('/login?expired=1');
         }
         return;
