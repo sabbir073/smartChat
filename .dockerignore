@@ -15,3 +15,12 @@ docs
 test-results
 playwright-report
 *.log
+
+# TLS material and the ACME webroot.
+#
+# certbot writes these as root into the working tree, so from the first certificate onward
+# `docker compose build` died on "permission denied" reading the build context - a break that
+# only ever appears on a host that has actually gone live. And had it succeeded it would have
+# been worse: every private key copied into every image layer.
+infrastructure/nginx/certs
+infrastructure/nginx/acme

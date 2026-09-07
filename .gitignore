@@ -35,3 +35,8 @@ install.err.log
 packages/database/.env
 .tools/
 msg.txt
+
+# Certificates and the ACME webroot. Live TLS private keys, written by certbot into the
+# working tree on a deployed host; `git add -A` there must never be able to pick them up.
+infrastructure/nginx/certs/
+infrastructure/nginx/acme/
