@@ -63,15 +63,25 @@ describe('inbox height', () => {
 
   /** If the composer and the header can be squeezed, the transcript stops being the region that gives. */
   it('the header and the composer hold their size instead of squeezing the transcript', () => {
-    expect(header).toMatch(/shrink-0 border-b/);
+    expect(header).toMatch(/shrink-0 space-y-1\.5 border-b/);
     expect(thread).toMatch(/shrink-0 border-t/);
   });
 
-  it('the conversation header is one wrapping row, not three stacked ones', () => {
-    // The tag row used to be a sibling with its own top margin below the controls row.
+  /**
+   * Three rows became two that hold. The controls were the expensive part: at a 387px thread
+   * column — an ordinary width — those four took two 32px rows on their own.
+   */
+  it('the conversation header is two rows, not three', () => {
     expect(header).not.toContain('mt-2 flex flex-wrap items-center gap-1.5');
-    const rows = header.match(/className="flex flex-wrap items-center gap-x-3 gap-y-2"/g) ?? [];
-    expect(rows).toHaveLength(1);
+    expect(header).toContain('space-y-1.5 border-b');
+  });
+
+  it('the controls row refuses to wrap, and scrolls sideways instead', () => {
+    expect(header).toMatch(/flex items-center gap-1\.5 overflow-x-auto/);
+    // The assignee select is the one that gives up width; nothing else may shrink.
+    expect(header).toMatch(/min-w-\[6rem\][\s\S]{0,30}flex-1/);
+    const fixed = header.match(/h-8 shrink-0 rounded/g) ?? [];
+    expect(fixed.length).toBeGreaterThanOrEqual(3);
   });
 
   it('the filter bar shares a line with the title instead of taking its own', () => {

@@ -83,16 +83,19 @@ export function ConversationHeader({
 
   return (
     /**
-     * One wrapping row, not three stacked ones.
+     * Two rows that hold, instead of three that wrap into more.
      *
-     * This header used to be a row of identity, a row of controls and a row of tags, each with its
-     * own margin - 171px of a 550px window, against 61px for the messages. The controls and the
-     * tags now share one wrap container, so they sit on one line whenever there is room and only
-     * take a second when there genuinely is not. `shrink-0` on the header keeps it from being
-     * squeezed by the transcript; `min-h-0` on the transcript is what makes the transcript give.
+     * This header was identity, then controls, then tags, each on its own line with its own
+     * margin - 149px of a 495px window, against 128px for the messages it sits above. The four
+     * controls alone took two 32px rows at a 387px thread column, which is an ordinary width.
+     *
+     * Now: who it is on the first line with any tags, and the controls on a second that does not
+     * wrap. `shrink-0` here keeps the header from being squeezed by the transcript; `min-h-0` on
+     * the transcript is what makes the transcript the thing that gives.
      */
-    <div className="shrink-0 border-b border-border px-4 py-2.5">
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <div className="shrink-0 space-y-1.5 border-b border-border px-4 py-2.5">
+      {/* Who, and their tags. Short things that wrap harmlessly. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <button
           type="button"
           onClick={onBack}
@@ -113,76 +116,6 @@ export function ConversationHeader({
           <span className="shrink-0 whitespace-nowrap text-[12px] text-ink-subtle">
             {online ? 'Online now' : 'Offline'}
           </span>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <label className="sr-only" htmlFor="conversation-assignee">
-            Assign this conversation
-          </label>
-          <select
-            id="conversation-assignee"
-            value={conversation.assignedMemberId ?? ''}
-            disabled={busy}
-            onChange={(event) => onAssign(event.target.value === '' ? null : event.target.value)}
-            className="h-8 max-w-[170px] rounded-[var(--radius-control)] border border-border-strong bg-surface px-2 text-[12px] text-ink disabled:opacity-50"
-          >
-            <option value="">Unassigned</option>
-            {members.map((member) => (
-              <option key={member.id} value={member.id}>
-                {memberLabel(member)}
-              </option>
-            ))}
-          </select>
-
-          <label className="sr-only" htmlFor="conversation-priority">
-            Priority
-          </label>
-          <select
-            id="conversation-priority"
-            value={conversation.priority}
-            disabled={busy}
-            onChange={(event) => onPriority(event.target.value as Priority)}
-            className={cn(
-              'h-8 rounded-[var(--radius-control)] border border-border-strong bg-surface px-2 text-[12px] font-medium capitalize disabled:opacity-50',
-              PRIORITY_TONE[conversation.priority as Priority],
-            )}
-          >
-            {PRIORITIES.map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
-
-          {closed ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onStatus('open')}
-              className="h-8 rounded-[var(--radius-control)] bg-brand px-3 text-[12px] font-medium text-ink-inverted disabled:opacity-50"
-            >
-              Reopen
-            </button>
-          ) : (
-            <>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onStatus(conversation.status === 'pending' ? 'open' : 'pending')}
-                className="h-8 rounded-[var(--radius-control)] border border-border-strong px-3 text-[12px] font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-50"
-              >
-                {conversation.status === 'pending' ? 'Back to open' : 'Pending'}
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => onStatus('closed')}
-                className="h-8 rounded-[var(--radius-control)] border border-border-strong px-3 text-[12px] font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-50"
-              >
-                Close
-              </button>
-            </>
-          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -237,6 +170,85 @@ export function ConversationHeader({
             )
           )}
         </div>
+      </div>
+
+      {/*
+        The controls, on one line that does not wrap.
+        
+        Wrapping was the whole problem: at a 387px thread column these four controls took two
+        32px rows, and with the name above and the tags below the header was 149px against 128px
+        of messages. The assignee select gives up its width first (`min-w-0 flex-1`), everything
+        else keeps its size, and if the column is narrower than the controls genuinely need, the
+        row scrolls sideways rather than stealing another line from the transcript.
+      */}
+      <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
+        <label className="sr-only" htmlFor="conversation-assignee">
+          Assign this conversation
+        </label>
+        <select
+          id="conversation-assignee"
+          value={conversation.assignedMemberId ?? ''}
+          disabled={busy}
+          onChange={(event) => onAssign(event.target.value === '' ? null : event.target.value)}
+          className="h-8 w-full min-w-[6rem] max-w-[190px] flex-1 rounded-[var(--radius-control)] border border-border-strong bg-surface px-2 text-[12px] text-ink disabled:opacity-50"
+        >
+          <option value="">Unassigned</option>
+          {members.map((member) => (
+            <option key={member.id} value={member.id}>
+              {memberLabel(member)}
+            </option>
+          ))}
+        </select>
+
+        <label className="sr-only" htmlFor="conversation-priority">
+          Priority
+        </label>
+        <select
+          id="conversation-priority"
+          value={conversation.priority}
+          disabled={busy}
+          onChange={(event) => onPriority(event.target.value as Priority)}
+          className={cn(
+            'h-8 shrink-0 rounded-[var(--radius-control)] border border-border-strong bg-surface px-2 text-[12px] font-medium capitalize disabled:opacity-50',
+            PRIORITY_TONE[conversation.priority as Priority],
+          )}
+        >
+          {PRIORITIES.map((priority) => (
+            <option key={priority} value={priority}>
+              {priority}
+            </option>
+          ))}
+        </select>
+
+        {closed ? (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onStatus('open')}
+            className="h-8 shrink-0 rounded-[var(--radius-control)] bg-brand px-3 text-[12px] font-medium text-ink-inverted disabled:opacity-50"
+          >
+            Reopen
+          </button>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onStatus(conversation.status === 'pending' ? 'open' : 'pending')}
+              className="h-8 shrink-0 rounded-[var(--radius-control)] border border-border-strong px-3 text-[12px] font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-50"
+            >
+              {conversation.status === 'pending' ? 'Back to open' : 'Pending'}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onStatus('closed')}
+              className="h-8 shrink-0 rounded-[var(--radius-control)] border border-border-strong px-3 text-[12px] font-medium text-ink-muted hover:bg-surface-raised disabled:opacity-50"
+            >
+              Close
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
