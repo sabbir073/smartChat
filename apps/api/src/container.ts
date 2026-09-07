@@ -22,7 +22,10 @@ import {
   RateLimiter,
   PresenceService,
   RedisEventPublisher,
+  RedisAvailabilityPublisher,
+  createOutboundFetch,
   SmtpMailProvider,
+  agentAvailabilityReader,
   StorageService,
   TeamService,
   TicketService,
@@ -144,6 +147,22 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
 
   const accounts = new AccountService(db);
 
+  /**
+   * Whether anybody on this account is available, and how a change in that reaches open widgets.
+   *
+   * The read is the persisted choice on the membership rows - see `agentAvailabilityReader` for
+   * why it is not Redis presence. The announcement goes over Redis because the sockets that need
+   * to hear it live in the realtime gateway, a different process from this one.
+   */
+  const hasAvailableAgent = agentAvailabilityReader(db);
+  const availabilityPublisher = new RedisAvailabilityPublisher(queueRedis, (error) =>
+    logger.error({ err: error }, 'could not announce availability'),
+  );
+  const announceAvailability = async (accountId: string): Promise<void> => {
+    const available = await hasAvailableAgent(accountId);
+    await availabilityPublisher.publishAvailability({ accountId, available });
+  };
+
   const team = new TeamService({
     db,
     mailer,
@@ -153,6 +172,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
       ? (message) =>
           queue.enqueue(EmailJob.SEND, { message, requestId: 'team' }).then(() => undefined)
       : undefined,
+    announceAvailability,
     clock,
   });
   const widgets = new WidgetService(db, clock);
@@ -163,7 +183,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     db,
     visitorTokenSecret: config.VISITOR_TOKEN_SECRET,
     allowLocalhostOrigins: config.ALLOW_LOCALHOST_ORIGINS,
-    isAgentAvailable: (accountId) => presence.hasAvailableAgent(accountId),
+    isAgentAvailable: hasAvailableAgent,
     maxUploadBytes: config.UPLOAD_MAX_BYTES,
     clock,
   });
@@ -289,6 +309,13 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const properties = new PropertyService({
     db,
     widgetUrl: config.WIDGET_URL,
+    /**
+     * The installation check fetches the customer's own site, so it goes through the DNS-pinned
+     * outbound client rather than a bare `fetch` - a URL the customer typed is exactly the input
+     * a server-side request forgery needs. The same setting that governs webhook targets governs
+     * this one, so a deployment cannot end up with two different answers about private addresses.
+     */
+    fetchSite: createOutboundFetch({ allowPrivateTargets: config.ALLOW_PRIVATE_WEBHOOK_URLS }),
     clock,
   });
 

@@ -124,6 +124,14 @@ export const RATE_LIMITS = {
   resendVerification: { limit: 3, windowMs: 60 * 60_000 },
   emailToken: { limit: 10, windowMs: 60 * 60_000 },
   widgetSession: { limit: 30, windowMs: 60_000 },
+  /**
+   * The installation check, per property.
+   *
+   * It makes this server fetch a URL the customer chose, so it is an amplification primitive
+   * however small. Six a minute is more than anybody pressing a button needs and far less than a
+   * script would want.
+   */
+  installVerify: { limit: 6, windowMs: 60_000 },
   visitorMessage: { limit: 20, windowMs: 60_000 },
   propertyMessage: { limit: 300, windowMs: 60_000 },
   // An offline message writes a conversation and sends mail later. Five an hour per IP is more

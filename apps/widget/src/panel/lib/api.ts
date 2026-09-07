@@ -88,6 +88,7 @@ async function request<T>(
 export const widgetApi = {
   bootstrap: (input: {
     p: string;
+    e?: string | null;
     token?: string | null;
     page?: { url?: string; title?: string; referrer?: string };
     screen?: { width: number; height: number };
@@ -96,7 +97,7 @@ export const widgetApi = {
   }) =>
     request<BootstrapResponse>('/widget/session', {
       method: 'POST',
-      body: { ...input, token: input.token ?? undefined },
+      body: { ...input, token: input.token ?? undefined, e: input.e ?? undefined },
     }),
 
   identify: (token: string, traits: Record<string, string | undefined>) =>

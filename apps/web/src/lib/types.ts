@@ -32,6 +32,15 @@ export interface InstallationDto {
   lastRequestAt: string | null;
 }
 
+/** What an on-demand installation check found. See PropertyService.verifyInstallation. */
+export interface InstallationCheckDto {
+  verified: boolean;
+  evidence: 'widget_request' | 'snippet_found' | null;
+  checkedUrl: string | null;
+  lastRequestAt: string | null;
+  detail: string;
+}
+
 export interface RoleDto {
   id: string;
   key: string;

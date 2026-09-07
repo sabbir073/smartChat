@@ -159,3 +159,40 @@ export class RedisEventPublisher implements EventPublisher {
 }
 
 export { ServerEvent };
+
+/**
+ * Availability, broadcast the moment somebody changes it.
+ *
+ * A separate channel from conversation events because it is a different shape and a different
+ * audience: no conversation, no property, one flag for every visitor of an account.
+ *
+ * It exists because the dashboard's availability control speaks HTTP to the API, while the sockets
+ * that have to hear about the change live in the realtime gateway — a different process. Without
+ * this, changing your status updated a database row and nothing else: every widget already open
+ * kept whatever it was told at bootstrap, indefinitely.
+ */
+export interface AvailabilityEvent {
+  accountId: string;
+  available: boolean;
+}
+
+export interface AvailabilityPublisher {
+  publishAvailability(event: AvailabilityEvent): Promise<void>;
+}
+
+export class RedisAvailabilityPublisher implements AvailabilityPublisher {
+  constructor(
+    private readonly redis: RedisClient,
+    private readonly onError?: (error: Error) => void,
+  ) {}
+
+  async publishAvailability(event: AvailabilityEvent): Promise<void> {
+    try {
+      await this.redis.publish(RedisChannel.PRESENCE_EVENTS, JSON.stringify(event));
+    } catch (error) {
+      // Never fail the status change over a failed broadcast: the choice is already saved, and a
+      // widget that missed the announcement gets the right answer on its next bootstrap.
+      this.onError?.(error as Error);
+    }
+  }
+}

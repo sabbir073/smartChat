@@ -13,13 +13,18 @@ import {
   issueVisitorToken,
   verifyVisitorToken,
 } from '../crypto/visitor-token.js';
+import {
+  EMBED_TICKET_TTL_SECONDS,
+  issueEmbedTicket,
+  verifyEmbedTicket,
+} from '../crypto/embed-ticket.js';
 import { AuditRepository } from '../repositories/audit.repository.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { PropertyRepository } from '../repositories/property.repository.js';
 import { VisitorRepository } from '../repositories/visitor.repository.js';
 import { WidgetRepository } from '../repositories/widget.repository.js';
 import { MINUTE, systemClock, type Clock } from '../time.js';
-import { isOriginAllowed } from './domain-matcher.js';
+import { hostFromOrigin, isOriginAllowed } from './domain-matcher.js';
 import { parseUserAgent, sanitiseUrl } from './user-agent.js';
 
 /** A session is considered finished after this much inactivity, and the next visit is a new one. */
@@ -28,6 +33,14 @@ export const SESSION_IDLE_MS = 30 * MINUTE;
 export interface BootstrapInput {
   publicId: string;
   origin: string | undefined;
+  /**
+   * The ticket the loader was given, proving which page the widget is embedded in.
+   *
+   * The panel's own `origin` is this product's CDN host and says nothing about the customer's
+   * site, so with domain enforcement on this is the only thing that can answer the question. See
+   * `crypto/embed-ticket.ts`.
+   */
+  embedTicket?: string | undefined;
   /** An existing token from the widget's own localStorage, if the visitor has been here before. */
   token?: string | undefined;
   page?: { url?: string | undefined; title?: string | undefined; referrer?: string | undefined };
@@ -108,7 +121,7 @@ export class VisitorService {
     // the snippet is public, so this response must not become a probe.
     if (!property) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
 
-    this.assertOriginAllowed(property, input.origin);
+    this.assertEmbedAllowed(property, input);
 
     const now = this.clock.now();
     const agent = parseUserAgent(input.userAgent);
@@ -241,9 +254,30 @@ export class VisitorService {
      */
     await this.properties.recordWidgetRequest(property.propertyId, this.clock.now());
 
+    /**
+     * The ticket that carries this origin decision to the panel.
+     *
+     * Issued here because here is the only place a real embedding origin exists: this request came
+     * from the loader, running in the customer's own page. The panel's later request comes from an
+     * iframe on our CDN and cannot answer the question at all.
+     *
+     * Issued whether or not enforcement is on, so switching enforcement on does not have to wait
+     * for every cached loader to notice. It is only *required* when enforcement is on.
+     */
+    const host = origin ? hostFromOrigin(origin) : null;
+
     return {
       property: { publicId, name: property.propertyName },
       widget: { version: property.version, config: property.config },
+      ...(host
+        ? {
+            embedTicket: issueEmbedTicket(
+              { publicId, host, ttlSeconds: EMBED_TICKET_TTL_SECONDS, now: this.clock.now() },
+              this.options.visitorTokenSecret,
+            ),
+            embedTicketExpiresInSeconds: EMBED_TICKET_TTL_SECONDS,
+          }
+        : {}),
     };
   }
 
@@ -459,6 +493,59 @@ export class VisitorService {
     });
     if (!allowed) {
       throw new AppError(ErrorCode.ORIGIN_NOT_ALLOWED, undefined, { context: { origin } });
+    }
+  }
+
+  /**
+   * The same question as `assertOriginAllowed`, asked of a request that cannot answer it.
+   *
+   * `bootstrap` is called by the panel, which runs in an iframe on this product's own CDN host —
+   * so its `Origin` is ours, not the customer's, on every site including the authorised ones.
+   * Checking it meant enforcement rejected everybody: switch it on and no widget anywhere could
+   * start, which is exactly what happened.
+   *
+   * The embedding page's host therefore comes from the ticket the loader was issued, and it is
+   * re-checked against the property's *current* domain list rather than trusted because a ticket
+   * exists — a domain removed a minute ago should stop working within the ticket's short life,
+   * not at the end of it.
+   */
+  private assertEmbedAllowed(
+    property: { enforceDomains: boolean; domains: { pattern: string; isWildcard: boolean }[] },
+    input: { publicId: string; origin: string | undefined; embedTicket?: string | undefined },
+  ): void {
+    if (!property.enforceDomains) return;
+
+    // A panel opened directly in a tab, with no host page, is judged on its own origin - which is
+    // the honest answer for a request that really did come from nowhere else.
+    if (!input.embedTicket) {
+      if (
+        this.options.allowLocalhostOrigins &&
+        isOriginAllowed(input.origin, property.domains, { allowLocalhost: true })
+      ) {
+        return;
+      }
+      throw new AppError(ErrorCode.ORIGIN_NOT_ALLOWED, undefined, {
+        context: { origin: input.origin, reason: 'no embed ticket' },
+      });
+    }
+
+    const ticket = verifyEmbedTicket(input.embedTicket, this.options.visitorTokenSecret, {
+      now: this.clock.now(),
+      expectedPublicId: input.publicId,
+    });
+    if (!ticket.ok) {
+      throw new AppError(ErrorCode.ORIGIN_NOT_ALLOWED, undefined, {
+        context: { origin: input.origin, reason: ticket.reason },
+      });
+    }
+
+    const allowed = isOriginAllowed(`https://${ticket.payload.h}`, property.domains, {
+      allowLocalhost: this.options.allowLocalhostOrigins,
+    });
+    if (!allowed) {
+      throw new AppError(ErrorCode.ORIGIN_NOT_ALLOWED, undefined, {
+        context: { origin: ticket.payload.h },
+      });
     }
   }
 }

@@ -110,6 +110,35 @@ async function main(): Promise<void> {
     }
   });
 
+  /**
+   * Availability changes, from wherever they were made.
+   *
+   * The dashboard's availability control speaks HTTP to the API, not to this process, so without
+   * this subscription an agent coming online reached no widget that was already open: every
+   * visitor on the site kept whatever they were told when their panel started.
+   */
+  await container.eventSubscriber.subscribe(RedisChannel.PRESENCE_EVENTS);
+  container.eventSubscriber.on('message', (channel: string, raw: string) => {
+    if (channel !== RedisChannel.PRESENCE_EVENTS) return;
+
+    let event: { accountId?: unknown; available?: unknown };
+    try {
+      event = JSON.parse(raw) as { accountId?: unknown; available?: unknown };
+    } catch {
+      logger.warn('discarded a malformed availability event');
+      return;
+    }
+
+    if (typeof event.accountId !== 'string' || typeof event.available !== 'boolean') {
+      logger.warn('discarded an availability event with the wrong shape');
+      return;
+    }
+
+    io.of('/visitor')
+      .to(room.account(event.accountId))
+      .emit(ServerEvent.AGENTS_AVAILABLE, { available: event.available });
+  });
+
   function deliver(event: DomainEventLike): void {
     const agents = io.of('/agent');
     const visitors = io.of('/visitor');

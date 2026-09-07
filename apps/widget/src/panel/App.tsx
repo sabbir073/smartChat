@@ -25,6 +25,13 @@ interface Params {
    * slider must not pollute their own analytics.
    */
   preview: boolean;
+  /**
+   * The loader's proof of which page this panel is embedded in.
+   *
+   * Opaque here and never inspected: it is a signature the server made and only the server reads.
+   * Absent when the panel is opened directly rather than by a loader.
+   */
+  embedTicket: string | null;
 }
 
 function readParams(): Params | null {
@@ -33,7 +40,14 @@ function readParams(): Params | null {
   const nonce = query.get('n') ?? '';
   if (!/^[a-z]{2,5}_[0-9A-HJKMNP-TV-Z]{12,32}$/.test(publicId)) return null;
   if (!/^[a-f0-9]{8,64}$/.test(nonce)) return null;
-  return { publicId, nonce, preview: query.get('preview') === '1' };
+  const embedTicket = query.get('e');
+  return {
+    publicId,
+    nonce,
+    preview: query.get('preview') === '1',
+    embedTicket:
+      embedTicket && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(embedTicket) ? embedTicket : null,
+  };
 }
 
 /** Apply the customer's colours as CSS variables rather than inline styles on every element. */
@@ -169,6 +183,7 @@ export function App() {
         const stored = readToken(params.publicId);
         const result = await widgetApi.bootstrap({
           p: params.publicId,
+          e: params.embedTicket,
           token: stored,
           page: page ? { url: page.url, title: page.title, referrer: page.referrer } : undefined,
           screen: { width: window.screen?.width ?? 0, height: window.screen?.height ?? 0 },

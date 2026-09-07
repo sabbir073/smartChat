@@ -45,6 +45,14 @@ export interface TeamServiceOptions {
   deliver?: (message: Parameters<MailProvider['send']>[0]) => Promise<void>;
   clock?: Clock;
   invitationTtlMs?: number;
+  /**
+   * Tell every open widget that the team's availability may have changed.
+   *
+   * Optional so the service stays testable without Redis, and awaited-but-never-fatal: the choice
+   * is already persisted, and a widget that missed the announcement gets the right answer at its
+   * next bootstrap.
+   */
+  announceAvailability?: (accountId: string) => Promise<void>;
 }
 
 export interface InvitationView {
@@ -464,6 +472,15 @@ export class TeamService {
   ): Promise<void> {
     if (!context.memberId) throw new AppError(ErrorCode.FORBIDDEN);
     await this.repo.updateMember(context, context.memberId, { availability });
+
+    /**
+     * Say so out loud, immediately.
+     *
+     * Persisting the choice used to be the whole of this method, which meant a widget that was
+     * already open never heard about it — an agent came online and every visitor already on the
+     * site went on being shown an offline form until they reloaded the page.
+     */
+    await this.options.announceAvailability?.(context.accountId).catch(() => undefined);
   }
 
   // --- roles ----------------------------------------------------------------

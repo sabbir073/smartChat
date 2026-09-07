@@ -64,6 +64,21 @@ export async function propertyRoutes(app: FastifyInstance, container: Container)
     return ok(reply, await container.properties.installation(tenant, id));
   });
 
+  /**
+   * Check the installation on demand.
+   *
+   * A POST because it makes an outbound request to the customer's own site and can write
+   * `installedAt`, neither of which belongs behind a GET somebody's browser might prefetch.
+   */
+  app.post('/properties/:id/install/verify', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    // Fetching somebody's website on request is a small amplification primitive, so it is rate
+    // limited per caller rather than left to the general write budget.
+    await app.rateLimit(request, 'installVerify', `property:${id}`);
+    return ok(reply, await container.properties.verifyInstallation(tenant, id));
+  });
+
   app.post('/properties/:id/domains', async (request, reply) => {
     const tenant = requireTenant(request);
     const { id } = parseParams(idParam, request.params);

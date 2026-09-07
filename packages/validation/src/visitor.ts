@@ -13,6 +13,14 @@ const urlSchema = z.string().trim().max(2048);
 export const widgetBootstrapSchema = z.object({
   p: publicIdSchema,
   token: z.string().max(4096).optional(),
+  /**
+   * The loader's proof of which page the widget is embedded in.
+   *
+   * Bounded and optional here; it is *verified* server-side, and unverifiable is treated exactly
+   * like absent. See `crypto/embed-ticket.ts` for why the panel cannot answer this with its own
+   * `Origin` header.
+   */
+  e: z.string().max(2048).optional(),
   page: z
     .object({
       url: urlSchema.optional(),

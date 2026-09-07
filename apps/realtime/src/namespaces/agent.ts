@@ -20,6 +20,7 @@ import {
 } from '@smartchat/validation';
 import { z } from 'zod';
 import type { RealtimeContainer } from '../container.js';
+import { agentAvailabilityReader } from '@smartchat/core';
 import { ackError, ackOk, parsePayload, respond, type AckCallback } from '../lib/ack.js';
 
 interface AgentSocketData {
@@ -38,6 +39,12 @@ type AgentSocket = Socket & { data: AgentSocketData };
  */
 export function registerAgentNamespace(namespace: Namespace, container: RealtimeContainer): void {
   const { logger, presence, conversations, connectionTickets, db } = container;
+  /**
+   * "Is anybody available" comes from the persisted choice on the membership rows, the same source
+   * the API's bootstrap reads. Two answers to one question, computed differently in two processes,
+   * is how a widget ends up disagreeing with the dashboard about who is online.
+   */
+  const hasAvailableAgent = agentAvailabilityReader(db);
 
   namespace.use(async (socket, next) => {
     try {
@@ -113,7 +120,32 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
     void socket.join(room.agent(memberId));
 
     let heartbeat: NodeJS.Timeout | null = null;
-    let availability: 'online' | 'away' | 'offline' = 'online';
+    /**
+     * Starts as offline and is corrected from the database below.
+     *
+     * It used to start as `'online'`, which meant opening the dashboard silently published you as
+     * available regardless of the status you had chosen — connecting a socket is not a decision to
+     * be available. Offline is the safe assumption for the moment before we know: it makes a
+     * visitor wait a beat for the real answer rather than promising them somebody who is not
+     * there.
+     */
+    let availability: 'online' | 'away' | 'offline' = 'offline';
+
+    /**
+     * Adopt the status this member actually chose, then say so.
+     *
+     * Without this the socket's idea of availability is whatever the last `presence:set` on *this*
+     * connection said, so a reconnect - a laptop waking, a deploy, a flaky train - reset an agent
+     * to the default and the widget followed it.
+     */
+    const adoptPersistedAvailability = async (): Promise<void> => {
+      const member = await db.accountMember
+        .findUnique({ where: { id: memberId }, select: { availability: true } })
+        .catch(() => null);
+      if (member) availability = member.availability;
+      await touch();
+      await announceAvailability();
+    };
 
     const touch = () =>
       presence
@@ -129,7 +161,7 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
      */
     const announceAvailability = async (): Promise<void> => {
       try {
-        const available = await presence.hasAvailableAgent(context.accountId);
+        const available = await hasAvailableAgent(context.accountId);
         namespace.server
           .of('/visitor')
           .to(room.account(context.accountId))
@@ -139,15 +171,17 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
       }
     };
 
-    void touch();
     heartbeat = setInterval(touch, PRESENCE_HEARTBEAT_SECONDS * 1000);
 
-    namespace.to(room.account(context.accountId)).emit(ServerEvent.PRESENCE_AGENT, {
-      memberId,
-      status: availability,
-      online: true,
+    // Reads the chosen status, writes presence, and announces - in that order, so nothing is
+    // published from the placeholder value above.
+    void adoptPersistedAvailability().then(() => {
+      namespace.to(room.account(context.accountId)).emit(ServerEvent.PRESENCE_AGENT, {
+        memberId,
+        status: availability,
+        online: availability !== 'offline',
+      });
     });
-    void announceAvailability();
 
     logger.debug({ memberId, socketId: socket.id }, 'agent connected');
 

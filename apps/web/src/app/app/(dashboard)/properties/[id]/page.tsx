@@ -19,7 +19,7 @@ import {
   TextInput,
   useToast,
 } from '@/components/ui';
-import type { InstallationDto, PropertyDto } from '@/lib/types';
+import type { InstallationCheckDto, InstallationDto, PropertyDto } from '@/lib/types';
 
 export default function PropertyDetailPage() {
   const params = useParams<{ id: string }>();
@@ -38,6 +38,8 @@ export default function PropertyDetailPage() {
   );
 
   const [copied, setCopied] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [checkResult, setCheckResult] = useState<InstallationCheckDto | null>(null);
   const [domain, setDomain] = useState('');
   const [domainError, setDomainError] = useState<string | null>(null);
   const [supportEmailError, setSupportEmailError] = useState<string | null>(null);
@@ -54,6 +56,39 @@ export default function PropertyDetailPage() {
     } catch {
       // Clipboard access can be denied; the snippet is on screen and selectable either way.
       toast.error('Could not copy automatically - select the snippet and copy it manually.');
+    }
+  }
+
+  /**
+   * Check the installation now, rather than waiting for a visitor to prove it.
+   *
+   * The result replaces the standing message with what was actually found, because "not detected"
+   * and "we could not reach your site" are different problems and only one of them means the
+   * snippet is wrong.
+   */
+  async function verifyInstallation() {
+    setChecking(true);
+    setCheckResult(null);
+    try {
+      const result = await api.post<InstallationCheckDto>(`/properties/${id}/install/verify`, {});
+      setCheckResult(result.data);
+      if (result.data.verified) {
+        installation.reload();
+        property.reload();
+      }
+    } catch (error) {
+      setCheckResult({
+        verified: false,
+        evidence: null,
+        checkedUrl: null,
+        lastRequestAt: null,
+        detail:
+          error instanceof ApiError
+            ? error.message
+            : 'We could not run the check just now. Try again in a moment.',
+      });
+    } finally {
+      setChecking(false);
     }
   }
 
@@ -192,13 +227,29 @@ export default function PropertyDetailPage() {
                   <Button size="sm" onClick={copySnippet}>
                     {copied ? 'Copied' : 'Copy snippet'}
                   </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => void verifyInstallation()}
+                    loading={checking}
+                  >
+                    Check installation
+                  </Button>
                   <span className="text-[13px] text-ink-subtle">
                     Public key <code className="font-mono">{installation.data.publicId}</code> —
                     safe to expose; it identifies this website and authorises nothing.
                   </span>
                 </div>
 
-                {installation.data.verified ? (
+                {checkResult ? (
+                  <Alert
+                    tone={checkResult.verified ? 'success' : 'warning'}
+                    title={checkResult.verified ? 'Installation verified' : 'Not found yet'}
+                  >
+                    {checkResult.detail}
+                    {checkResult.checkedUrl ? ` We looked at ${checkResult.checkedUrl}.` : ''}
+                  </Alert>
+                ) : installation.data.verified ? (
                   <Alert tone="success" title="Installation verified">
                     We have served this widget from your site
                     {installation.data.lastRequestAt
@@ -208,8 +259,8 @@ export default function PropertyDetailPage() {
                   </Alert>
                 ) : (
                   <Alert tone="info" title="Not detected yet">
-                    Once the snippet is live, load a page on your site and this will turn green
-                    automatically - serving the widget from an allowed origin is the verification.
+                    Paste the snippet, then press Check installation — or load a page on your site
+                    and this turns green on its own.
                   </Alert>
                 )}
               </>

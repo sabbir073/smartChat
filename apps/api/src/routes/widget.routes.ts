@@ -42,9 +42,17 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
     const query = parseQuery(widgetConfigQuerySchema, request.query);
     const result = await container.visitors.publicConfig(query.p, request.headers.origin);
 
-    // Short cache: a publish should reach installed sites within a minute, and the response is
-    // identical for every visitor of a property, so it is safe to cache.
-    reply.header('cache-control', 'public, max-age=60, stale-while-revalidate=300');
+    /**
+     * Not a shared cache, and not shared between origins.
+     *
+     * This response used to be identical for every visitor of a property and was cached publicly
+     * for a minute. It now carries an embed ticket bound to the requesting site, so a shared cache
+     * would hand one customer's ticket to the next site that asked - and `Vary: Origin` alone
+     * would not save it, because a proxy that ignores Vary is exactly the kind that caches
+     * aggressively. Private, short, and varying on the header the body depends on.
+     */
+    reply.header('cache-control', 'private, max-age=30');
+    reply.header('vary', 'origin');
     return ok(reply, result);
   });
 
@@ -59,6 +67,7 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
     const result = await container.visitors.bootstrap({
       publicId: input.p,
       origin: request.headers.origin,
+      embedTicket: input.e,
       token: input.token,
       page: input.page,
       screen: input.screen,

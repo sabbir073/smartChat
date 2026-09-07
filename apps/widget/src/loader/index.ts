@@ -76,6 +76,7 @@ interface SmartChatGlobal {
 
     // --- state ---------------------------------------------------------------
     let config: LauncherConfig | null = null;
+    let embedTicket: string | null = null;
     let iframe: HTMLIFrameElement | null = null;
     let open = false;
     let unread = 0;
@@ -140,11 +141,18 @@ interface SmartChatGlobal {
 
         const body = (await response.json()) as {
           success?: boolean;
-          data?: { widget?: { config?: LauncherConfig } };
+          data?: { widget?: { config?: LauncherConfig }; embedTicket?: string };
         };
         const loaded = body?.data?.widget?.config;
         if (!body.success || !loaded) return;
         config = loaded;
+        /**
+         * The proof of *this* page, for the panel to present later.
+         *
+         * This request carried the browser's own `Origin` for the customer's site. The panel's
+         * will not - it is an iframe on our CDN - so the answer has to travel with it.
+         */
+        embedTicket = body.data?.embedTicket ?? null;
 
         if (!shouldRender(config)) return;
 
@@ -290,7 +298,9 @@ interface SmartChatGlobal {
       // Only what the panel actually needs. No allow-top-navigation, no allow-popups.
       iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
       iframe.setAttribute('allow', 'clipboard-write');
-      iframe.src = `${widgetOrigin}/panel/?p=${encodeURIComponent(publicId!)}&n=${encodeURIComponent(nonce)}`;
+      iframe.src =
+        `${widgetOrigin}/panel/?p=${encodeURIComponent(publicId!)}&n=${encodeURIComponent(nonce)}` +
+        (embedTicket ? `&e=${encodeURIComponent(embedTicket)}` : '');
       root?.appendChild(iframe);
       return iframe;
     }
