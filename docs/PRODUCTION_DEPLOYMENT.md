@@ -177,16 +177,19 @@ nginx will not start without certificates, and certbot cannot get certificates w
 answering on port 80. Break the cycle by getting the certificates first, with a throwaway server:
 
 ```bash
-mkdir -p infrastructure/nginx/certs infrastructure/nginx/acme
+# Outside the repository on purpose: certbot writes as root, and a git working tree is
+# the wrong home for a private key.
+sudo mkdir -p /opt/smartchat/tls/letsencrypt /opt/smartchat/tls/acme
+sudo chown -R $USER:$USER /opt/smartchat/tls
 
 # A bare nginx on :80 that serves only the ACME challenge directory.
 docker run --rm -d --name acme -p 80:80 \
-  -v "$PWD/infrastructure/nginx/acme:/usr/share/nginx/html" \
+  -v "/opt/smartchat/tls/acme:/usr/share/nginx/html" \
   nginx:1.27-alpine
 
 docker run --rm \
-  -v "$PWD/infrastructure/nginx/certs:/etc/letsencrypt" \
-  -v "$PWD/infrastructure/nginx/acme:/var/www/certbot" \
+  -v "/opt/smartchat/tls/letsencrypt:/etc/letsencrypt" \
+  -v "/opt/smartchat/tls/acme:/var/www/certbot" \
   certbot/certbot certonly --webroot -w /var/www/certbot \
   --non-interactive --agree-tos --email you@example.com \
   -d app.example.com -d api.example.com -d ws.example.com -d cdn.example.com
@@ -197,7 +200,7 @@ docker stop acme
 Confirm all four are there — the edge will not start otherwise:
 
 ```bash
-ls infrastructure/nginx/certs/live/
+ls /opt/smartchat/tls/letsencrypt/live/
 ```
 
 **Renewal.** Let's Encrypt certificates last 90 days. Add a cron entry as the `smartchat` user:
@@ -391,7 +394,7 @@ checks the data came back. Run it after any change to the schema, and on a sched
 `[config]` and a list of exactly what is wrong — that is the boot check from §4, and it is telling
 you the truth.
 
-**nginx will not start.** Almost always a missing certificate. `ls infrastructure/nginx/certs/live/`
+**nginx will not start.** Almost always a missing certificate. `ls /opt/smartchat/tls/letsencrypt/live/`
 should show all four hostnames. `docker compose exec edge nginx -t` checks the config itself.
 
 **The dashboard loads but nothing happens.** Open the browser console. A blocked request usually

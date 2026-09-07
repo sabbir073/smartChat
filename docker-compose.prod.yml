@@ -171,8 +171,13 @@ services:
       # Templated, so the hostnames come from the environment rather than from a
       # file somebody has to remember to edit. nginx substitutes them at start.
       - ./infrastructure/nginx/edge.conf:/etc/nginx/templates/edge.conf.template:ro
-      - ./infrastructure/nginx/certs:/etc/letsencrypt:ro
-      - ./infrastructure/nginx/acme:/var/www/certbot
+      # TLS material lives OUTSIDE the repository. certbot writes it as root, and while it
+      # sat in the working tree two things were true: `docker compose build` failed on every
+      # deployed host, because BuildKit walks the context and cannot read certs/accounts
+      # (mode 0700 root); and had it succeeded, every private key would have been copied into
+      # every image layer. A git working tree is the wrong place for a private key.
+      - ${CERT_DIR:-/opt/smartchat/tls/letsencrypt}:/etc/letsencrypt:ro
+      - ${ACME_DIR:-/opt/smartchat/tls/acme}:/var/www/certbot
     # Proof that nginx is answering, which two earlier versions of this check were not.
     #
     # The first ended in `|| exit 0` and could never fail. The second asked for `/` and
@@ -202,8 +207,8 @@ services:
     image: certbot/certbot:latest
     profiles: ['certs']
     volumes:
-      - ./infrastructure/nginx/certs:/etc/letsencrypt
-      - ./infrastructure/nginx/acme:/var/www/certbot
+      - ${CERT_DIR:-/opt/smartchat/tls/letsencrypt}:/etc/letsencrypt
+      - ${ACME_DIR:-/opt/smartchat/tls/acme}:/var/www/certbot
     entrypoint: >
       sh -c "certbot certonly --webroot -w /var/www/certbot
       --non-interactive --agree-tos --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL is required}
