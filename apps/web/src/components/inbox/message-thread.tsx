@@ -64,7 +64,12 @@ export function MessageThread({
   return (
     <div
       ref={container}
-      className="flex-1 space-y-3 overflow-y-auto px-5 py-4"
+      /**
+       * The one region that grows. `min-h-0` lets it shrink inside a flex column - without it a
+       * flex child refuses to go below its content height and the scrolling lands somewhere else -
+       * and the floor stops it collapsing to a couple of lines when the window is short.
+       */
+      className="min-h-[8rem] flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-5 sm:py-4"
       role="log"
       aria-live="polite"
       aria-label="Conversation"
@@ -351,7 +356,8 @@ export function AgentComposer({
     <form
       onSubmit={submit}
       className={cn(
-        'border-t border-border p-3 transition-colors',
+        // `shrink-0`: the composer keeps its size and the transcript above it absorbs the change.
+        'shrink-0 border-t border-border p-2.5 transition-colors sm:p-3',
         asNote ? 'bg-warning-soft' : 'bg-surface',
       )}
       onDragOver={(event) => {
@@ -368,7 +374,9 @@ export function AgentComposer({
           {fileError}
         </p>
       )}
-      <div className="mb-2 flex items-center gap-1">
+      {/* Its own line only when it has something extra to say. Two segmented buttons did not need
+          34px of vertical space to themselves. */}
+      <div className="mb-1.5 flex flex-wrap items-center gap-1">
         {(['reply', 'note'] as const).map((mode) => {
           const active = (mode === 'note') === asNote;
           return (
@@ -378,7 +386,7 @@ export function AgentComposer({
               onClick={() => setAsNote(mode === 'note')}
               aria-pressed={active}
               className={cn(
-                'rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors',
+                'rounded-full px-2.5 py-0.5 text-[12px] font-medium transition-colors',
                 active ? 'bg-ink text-ink-inverted' : 'text-ink-muted hover:bg-surface-raised',
               )}
             >

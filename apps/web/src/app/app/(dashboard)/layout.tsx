@@ -22,9 +22,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   return (
-    <div className="min-h-dvh lg:grid lg:grid-cols-[248px_1fr]">
+    /**
+     * The shell owns the viewport height; the regions inside it scroll.
+     *
+     * It used to be `min-h-dvh` with the page scrolling as a whole, which works for a document and
+     * not for an inbox. A screen that has to fill the window then has to *guess* how much of the
+     * window everything else took — the inbox subtracted a hardcoded `7.5rem` for the top bar and
+     * the main padding, which was both wrong (it over-subtracted by 16px) and brittle (a top bar
+     * that wraps to two lines on a narrow window makes it wrong in the other direction).
+     *
+     * With a real height here, a page that wants to fill says `flex-1` and means it.
+     */
+    <div className="flex h-dvh flex-col overflow-hidden lg:grid lg:grid-cols-[248px_1fr] lg:flex-row">
       {/* Desktop navigation */}
-      <aside className="hidden border-r border-border bg-surface lg:sticky lg:top-0 lg:block lg:h-dvh">
+      <aside className="hidden overflow-y-auto border-r border-border bg-surface lg:block lg:h-dvh">
         <Sidebar />
       </aside>
 
@@ -44,10 +55,21 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       )}
 
-      <div className="flex min-w-0 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Topbar onOpenNav={() => setNavOpen(true)} />
-        <main id="main" className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
-          <div className="mx-auto w-full max-w-6xl">{children}</div>
+        {/*
+          `min-h-0` is the load-bearing class: without it a flex child refuses to shrink below its
+          content, so `overflow-y-auto` here would never actually scroll and a tall page would push
+          the shell past the viewport instead.
+
+          A flex column rather than a plain block, so a child can say `flex-1` and fill the window.
+          Ordinary pages stack and scroll exactly as before.
+        */}
+        <main
+          id="main"
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 sm:px-6 sm:py-6 lg:px-8"
+        >
+          <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col">{children}</div>
         </main>
       </div>
     </div>

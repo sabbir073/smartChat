@@ -78,29 +78,41 @@ export function ConversationHeader({
   }
 
   const closed = conversation.status === 'closed';
-  const assignee = members.find((member) => member.id === conversation.assignedMemberId) ?? null;
+  // Who it is assigned to used to be printed under the visitor's name. The select two elements to
+  // the right already says it, so that line cost a row of header to repeat what was next to it.
 
   return (
-    <div className="border-b border-border px-4 py-3">
-      {/* Wraps rather than squeezing: the thread column is narrow, and a visitor's name being
-          clipped to nothing is worse than the controls moving to a second line. */}
-      <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
+    /**
+     * One wrapping row, not three stacked ones.
+     *
+     * This header used to be a row of identity, a row of controls and a row of tags, each with its
+     * own margin - 171px of a 550px window, against 61px for the messages. The controls and the
+     * tags now share one wrap container, so they sit on one line whenever there is room and only
+     * take a second when there genuinely is not. `shrink-0` on the header keeps it from being
+     * squeezed by the transcript; `min-h-0` on the transcript is what makes the transcript give.
+     */
+    <div className="shrink-0 border-b border-border px-4 py-2.5">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <button
           type="button"
           onClick={onBack}
-          className="mt-0.5 text-[13px] text-ink-muted hover:text-ink lg:hidden"
+          className="text-[13px] text-ink-muted hover:text-ink lg:hidden"
         >
           ← Back
         </button>
 
-        <div className="min-w-[9rem] flex-1 basis-40">
+        {/*
+          Name and state on one line rather than two. Who it is assigned to is in the select
+          immediately to the right and in the visitor panel, so repeating it here bought a second
+          line of header for information already on screen twice.
+        */}
+        <div className="flex min-w-[8rem] flex-1 basis-40 items-baseline gap-2">
           <p className="truncate text-sm font-semibold text-ink">
             {conversation.visitor.name ?? conversation.visitor.email ?? 'Visitor'}
           </p>
-          <p className="truncate text-[12px] text-ink-subtle">
+          <span className="shrink-0 whitespace-nowrap text-[12px] text-ink-subtle">
             {online ? 'Online now' : 'Offline'}
-            {assignee ? ` · ${memberLabel(assignee)}` : ' · Unassigned'}
-          </p>
+          </span>
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -172,59 +184,59 @@ export function ConversationHeader({
             </>
           )}
         </div>
-      </div>
 
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {conversation.tags.map((tag) => (
-          <span
-            key={tag}
-            className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[11px] text-ink-muted"
-          >
-            {tag}
-            <button
-              type="button"
-              disabled={busy}
-              aria-label={`Remove tag ${tag}`}
-              onClick={() => onTags(conversation.tags.filter((entry) => entry !== tag))}
-              className="text-ink-subtle hover:text-danger disabled:opacity-50"
+        <div className="flex flex-wrap items-center gap-1.5">
+          {conversation.tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-surface-raised px-2 py-0.5 text-[11px] text-ink-muted"
             >
-              ×
-            </button>
-          </span>
-        ))}
+              {tag}
+              <button
+                type="button"
+                disabled={busy}
+                aria-label={`Remove tag ${tag}`}
+                onClick={() => onTags(conversation.tags.filter((entry) => entry !== tag))}
+                className="text-ink-subtle hover:text-danger disabled:opacity-50"
+              >
+                ×
+              </button>
+            </span>
+          ))}
 
-        {tagOpen ? (
-          <form onSubmit={addTag} className="inline-flex">
-            <input
-              ref={tagInput}
-              value={tagDraft}
-              maxLength={TAG_MAX_LENGTH}
-              placeholder="Tag name"
-              onChange={(event) => setTagDraft(event.target.value)}
-              onBlur={() => {
-                if (!tagDraft.trim()) setTagOpen(false);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  setTagDraft('');
-                  setTagOpen(false);
-                }
-              }}
-              className="h-6 w-28 rounded-full border border-border-strong bg-surface px-2 text-[11px] text-ink"
-            />
-          </form>
-        ) : (
-          conversation.tags.length < TAG_LIMIT && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setTagOpen(true)}
-              className="rounded-full border border-dashed border-border-strong px-2 py-0.5 text-[11px] text-ink-subtle hover:text-ink disabled:opacity-50"
-            >
-              + Tag
-            </button>
-          )
-        )}
+          {tagOpen ? (
+            <form onSubmit={addTag} className="inline-flex">
+              <input
+                ref={tagInput}
+                value={tagDraft}
+                maxLength={TAG_MAX_LENGTH}
+                placeholder="Tag name"
+                onChange={(event) => setTagDraft(event.target.value)}
+                onBlur={() => {
+                  if (!tagDraft.trim()) setTagOpen(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Escape') {
+                    setTagDraft('');
+                    setTagOpen(false);
+                  }
+                }}
+                className="h-6 w-28 rounded-full border border-border-strong bg-surface px-2 text-[11px] text-ink"
+              />
+            </form>
+          ) : (
+            conversation.tags.length < TAG_LIMIT && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setTagOpen(true)}
+                className="rounded-full border border-dashed border-border-strong px-2 py-0.5 text-[11px] text-ink-subtle hover:text-ink disabled:opacity-50"
+              >
+                + Tag
+              </button>
+            )
+          )}
+        </div>
       </div>
     </div>
   );

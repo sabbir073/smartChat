@@ -683,39 +683,46 @@ export default function InboxPage() {
     filters.tags.length > 0;
 
   return (
-    <div className="flex h-[calc(100dvh-7.5rem)] min-h-[420px] flex-col">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-semibold tracking-tight text-ink">Inbox</h1>
+    /**
+     * Fills whatever the shell gives it, rather than subtracting a guess from the viewport.
+     *
+     * `min-h-0` again: the grid below scrolls its own columns, and without it this column refuses
+     * to shrink and the scrolling happens on the page instead - which is how the transcript ended
+     * up as a 60-pixel window inside a screen with room to spare.
+     */
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* The title and the connection state share a line with the filters on a wide screen. Every
+          row above the transcript is a row taken from it, and this one was worth 84px. */}
+      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h1 className="text-lg font-semibold tracking-tight text-ink">Inbox</h1>
+        <span
+          className="flex items-center gap-1.5 text-[12px] text-ink-muted"
+          role="status"
+          aria-live="polite"
+        >
           <span
-            className="flex items-center gap-1.5 text-[12px] text-ink-muted"
-            role="status"
-            aria-live="polite"
-          >
-            <span
-              className={cn(
-                'size-2 rounded-full',
-                live ? 'bg-success' : connection === 'idle' ? 'bg-ink-subtle' : 'bg-warning',
-              )}
-            />
-            {live ? 'Live' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
-          </span>
-        </div>
-      </div>
+            className={cn(
+              'size-2 rounded-full',
+              live ? 'bg-success' : connection === 'idle' ? 'bg-ink-subtle' : 'bg-warning',
+            )}
+          />
+          {live ? 'Live' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
+        </span>
 
-      <div className="mb-3">
-        <FilterBar
-          filters={filters}
-          properties={properties}
-          knownTags={knownTags}
-          resultCount={listLoading ? null : conversations.length}
-          onChange={(next) => {
-            setSelectedId(null);
-            setSelectedConversation(null);
-            selectedRef.current = null;
-            setFilters(next);
-          }}
-        />
+        <div className="min-w-0 flex-1">
+          <FilterBar
+            filters={filters}
+            properties={properties}
+            knownTags={knownTags}
+            resultCount={listLoading ? null : conversations.length}
+            onChange={(next) => {
+              setSelectedId(null);
+              setSelectedConversation(null);
+              selectedRef.current = null;
+              setFilters(next);
+            }}
+          />
+        </div>
       </div>
 
       {!live && connection !== 'idle' && (
