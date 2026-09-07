@@ -61,6 +61,15 @@ services:
 
   api:
     <<: *hardening
+    # A route to the host, for a mail server running there rather than in a container.
+    #
+    # `localhost` inside a container is the container. When SMTP_HOST is set to
+    # host.docker.internal this is what makes that name resolve to the machine the
+    # stack is running on - which is where Postfix lives when the deployment sends
+    # its own mail. Harmless when mail goes to a third-party relay instead: the name
+    # simply goes unused.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -92,6 +101,10 @@ services:
 
   worker:
     <<: *hardening
+    # The worker is what actually sends every queued message, so it needs the same
+    # route to the host's mail server as the API.
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
@@ -188,5 +201,5 @@ services:
     entrypoint: >
       sh -c "certbot certonly --webroot -w /var/www/certbot
       --non-interactive --agree-tos --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL is required}
-      -d ${APP_HOST} -d ${API_HOST} -d ${WS_HOST} -d ${CDN_HOST}"
+      -d ${APP_HOST} -d www.${APP_HOST} -d ${API_HOST} -d ${WS_HOST} -d ${CDN_HOST}"
     networks: [smartchat]

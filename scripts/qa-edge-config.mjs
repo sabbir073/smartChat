@@ -73,6 +73,13 @@ check(
   /return 301 https:\/\//.test(conf),
 );
 
+check(
+  'there is one canonical hostname, with www redirecting to it',
+  /server_name\s+www\.\$\{APP_HOST\}/.test(conf) &&
+    /return 301 https:\/\/\$\{APP_HOST\}\$request_uri/.test(conf),
+  'two origins both serving the app means cookies, CORS and every link in an email have to agree which is "the" site',
+);
+
 // --- and then the real question ----------------------------------------------
 console.log('\n== What nginx says ==');
 
