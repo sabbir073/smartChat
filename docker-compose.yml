@@ -24,6 +24,7 @@ x-app-env: &app-env
   LOG_LEVEL: ${LOG_LEVEL:-info}
   DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
   REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+  PRODUCT_NAME: ${PRODUCT_NAME:-SmartChat}
   APP_URL: ${APP_URL:-http://localhost:3000}
   API_URL: ${API_URL:-http://localhost:3001}
   REALTIME_URL: ${REALTIME_URL:-http://localhost:3002}
@@ -46,6 +47,9 @@ x-app-env: &app-env
   SMTP_SECURE: ${SMTP_SECURE:-false}
   SMTP_USER: ${SMTP_USER:-}
   SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  # Only ever false for a relay on this same host. Production config refuses to start otherwise.
+  SMTP_TLS_REJECT_UNAUTHORIZED: ${SMTP_TLS_REJECT_UNAUTHORIZED:-true}
+  SMTP_TLS_SERVERNAME: ${SMTP_TLS_SERVERNAME:-}
   TRUST_PROXY: ${TRUST_PROXY:-false}
   RATE_LIMIT_ENABLED: ${RATE_LIMIT_ENABLED:-true}
   CORS_DASHBOARD_ORIGINS: ${CORS_DASHBOARD_ORIGINS:-http://localhost:3000}

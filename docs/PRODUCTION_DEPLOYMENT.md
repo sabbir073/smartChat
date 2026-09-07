@@ -144,6 +144,9 @@ SUPERADMIN_PASSWORD=<generated>
 S3_ENDPOINT=http://minio:9000
 S3_PUBLIC_ENDPOINT=https://app.example.com/files   # only if you front MinIO; see §10
 
+# What this deployment calls itself, in email subjects and body copy.
+PRODUCT_NAME=Your Product
+
 # Mail.
 MAIL_DRIVER=smtp
 SMTP_HOST=smtp.your-provider.com
@@ -153,6 +156,9 @@ SMTP_USER=<username>
 SMTP_PASSWORD=<password>
 MAIL_FROM_ADDRESS=support@example.com
 MAIL_FROM_NAME=Your Company
+# Leave this true for a relay reachable over the internet. See §5a if you are relaying through a
+# Postfix on this same machine.
+SMTP_TLS_REJECT_UNAUTHORIZED=true
 
 # Behind the edge proxy, over TLS. Both of these are checked at boot.
 TRUST_PROXY=true
@@ -160,6 +166,49 @@ COOKIE_SECURE=true
 ALLOW_LOCALHOST_ORIGINS=false
 AUTO_VERIFY_EMAIL=false
 ```
+
+### 5a. Relaying through a Postfix on this same machine
+
+A deployment with no third-party mail provider can relay through a Postfix running on the host,
+reached from the containers at `host.docker.internal` (the compose overlay already maps it with
+`extra_hosts`). Two things about that path are not obvious, and both of them stop mail completely
+rather than degrading it.
+
+**The certificate will not verify, and that is expected.** Postfix advertises STARTTLS with the
+distribution's self-signed certificate, and nodemailer upgrades opportunistically even on port 25.
+Verification then fails with `self-signed certificate` at `CONN`, every email job burns its five
+attempts, and nothing is sent — while registration itself still returns success, so the only
+symptom is people saying they never got the email. Either give Postfix a real certificate and
+verify against its name:
+
+```env
+SMTP_HOST=host.docker.internal
+SMTP_PORT=25
+SMTP_TLS_SERVERNAME=mail.example.com
+```
+
+or, for a hop that never leaves this machine, waive verification for it:
+
+```env
+SMTP_HOST=host.docker.internal
+SMTP_PORT=25
+SMTP_TLS_REJECT_UNAUTHORIZED=false
+```
+
+`SMTP_TLS_REJECT_UNAUTHORIZED=false` is refused at boot in production unless `SMTP_HOST` is a
+loopback, private-range or Docker-gateway address. Setting it for a relay on the internet would
+hand every verification link and password reset to anything on the path, so the check exists to
+make that impossible rather than merely inadvisable.
+
+**Postfix must trust the container networks.** `mynetworks` needs the Docker bridge ranges the
+containers actually get — `172.17.0.0/16` and `172.18.0.0/16` on a default install — and not a
+blanket `172.16.0.0/12`, which on a cloud VM can swallow the VCN's own subnet and turn the host
+into an open relay for its neighbours. Confirm with
+`docker compose exec api node -e "require('net').connect(25,'host.docker.internal').on('data',d=>{console.log(String(d));process.exit(0)})"`,
+which should print Postfix's `220` banner.
+
+Deliverability is a separate matter from delivery: SPF, DKIM and DMARC records, and a PTR record
+for the sending IP, decide whether what you send lands in an inbox or a spam folder.
 
 > **The services refuse to start if you get these wrong.** `NODE_ENV=production` turns on a set of
 > checks in `packages/config`: any secret still carrying a value from `.env.example` — including
@@ -404,9 +453,12 @@ means `API_URL` or `CORS_DASHBOARD_ORIGINS` does not match the hostname you actu
 site's hostname has to be on it. A refused origin is deliberately indistinguishable from an unknown
 property, so check the property's settings rather than the response.
 
-**No email arrives.** `docker compose logs worker` — every message is queued, so a failure is a
-row and a log line rather than a silence. Check the SMTP credentials and whether your provider
-requires the `MAIL_FROM_ADDRESS` domain to be verified.
+**No email arrives.** `docker compose logs worker | grep smtp` first: the worker says at boot
+whether the relay is reachable, and names the reason when it is not. Then
+`docker compose logs worker` — every message is queued, so a per-message failure is a row and a
+log line rather than a silence. `self-signed certificate` at `CONN` means the relay's certificate
+did not verify; see §5a. Otherwise check the SMTP credentials and whether your provider requires
+the `MAIL_FROM_ADDRESS` domain to be verified.
 
 **Out of disk.** `docker system df`, then `docker image prune -a`. Old images from previous
 releases are usually most of it.

@@ -101,13 +101,24 @@ interface Resolved {
 }
 
 async function resolvePublicAddresses(hostname: string): Promise<Resolved[]> {
-  // A literal IP needs no resolver, and asking one would only introduce a second answer.
+  /**
+   * `URL.hostname` keeps the brackets around an IPv6 literal: `https://[::1]/` gives `[::1]`, not
+   * `::1`. `net.isIP` says 0 to that, so the literal branch below was skipped for every IPv6
+   * target and the address went to `dns.lookup`, which cannot resolve a bracketed literal either
+   * — so `https://[::1]/` was refused with "could not be resolved" instead of being recognised as
+   * loopback. It was refused, so nothing leaked; it was refused for the wrong reason, which is
+   * the kind of accident that stops being harmless the moment the surrounding code changes.
+   */
   const literal = net.isIP(hostname);
-  if (literal !== 0) {
-    if (!isPublicAddress(hostname)) {
+  const bare = literal === 0 ? hostname.replace(/^\[(.+)\]$/, '$1') : hostname;
+  const bareFamily = literal === 0 ? net.isIP(bare) : literal;
+
+  // A literal IP needs no resolver, and asking one would only introduce a second answer.
+  if (bareFamily !== 0) {
+    if (!isPublicAddress(bare)) {
       throw new BlockedAddressError('The endpoint resolves to a private address');
     }
-    return [{ address: hostname, family: literal }];
+    return [{ address: bare, family: bareFamily }];
   }
 
   let answers: Resolved[];

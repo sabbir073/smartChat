@@ -49,6 +49,8 @@ async function main(): Promise<void> {
           secure: config.SMTP_SECURE,
           user: config.SMTP_USER,
           password: config.SMTP_PASSWORD,
+          rejectUnauthorized: config.SMTP_TLS_REJECT_UNAUTHORIZED,
+          servername: config.SMTP_TLS_SERVERNAME,
           from: { email: config.MAIL_FROM_ADDRESS, name: config.MAIL_FROM_NAME },
         })
       : new LogMailProvider((message) =>
@@ -71,6 +73,26 @@ async function main(): Promise<void> {
     secretKey: config.S3_SECRET_KEY,
     forcePathStyle: config.S3_FORCE_PATH_STYLE,
   });
+
+  /**
+   * Say at boot whether this process can actually send mail.
+   *
+   * The first production deploy sent nothing for a day: the relay refused the TLS handshake, so
+   * every email job failed five times and died, and the only trace was a stack in the job log
+   * that nobody reads until somebody complains they never got a verification email. A one-line
+   * answer at startup - reachable, or the reason it is not - turns that into something an
+   * operator sees on the deploy they made it on. It is deliberately not fatal: mail being down
+   * is not a reason to stop processing webhooks and retention.
+   */
+  if (mailer instanceof SmtpMailProvider) {
+    const relay = { host: config.SMTP_HOST, port: config.SMTP_PORT ?? 1025 };
+    const outcome = await mailer.check();
+    if (outcome.ok) {
+      logger.info(relay, 'smtp relay reachable');
+    } else {
+      logger.error({ ...relay, reason: outcome.reason }, 'smtp relay unusable - email will fail');
+    }
+  }
 
   const workers: Worker[] = [
     new Worker(

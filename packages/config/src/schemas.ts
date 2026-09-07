@@ -26,6 +26,14 @@ export const baseEnvSchema = z.object({
 });
 
 export const urlsEnvSchema = z.object({
+  /**
+   * The name this deployment calls itself, in email subjects, headings and body copy.
+   *
+   * This was hardcoded to 'SmartChat' in the API container while the envelope said whatever
+   * `MAIL_FROM_NAME` said, so a deployment branded GetChat sent mail from "GetChat" that greeted
+   * people with "welcome to SmartChat".
+   */
+  PRODUCT_NAME: z.string().min(1).max(60).default('SmartChat'),
   APP_URL: z.string().url(),
   API_URL: z.string().url(),
   REALTIME_URL: z.string().url(),
@@ -83,6 +91,29 @@ export const mailEnvSchema = z.object({
   SMTP_SECURE: bool.default(false),
   SMTP_USER: z.string().optional(),
   SMTP_PASSWORD: z.string().optional(),
+  /**
+   * Whether the relay's TLS certificate must verify.
+   *
+   * Defaults to true, and must stay true for any relay reachable over the internet: without it a
+   * machine on the path can present its own certificate and read every password-reset link this
+   * product sends. It exists because the opposite case is also real and also common - a Postfix
+   * running on the same host, reached at `host.docker.internal`, offering STARTTLS with a
+   * self-signed certificate. No certificate can ever verify for that name, so nodemailer's
+   * default aborts the connection and *every* email fails, which is precisely what happened on
+   * the first production deploy.
+   *
+   * `loadConfig` refuses to start in production when this is false and `SMTP_HOST` is not a
+   * loopback, private-range or Docker-gateway address, so it cannot be flipped off for a public
+   * relay by somebody copying a snippet.
+   */
+  SMTP_TLS_REJECT_UNAUTHORIZED: bool.default(true),
+  /**
+   * The name to verify the relay's certificate against, when it differs from `SMTP_HOST`.
+   *
+   * Lets a local relay keep full verification: point Postfix at a real certificate and set this
+   * to a name on it, instead of turning verification off.
+   */
+  SMTP_TLS_SERVERNAME: z.string().optional(),
 });
 
 export const httpEnvSchema = z.object({

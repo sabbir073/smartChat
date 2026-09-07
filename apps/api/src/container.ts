@@ -116,6 +116,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
           secure: config.SMTP_SECURE,
           user: config.SMTP_USER,
           password: config.SMTP_PASSWORD,
+          rejectUnauthorized: config.SMTP_TLS_REJECT_UNAUTHORIZED,
+          servername: config.SMTP_TLS_SERVERNAME,
           from: { email: config.MAIL_FROM_ADDRESS, name: config.MAIL_FROM_NAME },
         })
       : new LogMailProvider((message) =>
@@ -123,7 +125,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
         );
 
   const brand = {
-    productName: 'SmartChat',
+    productName: config.PRODUCT_NAME,
     appUrl: config.APP_URL,
     supportEmail: config.MAIL_FROM_ADDRESS,
   };
