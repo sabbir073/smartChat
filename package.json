@@ -56,6 +56,7 @@
     "qa:errors": "node scripts/qa-error-surface.mjs",
     "qa:edge": "node scripts/qa-edge-config.mjs",
     "qa:routes": "node scripts/qa-route-coverage.mjs",
+    "qa:availability": "node scripts/qa-single-availability-source.mjs",
     "qa:all": "node scripts/qa-all.mjs",
     "loadtest": "node scripts/loadtest.mjs",
     "backup:rehearse": "node scripts/restore-rehearsal.mjs",

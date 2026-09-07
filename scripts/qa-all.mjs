@@ -43,6 +43,7 @@ const env = {
  */
 const ALL = [
   'qa-route-coverage',
+  'qa-single-availability-source',
   'qa-edge-config',
   'smoke',
   'e2e-isolation',

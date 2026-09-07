@@ -90,11 +90,17 @@ export class PresenceService {
     return present;
   }
 
-  /** Is anyone available to take a chat right now? Drives the widget's online/offline state. */
-  async hasAvailableAgent(accountId: string): Promise<boolean> {
-    const agents = await this.listAgents(accountId);
-    return agents.some((agent) => agent.status === 'online');
-  }
+  /**
+   * There used to be a `hasAvailableAgent` here, answering "is anybody available" from these
+   * presence keys. It is gone deliberately rather than left unused.
+   *
+   * Presence is written only while an agent holds an open socket, and the dashboard opens one on
+   * the Inbox page and nowhere else — so this answered "is somebody looking at the inbox right
+   * now", which is a different question from the one four call sites were asking. Meanwhile the
+   * availability control wrote the agent's actual choice to the membership row, which nothing
+   * here read. Deleting it is the point: `agentAvailabilityReader` is now the only way to ask,
+   * so the two answers cannot drift apart again.
+   */
 
   // --- visitors -------------------------------------------------------------
 

@@ -13,7 +13,7 @@ import {
   syncSinceSchema,
   widgetPageViewSchema,
 } from '@smartchat/validation';
-import { sanitiseUrl, type VisitorIdentity } from '@smartchat/core';
+import { agentAvailabilityReader, sanitiseUrl, type VisitorIdentity } from '@smartchat/core';
 import { z } from 'zod';
 import type { RealtimeContainer } from '../container.js';
 import { MAX_STRIKES, SocketAbuseGuard } from '../lib/abuse.js';
@@ -35,6 +35,14 @@ type VisitorSocket = Socket & { data: VisitorSocketData };
  */
 export function registerVisitorNamespace(namespace: Namespace, container: RealtimeContainer): void {
   const { logger, presence, conversations, connectionTickets } = container;
+  /**
+   * The same answer the HTTP bootstrap gave, from the same function.
+   *
+   * This emit runs the instant the socket is up and overwrites what bootstrap said, so when it
+   * was computed differently it did not merely disagree - it won. A panel was told "somebody is
+   * here" over HTTP and corrected to "nobody is here" a moment later, every time.
+   */
+  const hasAvailableAgent = agentAvailabilityReader(container.db);
   const guard = new SocketAbuseGuard(container.redis, (error) =>
     logger.error({ err: error }, 'rate limiter unavailable'),
   );
@@ -80,8 +88,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
      * happened seconds ago - and it is what decides whether the panel offers a live chat or an
      * offline form, so the socket confirms it the moment it is up.
      */
-    void container.presence
-      .hasAvailableAgent(identity.accountId)
+    void hasAvailableAgent(identity.accountId)
       .then((available) => socket.emit(ServerEvent.AGENTS_AVAILABLE, { available }))
       .catch((error: unknown) => logger.error({ err: error }, 'availability lookup failed'));
 

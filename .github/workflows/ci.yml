@@ -152,6 +152,13 @@ jobs:
       - name: Routes and links
         run: node scripts/qa-route-coverage.mjs
 
+      # One question answered two ways, where one of the answers wins by arriving second. The
+      # widget's online/offline state was computed from the persisted choice in one place and from
+      # Redis presence in another, and the socket's emit overwrote the HTTP answer on every
+      # connection. Three of the four call sites were fixed before the fourth was noticed.
+      - name: Availability has one source
+        run: node scripts/qa-single-availability-source.mjs
+
   stack:
     name: End to end · The whole stack
     runs-on: ubuntu-latest

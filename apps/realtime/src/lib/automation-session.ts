@@ -1,4 +1,5 @@
 import {
+  agentAvailabilityReader,
   buildTriggerFacts,
   loadVisitorFactBase,
   type TriggerRunResult,
@@ -146,9 +147,11 @@ export class AutomationSession {
     if (this.stopped || !this.base) return;
 
     try {
-      const agentsAvailable = await container.presence
-        .hasAvailableAgent(identity.accountId)
-        .catch(() => false);
+      // The same source as the widget's own online/offline state: a rule that fires "when no
+      // agent is available" must mean the same thing the visitor was told.
+      const agentsAvailable = await agentAvailabilityReader(container.db)(identity.accountId).catch(
+        () => false,
+      );
 
       const facts = buildTriggerFacts({
         base: this.base,
