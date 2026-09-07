@@ -1,6 +1,31 @@
-export function BrandMark({ size = 28 }: { size?: number }) {
+import Link from 'next/link';
+
+/**
+ * The wordmark, and a way back.
+ *
+ * It is a link by default rather than by decision at each call site, because the version that is
+ * not a link is the one people click anyway. It sat inert on the sign-in and error pages — the
+ * two places somebody is most likely to want out — while the marketing header's wordmark, a
+ * different component, had been a link all along.
+ *
+ * `href` says where back is: the marketing home from the public pages, the dashboard from inside
+ * the application, where a link to the marketing site would be a way *out* rather than a way home.
+ */
+export function BrandMark({
+  size = 28,
+  href = '/',
+  label = 'SmartChat home',
+}: {
+  size?: number;
+  href?: string;
+  label?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-2">
+    <Link
+      href={href}
+      aria-label={label}
+      className="inline-flex items-center gap-2 rounded-[var(--radius-control)] outline-none transition-opacity hover:opacity-80 focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+    >
       <svg
         width={size}
         height={size}
@@ -19,6 +44,6 @@ export function BrandMark({ size = 28 }: { size?: number }) {
         <circle cx="17" cy="15" r="1.2" fill="var(--color-brand)" />
       </svg>
       <span className="text-[15px] font-semibold tracking-tight text-ink">SmartChat</span>
-    </span>
+    </Link>
   );
 }

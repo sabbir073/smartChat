@@ -14,6 +14,7 @@ import {
   CardFooter,
   CardHeader,
   Field,
+  PasswordInput,
   TextInput,
   useToast,
 } from '@/components/ui';
@@ -227,11 +228,10 @@ export default function SettingsPage() {
               {passwordError && <Alert tone="danger">{passwordError}</Alert>}
               <Field label="Current password" error={passwordErrors['currentPassword']} required>
                 {({ id, describedBy, invalid }) => (
-                  <TextInput
+                  <PasswordInput
                     id={id}
                     aria-describedby={describedBy}
                     invalid={invalid}
-                    type="password"
                     autoComplete="current-password"
                     required
                     value={currentPassword}
@@ -241,11 +241,10 @@ export default function SettingsPage() {
               </Field>
               <Field label="New password" error={passwordErrors['newPassword']} required>
                 {({ id, describedBy, invalid }) => (
-                  <TextInput
+                  <PasswordInput
                     id={id}
                     aria-describedby={describedBy}
                     invalid={invalid}
-                    type="password"
                     autoComplete="new-password"
                     required
                     value={newPassword}

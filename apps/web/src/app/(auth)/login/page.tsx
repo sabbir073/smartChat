@@ -3,9 +3,9 @@
 import { Suspense, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ApiError, api } from '@/lib/api-client';
+import { ApiError, api, browserKeptSession } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
-import { Alert, Button, Card, CardBody, Field, TextInput } from '@/components/ui';
+import { Alert, Button, Card, CardBody, Field, PasswordInput, TextInput } from '@/components/ui';
 
 function LoginForm() {
   const router = useRouter();
@@ -26,6 +26,22 @@ function LoginForm() {
 
     try {
       await api.post('/auth/login', { email, password, remember: true });
+
+      /**
+       * The sign-in worked. Whether this browser kept the session is a separate question.
+       *
+       * If it did not, `router.replace` below sends us to `/app`, middleware finds no session
+       * cookie and sends us back here, and the button spins forever with nothing to explain it.
+       * Saying so is worth more than a redirect loop.
+       */
+      if (!browserKeptSession()) {
+        setFormError(
+          'Signed in, but your browser did not keep the session. Check that cookies are allowed for this site, then try again.',
+        );
+        setSubmitting(false);
+        return;
+      }
+
       await refresh();
       const next = params.get('next');
       // Only a path on this site, and only one inside the application. `startsWith('/')` alone
@@ -76,11 +92,10 @@ function LoginForm() {
 
             <Field label="Password" error={fieldErrors['password']} required>
               {({ id, describedBy, invalid }) => (
-                <TextInput
+                <PasswordInput
                   id={id}
                   aria-describedby={describedBy}
                   invalid={invalid}
-                  type="password"
                   name="password"
                   autoComplete="current-password"
                   required

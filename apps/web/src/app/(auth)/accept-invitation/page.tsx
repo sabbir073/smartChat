@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { PASSWORD_MIN_LENGTH } from '@smartchat/validation';
 import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
-import { Alert, Button, Card, CardBody, Field, TextInput } from '@/components/ui';
+import { Alert, Button, Card, CardBody, Field, PasswordInput, TextInput } from '@/components/ui';
 
 /**
  * Accepting a team invitation.
@@ -109,11 +109,10 @@ function AcceptForm() {
               hint={`At least ${PASSWORD_MIN_LENGTH} characters. Leave blank if you already have a SmartChat login.`}
             >
               {({ id, describedBy, invalid }) => (
-                <TextInput
+                <PasswordInput
                   id={id}
                   aria-describedby={describedBy}
                   invalid={invalid}
-                  type="password"
                   autoComplete="new-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}

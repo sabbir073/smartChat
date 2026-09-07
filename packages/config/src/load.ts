@@ -96,6 +96,78 @@ export function isLocalRelayHost(host: string): boolean {
 }
 
 /**
+ * Would a cookie set with `domain` be sent to `host`?
+ *
+ * The browser's rule, and only it: an exact match, or a suffix match on a label boundary. A
+ * leading dot is legacy syntax that means the same thing as no dot, so it is stripped first.
+ */
+export function cookieDomainCovers(domain: string, host: string): boolean {
+  const d = domain.trim().toLowerCase().replace(/^\./, '');
+  const h = host.trim().toLowerCase();
+  if (d === '' || h === '') return false;
+  return h === d || h.endsWith(`.${d}`);
+}
+
+function hostOf(url: string): string | null {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Can the session cookie the API sets be seen by the dashboard?
+ *
+ * This looks like a detail and is not. When the dashboard and the API are on different hosts —
+ * `getchat.site` and `api.getchat.site`, the arrangement this product is designed for — a cookie
+ * set without a `Domain` is host-only to the API. The API then works perfectly on its own: sign
+ * in returns 200, the browser stores the cookie, and every request back to the API carries it.
+ *
+ * What breaks is everything on the *dashboard's* origin. Its middleware reads `sc_session` to
+ * decide whether somebody may see `/app`, and never receives it — so a successful sign-in is
+ * redirected straight back to the sign-in page, with no error anywhere, because nothing failed.
+ * The CSRF token is the same story: it is set on the API's host, `document.cookie` on the
+ * dashboard cannot read it, and every state-changing request goes out without the header.
+ *
+ * None of that produces a log line. So it is checked here, at boot, where it can produce one.
+ */
+export function sessionCookieIssues(
+  appUrl: string,
+  apiUrl: string,
+  cookieDomain: string | undefined,
+): string[] {
+  const app = hostOf(appUrl);
+  const api = hostOf(apiUrl);
+  if (!app || !api) return [];
+
+  // One host: a host-only cookie reaches everything, and a domain is unnecessary.
+  if (app === api) {
+    if (cookieDomain && !cookieDomainCovers(cookieDomain, app)) {
+      return [
+        `COOKIE_DOMAIN: "${cookieDomain}" does not cover ${app}, so the browser will reject the session cookie outright`,
+      ];
+    }
+    return [];
+  }
+
+  if (!cookieDomain) {
+    return [
+      `COOKIE_DOMAIN: required when APP_URL (${app}) and API_URL (${api}) are different hosts - without it the session cookie is host-only to ${api}, the dashboard never sees it, and signing in silently returns to the sign-in page`,
+    ];
+  }
+
+  const uncovered = [app, api].filter((host) => !cookieDomainCovers(cookieDomain, host));
+  if (uncovered.length > 0) {
+    return [
+      `COOKIE_DOMAIN: "${cookieDomain}" does not cover ${uncovered.join(' or ')} - it must be a parent of both APP_URL (${app}) and API_URL (${api}), for example ".${app.split('.').slice(-2).join('.')}"`,
+    ];
+  }
+
+  return [];
+}
+
+/**
  * Parse and validate the environment for one process.
  *
  * Throws `ConfigError` with every problem listed at once, rather than failing on the first one —
@@ -182,6 +254,28 @@ export function loadConfig<T extends ZodTypeAny>(
           }) - otherwise anything on the path can read every verification link this product sends`,
         );
       }
+    }
+
+    /**
+     * Only for a process that actually sets cookies.
+     *
+     * `COOKIE_SECURE` has a default, so it is present exactly when the schema includes the cookie
+     * section — which is the API and nothing else. The worker and the realtime service both carry
+     * `APP_URL` and `API_URL` and set no cookies at all, and demanding a cookie domain of them
+     * would stop two services over a setting neither one reads.
+     */
+    if (
+      'COOKIE_SECURE' in parsed &&
+      typeof parsed['APP_URL'] === 'string' &&
+      typeof parsed['API_URL'] === 'string'
+    ) {
+      offenders.push(
+        ...sessionCookieIssues(
+          parsed['APP_URL'],
+          parsed['API_URL'],
+          typeof parsed['COOKIE_DOMAIN'] === 'string' ? parsed['COOKIE_DOMAIN'] : undefined,
+        ),
+      );
     }
 
     if (offenders.length > 0) throw new ConfigError(offenders);

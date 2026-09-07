@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { PASSWORD_MIN_LENGTH } from '@smartchat/validation';
 import { ApiError, api } from '@/lib/api-client';
-import { Alert, Button, Card, CardBody, Field, TextInput } from '@/components/ui';
+import { Alert, Button, Card, CardBody, Field, PasswordInput } from '@/components/ui';
 
 function ResetForm() {
   const router = useRouter();
@@ -71,11 +71,10 @@ function ResetForm() {
               required
             >
               {({ id, describedBy, invalid }) => (
-                <TextInput
+                <PasswordInput
                   id={id}
                   aria-describedby={describedBy}
                   invalid={invalid}
-                  type="password"
                   autoComplete="new-password"
                   autoFocus
                   required

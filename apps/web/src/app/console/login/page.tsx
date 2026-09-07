@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ApiError, api } from '@/lib/api-client';
+import { ApiError, api, browserKeptSession } from '@/lib/api-client';
 
 /**
  * Signing in to the platform console.
@@ -17,6 +17,7 @@ export default function ConsoleLoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function submit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
@@ -24,6 +25,14 @@ export default function ConsoleLoginPage() {
     setError(null);
     try {
       await api.post('/platform/auth/login', { email, password });
+      // Same reasoning as the dashboard's sign-in: a session this browser did not keep produces a
+      // redirect straight back to here with nothing said. See `browserKeptSession`.
+      if (!browserKeptSession()) {
+        setError(
+          'Signed in, but your browser did not keep the session. Check that cookies are allowed for this site, then try again.',
+        );
+        return;
+      }
       router.push('/console');
     } catch (caught) {
       // The server's own wording. It says the same thing for a wrong password, an unknown
@@ -62,13 +71,43 @@ export default function ConsoleLoginPage() {
         </label>
         <label className="block">
           <span className="text-[13px] font-medium text-ink-inverted/70">Password</span>
-          <input
-            type="password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className="mt-1.5 h-10 w-full rounded-[var(--radius-control)] border border-ink-inverted/20 bg-ink-inverted/5 px-3 text-sm text-ink-inverted"
-          />
+          {/* The console keeps its own dark styling rather than the dashboard's controls, so the
+              reveal button is written out here instead of reusing PasswordInput. Same behaviour:
+              type="button" so it cannot submit, labelled for a screen reader, out of the tab
+              order between the field and the submit button. */}
+          <span className="relative mt-1.5 block">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              required
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              className="h-10 w-full rounded-[var(--radius-control)] border border-ink-inverted/20 bg-ink-inverted/5 pl-3 pr-11 text-sm text-ink-inverted"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((shown) => !shown)}
+              aria-label={showPassword ? 'Hide password' : 'Show password'}
+              aria-pressed={showPassword}
+              tabIndex={-1}
+              className="absolute inset-y-0 right-0 grid w-11 place-items-center text-ink-inverted/50 transition-colors hover:text-ink-inverted"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M2.2 12S5.8 5.5 12 5.5 21.8 12 21.8 12 18.2 18.5 12 18.5 2.2 12 2.2 12Z" />
+                <circle cx="12" cy="12" r="3" />
+                {showPassword && <path d="M3.5 3.5l17 17" />}
+              </svg>
+            </button>
+          </span>
         </label>
         <button
           type="submit"

@@ -41,6 +41,24 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Did the browser actually keep the cookies the sign-in response set?
+ *
+ * `sc_csrf` is written by the same response as the session, with the same attributes, and is the
+ * one of the three that is not `HttpOnly` — so it is the only evidence a script on this origin
+ * can see. If it is missing after a sign-in that returned 200, the cookies went somewhere this
+ * page cannot reach: almost always an API on a different host with no `COOKIE_DOMAIN` spanning
+ * both, occasionally a browser refusing cookies for this site.
+ *
+ * Worth checking, because the failure is otherwise completely silent. The API is satisfied, the
+ * response is a success, and the redirect into the application is bounced straight back to the
+ * sign-in page by middleware that cannot see a session — a spinner that never stops and not one
+ * error anywhere.
+ */
+export function browserKeptSession(): boolean {
+  return readCookie(CSRF_COOKIE) !== undefined;
+}
+
 function readCookie(name: string): string | undefined {
   if (typeof document === 'undefined') return undefined;
   const match = document.cookie.match(new RegExp(`(?:^|; )${name}=([^;]*)`));

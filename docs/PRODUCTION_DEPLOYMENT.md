@@ -160,6 +160,11 @@ MAIL_FROM_NAME=Your Company
 # Postfix on this same machine.
 SMTP_TLS_REJECT_UNAUTHORIZED=true
 
+# The dashboard and the API are on different hosts, so the session and CSRF cookies need a
+# domain that covers both. Without it sign-in returns 200, the dashboard never sees the session,
+# and every attempt bounces back to the sign-in page with no error. Checked at boot.
+COOKIE_DOMAIN=.example.com
+
 # Behind the edge proxy, over TLS. Both of these are checked at boot.
 TRUST_PROXY=true
 COOKIE_SECURE=true
@@ -459,6 +464,11 @@ you the truth.
 
 **nginx will not start.** Almost always a missing certificate. `ls /opt/smartchat/tls/letsencrypt/live/`
 should show all four hostnames. `docker compose exec edge nginx -t` checks the config itself.
+
+**Signing in spins forever and says nothing.** The password was right — the browser kept the
+session on the API's host and the dashboard cannot see it. `COOKIE_DOMAIN` has to cover both
+`APP_URL` and `API_URL` (`.example.com` covers `example.com` and `api.example.com`). Production
+refuses to start without it now, so this only appears on a deployment predating that check.
 
 **The dashboard loads but nothing happens.** Open the browser console. A blocked request usually
 means `API_URL` or `CORS_DASHBOARD_ORIGINS` does not match the hostname you actually browsed to.

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { PASSWORD_MIN_LENGTH } from '@smartchat/validation';
 import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
-import { Alert, Button, Card, CardBody, Field, TextInput } from '@/components/ui';
+import { Alert, Button, Card, CardBody, Field, PasswordInput, TextInput } from '@/components/ui';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -120,11 +120,10 @@ export default function RegisterPage() {
               required
             >
               {({ id, describedBy, invalid }) => (
-                <TextInput
+                <PasswordInput
                   id={id}
                   aria-describedby={describedBy}
                   invalid={invalid}
-                  type="password"
                   autoComplete="new-password"
                   required
                   value={form.password}

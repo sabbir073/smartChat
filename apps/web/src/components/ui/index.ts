@@ -6,5 +6,6 @@ export { cn } from './cn';
 export { EmptyState } from './empty-state';
 export { Field, Select, TextInput } from './field';
 export { Modal } from './modal';
+export { PasswordInput } from './password-input';
 export { Spinner } from './spinner';
 export { ToastProvider, useToast } from './toast';

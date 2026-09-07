@@ -120,7 +120,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
   return (
     <nav className="flex h-full flex-col gap-1 p-3" aria-label="Main">
       <div className="mb-3 px-2 pt-1">
-        <BrandMark />
+        {/* Inside the application, "home" is the dashboard - a link to the marketing site here
+            would be a way out rather than a way back. */}
+        <BrandMark href="/app" label="Dashboard home" />
       </div>
 
       {NAV.filter((item) => item.available).map((item) => {
