@@ -167,6 +167,11 @@ services:
       API_HOST: ${API_HOST:?API_HOST is required}
       WS_HOST: ${WS_HOST:?WS_HOST is required}
       CDN_HOST: ${CDN_HOST:?CDN_HOST is required}
+      # Substitute these four names and nothing else. The image's default is "every
+      # variable that happens to be defined in this container's environment", which is
+      # fine until one of them collides with an nginx runtime variable - $upstream_api
+      # would be replaced with an empty string and the edge would proxy to nowhere.
+      NGINX_ENVSUBST_FILTER: '^(APP|API|WS|CDN)_HOST$$'
     volumes:
       # Templated, so the hostnames come from the environment rather than from a
       # file somebody has to remember to edit. nginx substitutes them at start.

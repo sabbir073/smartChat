@@ -51,6 +51,27 @@ check(
   'nginx answers 413, 429 and 502 by itself; its default page is HTML a JSON client cannot read',
 );
 
+/**
+ * The failure this pins: healthy containers, a healthy edge, and 503 on everything.
+ *
+ * nginx resolves a `proxy_pass` hostname once at load and keeps the address forever. Compose gives
+ * a rebuilt container a new one, so every deploy that recreates `api`, `web` or `realtime` leaves
+ * the edge proxying to an address nothing is listening on — and the deploy reports success. Both
+ * halves are needed: a resolver, and a *variable* in `proxy_pass`, because a literal is resolved
+ * at load time whatever resolver is configured.
+ */
+check(
+  'the application containers are re-resolved rather than pinned at startup',
+  /resolver\s+127\.0\.0\.11/.test(conf),
+  'without a resolver nginx keeps the address a rebuilt container no longer has',
+);
+
+check(
+  'every application upstream goes through a variable',
+  !/proxy_pass\s+http:\/\/(api|web|realtime|widget):/.test(conf),
+  'a literal host in proxy_pass is resolved once at load time and never again',
+);
+
 check(
   'X-Forwarded-For is only trusted from the proxy chain we control',
   /set_real_ip_from/.test(conf) && /real_ip_header\s+X-Forwarded-For/.test(conf),
