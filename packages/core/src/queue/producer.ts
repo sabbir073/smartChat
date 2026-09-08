@@ -88,7 +88,24 @@ export class QueueProducer {
   ): Promise<void> {
     const queueName = QUEUE_FOR_JOB[job];
     if (!queueName) throw new Error(`No queue registered for job "${job}"`);
-    await this.queue(queueName).add(job, payload, { jobId: onceJobId(dedupeKey) });
+    const queue = this.queue(queueName);
+    const jobId = onceJobId(dedupeKey);
+
+    /**
+     * "Once" means one *pending* copy, not one ever. BullMQ keeps a finished job under its id
+     * for as long as `removeOnComplete`/`removeOnFail` say - a day here - and silently drops a
+     * new add that reuses the id while it is there. The first version relied on that, and the
+     * geo table stayed empty for hours: the first load had run and given up, and every later
+     * "table is empty, queue the load" at worker start was a no-op against its corpse. A job
+     * that has finished is cleared out of the way; one that is waiting or running is left, and
+     * that is the de-duplication that was wanted.
+     */
+    const existing = await queue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (state === 'completed' || state === 'failed') await existing.remove();
+    }
+    await queue.add(job, payload, { jobId });
   }
 
   async close(): Promise<void> {

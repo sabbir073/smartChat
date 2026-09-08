@@ -90,14 +90,17 @@ export async function processMaintenanceJob(
       const outcome = await geo.refresh();
       if (outcome.complete) {
         logger.info({ rangeCount: outcome.rangeCount }, 'geo ranges rebuilt from the registries');
-      } else {
-        // Loud, because the alternative is a flag quietly missing for a whole continent.
-        logger.error(
-          { sources: outcome.sources },
-          'geo refresh incomplete - kept the previous data',
-        );
+        return;
       }
-      return;
+      // Loud, because the alternative is a flag quietly missing for a whole continent - and a
+      // failure, so the queue retries with backoff rather than calling a load that loaded
+      // nothing a success. The previous data stays in place throughout.
+      logger.error({ sources: outcome.sources }, 'geo refresh incomplete - kept the previous data');
+      const failed = Object.entries(outcome.sources)
+        .filter(([, source]) => !source.ok)
+        .map(([registry, source]) => `${registry}: ${(source as { error: string }).error}`)
+        .join('; ');
+      throw new Error(`geo refresh incomplete - ${failed}`);
     }
 
     case MaintenanceJob.BILLING_RECONCILE: {
