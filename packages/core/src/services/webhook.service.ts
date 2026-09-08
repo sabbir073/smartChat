@@ -44,6 +44,8 @@ export const FAILURES_BEFORE_DISABLE = 20;
 
 export interface WebhookServiceOptions {
   db: Database;
+  /** Billing's say on whether this account's plan includes webhooks. Throws when it does not. */
+  assertIntegrationsAllowed?: (accountId: string) => Promise<void>;
   clock?: Clock;
   /** Optional: nudge the dispatcher so a delivery does not wait for the next sweep. */
   notify?: (deliveryId: string) => Promise<void>;
@@ -98,6 +100,7 @@ export class WebhookService {
     input: CreateWebhookInput,
   ): Promise<{ webhook: WebhookWithoutSecret; secret: string }> {
     requirePermission(context, Permission.ACCOUNT_UPDATE);
+    await this.options.assertIntegrationsAllowed?.(context.accountId);
 
     const secret = `whsec_${generateToken(24)}`;
 

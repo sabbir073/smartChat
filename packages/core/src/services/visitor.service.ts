@@ -74,6 +74,14 @@ export interface BootstrapResult {
    * being told no.
    */
   maxUploadBytes: number;
+  /**
+   * Whether to show "Powered by ..." in the widget.
+   *
+   * Decided here, from the account's plan, and sent to the widget: a flag the widget worked out
+   * for itself on the customer's page would be one line of JavaScript away from being worked out
+   * differently.
+   */
+  showBranding: boolean;
 }
 
 export interface VisitorServiceOptions {
@@ -95,6 +103,11 @@ export interface VisitorServiceOptions {
    * shows until the first registry load has run.
    */
   resolveCountry?: (ip: string | null | undefined) => Promise<string | null>;
+  /**
+   * Whether the account's plan lets it hide the widget branding. Absent means the branding shows,
+   * which is the safe default for a deployment that has not wired billing.
+   */
+  canRemoveBranding?: (accountId: string) => Promise<boolean>;
   maxUploadBytes?: number;
   clock?: Clock;
 }
@@ -241,14 +254,20 @@ export class VisitorService {
       this.options.visitorTokenSecret,
     );
 
-    const agentsAvailable = this.options.isAgentAvailable
-      ? await this.options.isAgentAvailable(property.accountId).catch(() => false)
-      : false;
+    const [agentsAvailable, removeBranding] = await Promise.all([
+      this.options.isAgentAvailable
+        ? this.options.isAgentAvailable(property.accountId).catch(() => false)
+        : false,
+      this.options.canRemoveBranding
+        ? this.options.canRemoveBranding(property.accountId).catch(() => false)
+        : false,
+    ]);
 
     return {
       token,
       expiresInSeconds: VISITOR_TOKEN_TTL_SECONDS,
       agentsAvailable,
+      showBranding: !removeBranding,
       visitor: {
         id: visitor.id,
         name: visitor.name,

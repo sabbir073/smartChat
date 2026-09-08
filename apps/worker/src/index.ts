@@ -11,7 +11,7 @@ import {
   type MailProvider,
   type SendEmailPayload,
 } from '@smartchat/core';
-import { AnalyticsJob, MaintenanceJob, WebhookJob } from '@smartchat/core';
+import { AnalyticsJob, EmailJob, MaintenanceJob, WebhookJob } from '@smartchat/core';
 import { createPrismaClient } from '@smartchat/database';
 import { createLogger, withLogContext } from '@smartchat/logger';
 import { loadWorkerConfig } from './config.js';
@@ -95,6 +95,11 @@ async function main(): Promise<void> {
     }
   }
 
+  // One producer for the schedules below and for the jobs the processors hand on (a billing
+  // notice becomes an email job). Repeatable schedules use a stable job id, so restarting the
+  // worker cannot accumulate duplicate schedules for the same task.
+  const scheduler = new QueueProducer(connection);
+
   const workers: Worker[] = [
     new Worker(
       QueueName.EMAIL,
@@ -131,7 +136,18 @@ async function main(): Promise<void> {
       QueueName.MAINTENANCE,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined }, () =>
-          processMaintenanceJob(job, db, logger, storage),
+          processMaintenanceJob(job, db, logger, {
+            ...(storage ? { storage } : {}),
+            brand: {
+              productName: config.PRODUCT_NAME,
+              appUrl: config.APP_URL,
+              supportEmail: config.MAIL_FROM_ADDRESS,
+            },
+            // Through the email queue, like everything else: the maintenance worker should not
+            // be the process that finds out SMTP is slow.
+            deliver: (message) =>
+              scheduler.enqueue(EmailJob.SEND, { message, requestId: 'billing' }).then(() => undefined),
+          }),
         ),
       { connection, concurrency: 1 },
     ),
@@ -148,14 +164,13 @@ async function main(): Promise<void> {
     worker.on('error', (error) => logger.error({ err: error }, 'worker error'));
   }
 
-  // Repeatable schedules use a stable job id, so restarting the worker cannot accumulate
-  // duplicate schedules for the same task.
-  const scheduler = new QueueProducer(connection);
   await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_SESSIONS, {}, '0 3 * * *');
   await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_TOKENS, {}, '30 3 * * *');
   await scheduler.schedule(MaintenanceJob.APPLY_RETENTION, {}, '0 4 * * *');
   // The registries publish once a day, early UTC. Fetch after they have.
   await scheduler.schedule(MaintenanceJob.REFRESH_GEO, {}, '30 5 * * *');
+  // Hourly, at a quarter past: an account whose grace window closed is told within the hour.
+  await scheduler.schedule(MaintenanceJob.BILLING_RECONCILE, {}, '15 * * * *');
 
   /**
    * A fresh deployment should not wait until tomorrow for its first flag.

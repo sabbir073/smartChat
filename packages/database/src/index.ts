@@ -40,6 +40,12 @@ export type {
   Webhook,
   WebhookDelivery,
   Widget,
+  Plan,
+  Subscription,
+  Invoice,
+  StripeEvent,
+  BillingEnquiry,
+  PlatformSetting,
 } from '@prisma/client';
 export {
   AccountStatus,
@@ -67,4 +73,8 @@ export {
   TriggerFrequency,
   TriggerMatch,
   WebhookDeliveryStatus,
+  BillingInterval,
+  SubscriptionStatus,
+  BillingProvider,
+  InvoiceStatus,
 } from '@prisma/client';

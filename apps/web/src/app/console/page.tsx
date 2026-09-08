@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '@/lib/api-client';
+import { AccountBillingPanel, BillingTab } from '@/components/console/billing-tab';
 
 interface AccountRow {
   id: string;
@@ -53,7 +54,7 @@ interface AuditRow {
   createdAt: string;
 }
 
-const TABS = ['accounts', 'flags', 'health', 'audit'] as const;
+const TABS = ['accounts', 'billing', 'flags', 'health', 'audit'] as const;
 
 /**
  * The platform console.
@@ -77,6 +78,7 @@ export default function ConsolePage() {
   const [busy, setBusy] = useState(true);
   const [suspending, setSuspending] = useState<AccountRow | null>(null);
   const [reason, setReason] = useState('');
+  const [billingFor, setBillingFor] = useState<AccountRow | null>(null);
 
   const load = useCallback(async () => {
     setBusy(true);
@@ -90,6 +92,8 @@ export default function ConsolePage() {
           query: { ...(search.trim() ? { search: search.trim() } : {}), limit: 100 },
         });
         setAccounts(result.data);
+      } else if (tab === 'billing') {
+        // The tab loads its own data and reports its own errors.
       } else if (tab === 'flags') {
         setFlags((await api.get<FlagRow[]>('/platform/flags')).data);
       } else if (tab === 'health') {
@@ -230,30 +234,49 @@ export default function ConsolePage() {
                     </p>
                   )}
                 </div>
-                {account.status === 'suspended' ? (
+                <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => void resume(account)}
-                    className="rounded-[var(--radius-control)] bg-ink-inverted px-3 py-1.5 text-[13px] font-medium text-ink"
+                    onClick={() => setBillingFor(account)}
+                    className="rounded-[var(--radius-control)] border border-ink-inverted/20 px-3 py-1.5 text-[13px] font-medium"
                   >
-                    Resume
+                    Billing
                   </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSuspending(account);
-                      setReason('');
-                    }}
-                    className="rounded-[var(--radius-control)] border border-danger/40 px-3 py-1.5 text-[13px] font-medium text-danger-soft"
-                  >
-                    Suspend
-                  </button>
-                )}
+                  {account.status === 'suspended' ? (
+                    <button
+                      type="button"
+                      onClick={() => void resume(account)}
+                      className="rounded-[var(--radius-control)] bg-ink-inverted px-3 py-1.5 text-[13px] font-medium text-ink"
+                    >
+                      Resume
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSuspending(account);
+                        setReason('');
+                      }}
+                      className="rounded-[var(--radius-control)] border border-danger/40 px-3 py-1.5 text-[13px] font-medium text-danger-soft"
+                    >
+                      Suspend
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
         </>
+      )}
+
+      {!busy && tab === 'billing' && <BillingTab onError={setError} />}
+
+      {billingFor && (
+        <AccountBillingPanel
+          account={billingFor}
+          onClose={() => setBillingFor(null)}
+          onError={setError}
+        />
       )}
 
       {!busy && tab === 'flags' && (

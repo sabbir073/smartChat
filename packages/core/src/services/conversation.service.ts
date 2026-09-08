@@ -82,6 +82,15 @@ export interface ConversationServiceOptions {
    * path into the socket process would give it a dependency it never exercises.
    */
   tickets?: OfflineTicketOpener;
+  /**
+   * Billing's veto on agent-side writes.
+   *
+   * Called before a reply, a note, a status change or an assignment; throws `BILLING_LOCKED` when
+   * the account's dashboard is locked. Lives here rather than in the HTTP layer because the
+   * socket gateway reaches these methods too, and a lock that only covered one of the two doors
+   * would not be a lock. Visitor-side methods never call it: visitors did nothing wrong.
+   */
+  assertWritable?: (accountId: string) => Promise<void>;
   clock?: Clock;
 }
 
@@ -127,6 +136,10 @@ export class ConversationService {
     this.attachments = new AttachmentRepository(options.db);
     this.widgets = new WidgetRepository(options.db);
     this.audit = new AuditRepository(options.db);
+  }
+
+  private async assertWritable(context: TenantContext): Promise<void> {
+    await this.options.assertWritable?.(context.accountId);
   }
 
   // ---------------------------------------------------------------------------
@@ -783,6 +796,7 @@ export class ConversationService {
     input: OutgoingMessage,
   ): Promise<SendResult> {
     const memberId = this.requireMemberId(context);
+    await this.assertWritable(context);
     const conversation = await this.get(context, conversationId);
     const isNote = input.type === 'note';
 
@@ -957,6 +971,7 @@ export class ConversationService {
     input: UpdateConversationInput,
   ): Promise<Conversation> {
     const memberId = this.requireMemberId(context);
+    await this.assertWritable(context);
     const conversation = await this.get(context, conversationId);
     const now = this.clock.now();
 
@@ -1034,6 +1049,7 @@ export class ConversationService {
     assigneeMemberId: string | null,
   ): Promise<Conversation> {
     requirePermission(context, Permission.CONVERSATION_ASSIGN);
+    await this.assertWritable(context);
     const conversation = await this.get(context, conversationId);
 
     if (assigneeMemberId) {

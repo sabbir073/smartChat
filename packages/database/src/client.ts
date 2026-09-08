@@ -34,6 +34,24 @@ function assignIds(node: unknown): void {
   }
 }
 
+/**
+ * Models whose primary key is a column called `id`.
+ *
+ * Read from the schema rather than assumed: a model keyed on something else (`platform_settings`
+ * is keyed on `key`) gets `Unknown argument id` from Prisma when the extension adds one, and the
+ * request fails as malformed. Nested creates are still walked by name, because a relation always
+ * points at a model, and every model with relations here is keyed on `id`.
+ */
+const MODELS_WITH_ID = new Set(
+  Prisma.dmmf.datamodel.models
+    .filter((model) => model.fields.some((field) => field.name === 'id' && field.isId))
+    .map((model) => model.name),
+);
+
+function hasIdColumn(model: string): boolean {
+  return MODELS_WITH_ID.has(model);
+}
+
 export interface CreatePrismaOptions {
   databaseUrl: string;
   /**
@@ -97,20 +115,20 @@ export function createPrismaClient(options: CreatePrismaOptions) {
     name: 'uuidv7-primary-keys',
     query: {
       $allModels: {
-        create({ args, query }) {
-          assignIds(args.data);
+        create({ model, args, query }) {
+          if (hasIdColumn(model)) assignIds(args.data);
           return query(args);
         },
-        createMany({ args, query }) {
-          assignIds(args.data);
+        createMany({ model, args, query }) {
+          if (hasIdColumn(model)) assignIds(args.data);
           return query(args);
         },
-        createManyAndReturn({ args, query }) {
-          assignIds(args.data);
+        createManyAndReturn({ model, args, query }) {
+          if (hasIdColumn(model)) assignIds(args.data);
           return query(args);
         },
-        upsert({ args, query }) {
-          assignIds(args.create);
+        upsert({ model, args, query }) {
+          if (hasIdColumn(model)) assignIds(args.create);
           return query(args);
         },
       },

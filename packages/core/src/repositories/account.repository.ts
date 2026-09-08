@@ -76,6 +76,20 @@ export class AccountRepository {
       },
     });
 
+    // Every account has a subscription row from the moment it exists, on whatever plan the
+    // operator marked as the default. The entitlement service treats a missing row as a bug,
+    // which is what makes "no plan" impossible rather than merely unlikely.
+    const defaultPlan = await this.db.plan.findFirst({
+      where: { isDefault: true, isActive: true },
+      select: { id: true },
+    });
+    if (!defaultPlan) {
+      throw new Error('No default plan is configured; an account cannot be created without one');
+    }
+    await this.db.subscription.create({
+      data: { accountId: account.id, planId: defaultPlan.id, status: 'none', provider: 'manual' },
+    });
+
     return { account, membership };
   }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ConfigError, isLocalRelayHost, loadConfig } from './load.js';
-import { baseEnvSchema, mailEnvSchema } from './schemas.js';
+import { baseEnvSchema, mailEnvSchema, secretsEnvSchema } from './schemas.js';
 
 const schema = baseEnvSchema.merge(mailEnvSchema);
 
@@ -115,5 +115,29 @@ describe('SMTP_TLS_REJECT_UNAUTHORIZED in production', () => {
       SMTP_TLS_REJECT_UNAUTHORIZED: 'false',
     } as NodeJS.ProcessEnv);
     expect(cfg.SMTP_TLS_REJECT_UNAUTHORIZED).toBe(false);
+  });
+});
+
+describe('SETTINGS_ENCRYPTION_KEY in production', () => {
+  const withKey = (key: string) =>
+    loadConfig(baseEnvSchema.merge(secretsEnvSchema), {
+      NODE_ENV: 'production',
+      VISITOR_TOKEN_SECRET: 'x'.repeat(40),
+      SETTINGS_ENCRYPTION_KEY: key,
+    } as NodeJS.ProcessEnv);
+
+  it('refuses the all-zeros key the example file ships', () => {
+    expect(() => withKey('0'.repeat(64))).toThrow(ConfigError);
+  });
+
+  it('refuses anything that is not 64 hex characters', () => {
+    expect(() => withKey('not-hex')).toThrow(ConfigError);
+    expect(() => withKey('a'.repeat(63))).toThrow(ConfigError);
+  });
+
+  it('accepts a real key', () => {
+    expect(withKey('0123456789abcdef'.repeat(4)).SETTINGS_ENCRYPTION_KEY).toBe(
+      '0123456789abcdef'.repeat(4),
+    );
   });
 });

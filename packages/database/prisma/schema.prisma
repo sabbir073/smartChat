@@ -421,6 +421,9 @@ model Account {
   apiKeys           ApiKey[]
   webhooks          Webhook[]
   webhookDeliveries WebhookDelivery[]
+  subscription      Subscription?
+  invoices          Invoice[]
+  billingEnquiries  BillingEnquiry[]
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -1766,4 +1769,222 @@ model GeoDataset {
   updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@map("geo_datasets")
+}
+
+// -----------------------------------------------------------------------------
+// Billing
+//
+// Plans are a catalogue the platform operator edits in the console; Stripe holds the money. The
+// tables here are the product's own view - what an account is entitled to, and a mirror of what
+// Stripe has told us - so that nothing a customer sees requires a call to Stripe, and so the
+// dashboard keeps working if Stripe is slow. Stripe is the source of truth for the subscription's
+// status and every invoice; webhooks keep this side in step.
+// -----------------------------------------------------------------------------
+
+enum BillingInterval {
+  month
+  year
+
+  @@map("billing_interval")
+}
+
+/// Stripe's own lifecycle, plus `none` for an account that has never had a paid subscription
+/// (the free plan, or one the operator assigned by hand).
+enum SubscriptionStatus {
+  none
+  active
+  past_due
+  unpaid
+  canceled
+  incomplete
+  incomplete_expired
+
+  @@map("subscription_status")
+}
+
+enum BillingProvider {
+  /// Free, or assigned by the operator. No Stripe objects behind it.
+  manual
+  stripe
+
+  @@map("billing_provider")
+}
+
+/// Stripe's invoice statuses, mirrored. `draft` invoices are never shown to a customer.
+enum InvoiceStatus {
+  draft
+  open
+  paid
+  uncollectible
+  void
+
+  @@map("invoice_status")
+}
+
+/// What is sold. Edited in the platform console; synced to a Stripe Product with one Price per
+/// interval. Changing a price creates a new Stripe Price and retires the old one - existing
+/// subscriptions keep the price they signed up at, which is how Stripe works and what a customer
+/// expects.
+model Plan {
+  id          String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Stable handle the code can rely on: `free`, `starter`, `growth`, `custom`. Operator-created
+  /// plans get whatever key the operator chooses.
+  key         String  @unique
+  name        String
+  tagline     String?
+  description String?
+
+  monthlyPriceCents Int    @default(0) @map("monthly_price_cents")
+  annualPriceCents  Int    @default(0) @map("annual_price_cents")
+  currency          String @default("usd") @db.Char(3)
+
+  // --- what the plan allows ------------------------------------------------
+  /// null = unlimited.
+  maxProperties  Int?    @map("max_properties")
+  /// null = unlimited. Counts active members and pending invitations together.
+  maxMembers     Int?    @map("max_members")
+  aiAgent        Boolean @default(false) @map("ai_agent")
+  /// Public API keys and outbound webhooks.
+  integrations   Boolean @default(false)
+  /// Hide "Powered by" in the widget.
+  removeBranding Boolean @default(false) @map("remove_branding")
+
+  /// "Talk to us" rather than a checkout button. Price fields are ignored.
+  isContactSales Boolean @default(false) @map("is_contact_sales")
+  /// Shown on the pricing page and the upgrade screen.
+  isPublic       Boolean @default(true) @map("is_public")
+  /// The plan a new account lands on. Exactly one plan should have this.
+  isDefault      Boolean @default(false) @map("is_default")
+  /// Retired plans keep their rows so existing subscriptions still resolve.
+  isActive       Boolean @default(true) @map("is_active")
+  sortOrder      Int     @default(0) @map("sort_order")
+
+  stripeProductId      String? @map("stripe_product_id")
+  stripeMonthlyPriceId String? @map("stripe_monthly_price_id")
+  stripeAnnualPriceId  String? @map("stripe_annual_price_id")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subscriptions Subscription[]
+
+  @@index([isActive, sortOrder])
+  @@map("plans")
+}
+
+/// One per account, always. Created with the account on the default plan, so "does this account
+/// have a subscription" is never a question - only "which plan, and is it paid up".
+model Subscription {
+  id        String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String @unique @map("account_id") @db.Uuid
+  planId    String @map("plan_id") @db.Uuid
+
+  status   SubscriptionStatus @default(none)
+  interval BillingInterval    @default(month)
+  provider BillingProvider    @default(manual)
+
+  stripeCustomerId     String? @map("stripe_customer_id")
+  stripeSubscriptionId String? @unique @map("stripe_subscription_id")
+
+  currentPeriodStart DateTime? @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd   DateTime? @map("current_period_end") @db.Timestamptz(6)
+  cancelAtPeriodEnd  Boolean   @default(false) @map("cancel_at_period_end")
+  canceledAt         DateTime? @map("canceled_at") @db.Timestamptz(6)
+
+  /// When the first payment failed. The grace window the operator configures counts from here.
+  pastDueSince DateTime? @map("past_due_since") @db.Timestamptz(6)
+  /// When the dashboard was locked for non-payment. Cleared when a payment lands.
+  lockedAt     DateTime? @map("locked_at") @db.Timestamptz(6)
+
+  /// Why the operator assigned this plan by hand, when they did.
+  note String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  plan    Plan    @relation(fields: [planId], references: [id])
+
+  @@index([planId])
+  @@index([status, pastDueSince])
+  @@map("subscriptions")
+}
+
+/// A mirror of a Stripe invoice: enough to list it, link to it, and email about it. Stripe keeps
+/// the PDF and the line items; this row is what the dashboard shows without asking Stripe.
+model Invoice {
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId       String        @map("account_id") @db.Uuid
+  stripeInvoiceId String        @unique @map("stripe_invoice_id")
+  /// Stripe's human-readable number, e.g. `ABCD1234-0001`. Null until finalised.
+  number          String?
+  status          InvoiceStatus @default(open)
+
+  amountDueCents  Int    @map("amount_due_cents")
+  amountPaidCents Int    @default(0) @map("amount_paid_cents")
+  currency        String @db.Char(3)
+
+  planName    String?   @map("plan_name")
+  periodStart DateTime? @map("period_start") @db.Timestamptz(6)
+  periodEnd   DateTime? @map("period_end") @db.Timestamptz(6)
+
+  hostedInvoiceUrl String? @map("hosted_invoice_url")
+  invoicePdfUrl    String? @map("invoice_pdf_url")
+
+  issuedAt DateTime? @map("issued_at") @db.Timestamptz(6)
+  paidAt   DateTime? @map("paid_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([accountId, createdAt(sort: Desc)])
+  @@map("invoices")
+}
+
+/// Every Stripe event this deployment has handled, by Stripe's own id. Stripe delivers at least
+/// once, and a webhook that runs twice must not send two receipts or lock an account twice.
+model StripeEvent {
+  id          String    @id
+  type        String
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
+  error       String?
+
+  @@index([receivedAt(sort: Desc)])
+  @@map("stripe_events")
+}
+
+/// "I need something bigger": the custom-plan form. Stored as well as emailed, so a request the
+/// operator's mail filter ate is still in the console.
+model BillingEnquiry {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String    @map("account_id") @db.Uuid
+  userId    String?   @map("user_id") @db.Uuid
+  email     String
+  name      String
+  message   String
+  /// Roughly what they said they need, when they said it.
+  wants     Json      @default("{}")
+  handledAt DateTime? @map("handled_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@index([handledAt, createdAt(sort: Desc)])
+  @@map("billing_enquiries")
+}
+
+/// Platform-wide configuration the operator sets in the console: Stripe keys, billing contact,
+/// grace period. Secrets are encrypted at rest with `SETTINGS_ENCRYPTION_KEY`; `encrypted` says
+/// which rows are, so a reader never has to guess.
+model PlatformSetting {
+  key              String   @id
+  value            String
+  encrypted        Boolean  @default(false)
+  updatedAt        DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  updatedByAdminId String?  @map("updated_by_admin_id") @db.Uuid
+
+  @@map("platform_settings")
 }

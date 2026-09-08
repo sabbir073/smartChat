@@ -53,6 +53,11 @@ export interface TeamServiceOptions {
    * next bootstrap.
    */
   announceAvailability?: (accountId: string) => Promise<void>;
+  /**
+   * Billing's say on whether one more seat may be filled. Throws `PLAN_LIMIT_REACHED` when the
+   * plan is full. Optional so the service stays testable without a plan table.
+   */
+  assertCanInviteMember?: (accountId: string) => Promise<void>;
 }
 
 export interface InvitationView {
@@ -115,6 +120,7 @@ export class TeamService {
     this.assertCanGrantRole(context, input.baseRole);
     // Counted before the invitation is sent, not when it is accepted: an invitation that cannot
     // be accepted is worse than one that was never sent.
+    await this.options.assertCanInviteMember?.(context.accountId);
 
     const email = input.email.trim().toLowerCase();
     const now = this.clock.now();

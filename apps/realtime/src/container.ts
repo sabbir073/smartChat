@@ -1,4 +1,6 @@
 import {
+  EntitlementService,
+  PlatformSettingsService,
   AutomationRunner,
   ConversationService,
   FeatureFlagService,
@@ -85,12 +87,23 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
 
   const webhooks = new WebhookService({ db, flags, clock });
 
+  /**
+   * Billing's veto, in the socket process too.
+   *
+   * A locked account's agents must not be able to reply over the socket when they cannot over
+   * HTTP. Read-only here: this process never writes a plan or a subscription, and the grace
+   * window comes from the same setting the API reads.
+   */
+  const settings = new PlatformSettingsService(db, config.SETTINGS_ENCRYPTION_KEY);
+  const entitlements = new EntitlementService({ db, graceDays: () => settings.graceDays(), clock });
+
   const conversations = new ConversationService({
     db,
     events: new RedisEventPublisher(redis, (error) =>
       logger.error({ err: error }, 'failed to publish domain event'),
     ),
     webhooks,
+    assertWritable: (accountId) => entitlements.assertNotLocked(accountId),
     clock,
   });
 

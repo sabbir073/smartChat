@@ -196,6 +196,14 @@ export function loadConfig<T extends ZodTypeAny>(
       })
       .map(([key]) => `${key}: still set to a development value from .env.example`);
 
+    // The example file ships an all-zeros encryption key so development starts without a
+    // ceremony. It contains none of the markers above, and a production deployment that kept it
+    // would be encrypting its Stripe secrets with a key printed in this repository.
+    const encryptionKey = parsed['SETTINGS_ENCRYPTION_KEY'];
+    if (typeof encryptionKey === 'string' && /^(.)\1*$/.test(encryptionKey)) {
+      offenders.push('SETTINGS_ENCRYPTION_KEY: still the all-zeros value from .env.example');
+    }
+
     // A connection string carries its password inline, so the key-name rule above never sees it.
     for (const key of ['DATABASE_URL', 'REDIS_URL']) {
       const value = parsed[key];

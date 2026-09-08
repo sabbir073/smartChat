@@ -406,3 +406,267 @@ export function ticketAssignedTemplate(
     text: `Hi ${input.memberName},\n\n"${input.subject}" from ${input.requesterName} has been assigned to you.\n\nOpen it: ${input.url}`,
   };
 }
+
+// -----------------------------------------------------------------------------
+// Billing email
+//
+// Money mail has one job: leave the reader certain what happened and what, if anything, they
+// have to do. Every one of these says the amount, the plan, and the next step in the first two
+// lines, and links to Stripe's own invoice page rather than reproducing it - Stripe's copy is
+// the legal one, and a link cannot disagree with it.
+// -----------------------------------------------------------------------------
+
+function money(amountCents: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat('en', {
+      style: 'currency',
+      currency: currency.toUpperCase(),
+      minimumFractionDigits: 2,
+    }).format(amountCents / 100);
+  } catch {
+    return `${(amountCents / 100).toFixed(2)} ${currency.toUpperCase()}`;
+  }
+}
+
+function longDate(date: Date | null): string {
+  if (!date) return 'the end of the current period';
+  return date.toLocaleDateString('en', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+
+const intervalWord = (interval: 'month' | 'year') => (interval === 'year' ? 'yearly' : 'monthly');
+
+export function subscriptionActivatedTemplate(
+  brand: BrandContext,
+  input: {
+    email: string;
+    name: string;
+    planName: string;
+    interval: 'month' | 'year';
+    renewsAt: Date | null;
+    reactivated?: boolean;
+  },
+): MailMessage {
+  const heading = input.reactivated
+    ? `You're back on ${input.planName}`
+    : `You're on ${input.planName}`;
+  const body = [
+    paragraph(`Hi ${input.name},`),
+    paragraph(
+      input.reactivated
+        ? `Your payment went through and your ${brand.productName} account is fully open again. Thank you for sorting that out.`
+        : `Your ${brand.productName} subscription is active. You're on the ${input.planName} plan, billed ${intervalWord(input.interval)}, and everything it includes is switched on now.`,
+    ),
+    paragraph(`It renews on ${longDate(input.renewsAt)}. You can change plan, update your card or cancel from Billing at any time.`),
+    button(`${brand.appUrl}/app/billing`, 'Open billing'),
+  ].join('');
+
+  return {
+    to: { email: input.email, name: input.name },
+    subject: `${heading} · ${brand.productName}`,
+    html: layout(
+      brand,
+      heading,
+      body,
+      `${input.planName}, billed ${intervalWord(input.interval)}. Renews ${longDate(input.renewsAt)}.`,
+    ),
+    text: `Hi ${input.name},\n\n${
+      input.reactivated
+        ? `Your payment went through and your ${brand.productName} account is fully open again.`
+        : `Your ${brand.productName} subscription is active: the ${input.planName} plan, billed ${intervalWord(input.interval)}.`
+    }\n\nIt renews on ${longDate(input.renewsAt)}. Manage it here: ${brand.appUrl}/app/billing`,
+  };
+}
+
+export function invoicePaidTemplate(
+  brand: BrandContext,
+  input: {
+    email: string;
+    name: string;
+    number: string | null;
+    amountCents: number;
+    currency: string;
+    planName: string | null;
+    periodStart: Date | null;
+    periodEnd: Date | null;
+    hostedInvoiceUrl: string | null;
+    invoicePdfUrl: string | null;
+  },
+): MailMessage {
+  const amount = money(input.amountCents, input.currency);
+  const heading = `Receipt: ${amount}`;
+  const period =
+    input.periodStart && input.periodEnd
+      ? ` for ${longDate(input.periodStart)} to ${longDate(input.periodEnd)}`
+      : '';
+  const body = [
+    paragraph(`Hi ${input.name},`),
+    paragraph(
+      `We've received ${amount} for ${input.planName ?? `your ${brand.productName} plan`}${period}.${
+        input.number ? ` Invoice ${input.number}.` : ''
+      }`,
+    ),
+    input.hostedInvoiceUrl ? button(input.hostedInvoiceUrl, 'View invoice') : '',
+    input.invoicePdfUrl
+      ? paragraph(`Need it as a file? Download the PDF: ${input.invoicePdfUrl}`)
+      : '',
+    paragraph('Nothing to do - this is just your record.'),
+  ].join('');
+
+  return {
+    to: { email: input.email, name: input.name },
+    subject: `Receipt for ${amount}${input.number ? ` · ${input.number}` : ''} · ${brand.productName}`,
+    html: layout(brand, heading, body, `${amount} received${period}. Nothing to do.`),
+    text: `Hi ${input.name},\n\nWe've received ${amount} for ${input.planName ?? `your ${brand.productName} plan`}${period}.${
+      input.number ? ` Invoice ${input.number}.` : ''
+    }\n\n${input.hostedInvoiceUrl ? `View the invoice: ${input.hostedInvoiceUrl}\n` : ''}${
+      input.invoicePdfUrl ? `PDF: ${input.invoicePdfUrl}\n` : ''
+    }\nNothing to do - this is just your record.`,
+  };
+}
+
+export function paymentFailedTemplate(
+  brand: BrandContext,
+  input: {
+    email: string;
+    name: string;
+    amountCents: number;
+    currency: string;
+    hostedInvoiceUrl: string | null;
+    /** When the dashboard locks if the card is not updated. */
+    graceEndsAt: Date | null;
+  },
+): MailMessage {
+  const amount = money(input.amountCents, input.currency);
+  const heading = 'Your payment did not go through';
+  const deadline = input.graceEndsAt
+    ? `If it isn't sorted by ${longDate(input.graceEndsAt)}, your dashboard will be locked until it is - your chat widget keeps working for your visitors either way.`
+    : 'Until it is, your dashboard may be locked - your chat widget keeps working for your visitors either way.';
+  const body = [
+    paragraph(`Hi ${input.name},`),
+    paragraph(
+      `We tried to charge ${amount} for your ${brand.productName} subscription and your card was declined. This usually means the card expired, the bank blocked it, or there weren't enough funds.`,
+    ),
+    paragraph(`We'll try again automatically over the next few days. ${deadline}`),
+    button(
+      input.hostedInvoiceUrl ?? `${brand.appUrl}/app/billing`,
+      input.hostedInvoiceUrl ? 'Pay now' : 'Update your card',
+    ),
+    paragraph(`You can also update your card from Billing: ${brand.appUrl}/app/billing`),
+  ].join('');
+
+  return {
+    to: { email: input.email, name: input.name },
+    subject: `Action needed: your ${brand.productName} payment failed`,
+    html: layout(
+      brand,
+      heading,
+      body,
+      `${amount} was declined. Update your card${input.graceEndsAt ? ` before ${longDate(input.graceEndsAt)}` : ''}.`,
+    ),
+    text: `Hi ${input.name},\n\nWe tried to charge ${amount} for your ${brand.productName} subscription and your card was declined.\n\nWe'll try again over the next few days. ${deadline}\n\n${
+      input.hostedInvoiceUrl ? `Pay now: ${input.hostedInvoiceUrl}\n` : ''
+    }Update your card: ${brand.appUrl}/app/billing`,
+  };
+}
+
+export function accountLockedTemplate(
+  brand: BrandContext,
+  input: { email: string; name: string; reason: 'unpaid' | 'canceled' | 'grace_expired' | 'incomplete' },
+): MailMessage {
+  const heading = 'Your dashboard is locked';
+  const why =
+    input.reason === 'canceled'
+      ? 'your subscription was cancelled and the period you paid for has ended'
+      : 'your subscription has not been paid';
+  const body = [
+    paragraph(`Hi ${input.name},`),
+    paragraph(
+      `Your ${brand.productName} dashboard is locked because ${why}. You can still sign in and read everything, but nothing can be changed and your team cannot reply to visitors until it's resolved.`,
+    ),
+    paragraph(
+      'Your chat widget is still live on your website, and no conversations or settings have been removed.',
+    ),
+    button(`${brand.appUrl}/app/billing`, 'Fix this now'),
+  ].join('');
+
+  return {
+    to: { email: input.email, name: input.name },
+    subject: `Your ${brand.productName} dashboard is locked`,
+    html: layout(brand, heading, body, `Locked because ${why}. Nothing has been deleted.`),
+    text: `Hi ${input.name},\n\nYour ${brand.productName} dashboard is locked because ${why}. You can still sign in and read everything, but nothing can be changed until it's resolved.\n\nYour chat widget is still live, and nothing has been removed.\n\nFix it here: ${brand.appUrl}/app/billing`,
+  };
+}
+
+export function subscriptionCanceledTemplate(
+  brand: BrandContext,
+  input: {
+    email: string;
+    name: string;
+    planName: string;
+    /** The plan the account falls back to, and whether the account still fits inside it. */
+    fallbackPlanName: string;
+    overLimit: boolean;
+  },
+): MailMessage {
+  const heading = `Your ${input.planName} subscription has ended`;
+  const fits = paragraph(
+    `Your account is now on the ${input.fallbackPlanName} plan. Your conversations, settings and websites are all still there, and your widget keeps working for your visitors.`,
+  );
+  const doesNotFit = paragraph(
+    `Your account is now on the ${input.fallbackPlanName} plan, and it currently has more websites or team members than that plan includes. Nothing has been deleted, and your widget keeps working for your visitors - but the dashboard stays locked until you remove the extras or choose a plan that fits.`,
+  );
+  const body = [
+    paragraph(`Hi ${input.name},`),
+    paragraph(`Your ${input.planName} subscription to ${brand.productName} has ended.`),
+    input.overLimit ? doesNotFit : fits,
+    button(`${brand.appUrl}/app/billing`, input.overLimit ? 'Sort out my plan' : 'See plans'),
+  ].join('');
+
+  const textTail = input.overLimit
+    ? `Your account is now on the ${input.fallbackPlanName} plan and has more websites or team members than it includes. Nothing has been deleted; the dashboard stays locked until you remove the extras or choose a plan that fits.`
+    : `Your account is now on the ${input.fallbackPlanName} plan. Nothing has been deleted, and your widget keeps working.`;
+
+  return {
+    to: { email: input.email, name: input.name },
+    subject: `${heading} · ${brand.productName}`,
+    html: layout(brand, heading, body, `Now on the ${input.fallbackPlanName} plan. Nothing has been deleted.`),
+    text: `Hi ${input.name},\n\nYour ${input.planName} subscription to ${brand.productName} has ended. ${textTail}\n\nPlans: ${brand.appUrl}/app/billing`,
+  };
+}
+
+/** To the operator, not the customer: somebody wants a plan that is not on the menu. */
+export function billingEnquiryTemplate(
+  brand: BrandContext,
+  input: {
+    to: string;
+    accountName: string;
+    accountId: string;
+    fromName: string;
+    fromEmail: string;
+    message: string;
+    wants: Record<string, unknown>;
+  },
+): MailMessage {
+  const heading = `Custom plan enquiry from ${input.accountName}`;
+  const wants = Object.entries(input.wants)
+    .filter(([, value]) => value !== null && value !== undefined && value !== '')
+    .map(([key, value]) => `${key}: ${String(value)}`)
+    .join(', ');
+  const body = [
+    paragraph(`${input.fromName} (${input.fromEmail}) from ${input.accountName} asked about a custom plan.`),
+    wants ? paragraph(`They want: ${wants}.`) : '',
+    paragraph('Their message:'),
+    `<div style="margin:0 0 18px;padding:12px 16px;border-left:3px solid #d5d9e0;background:#f7f8fa;font-size:15px;line-height:1.6;color:#3c4149;">${escapeHtml(input.message).replace(/\n/g, '<br>')}</div>`,
+    paragraph(`Account id ${input.accountId}. Reply to this email to reach them.`),
+  ].join('');
+
+  return {
+    to: { email: input.to },
+    replyTo: { email: input.fromEmail, name: input.fromName },
+    subject: `Custom plan enquiry · ${input.accountName}`,
+    html: layout(brand, heading, body, `${input.fromName} wants a custom plan.${wants ? ` ${wants}.` : ''}`),
+    text: `${input.fromName} (${input.fromEmail}) from ${input.accountName} asked about a custom plan.\n${
+      wants ? `\nThey want: ${wants}.\n` : ''
+    }\n${input.message}\n\nAccount id ${input.accountId}. Reply to this email to reach them.`,
+  };
+}

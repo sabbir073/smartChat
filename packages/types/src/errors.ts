@@ -70,6 +70,19 @@ export const ErrorCode = {
    * that retrying later is reasonable.
    */
   TEMPORARILY_UNAVAILABLE: 'TEMPORARILY_UNAVAILABLE',
+
+  // --- billing -------------------------------------------------------------
+  /** The dashboard is locked for non-payment. Reading is allowed; changing anything is not. */
+  BILLING_LOCKED: 'BILLING_LOCKED',
+  /** The plan's ceiling for websites or seats has been reached. */
+  PLAN_LIMIT_REACHED: 'PLAN_LIMIT_REACHED',
+  /** The plan does not include this capability at all. */
+  FEATURE_NOT_IN_PLAN: 'FEATURE_NOT_IN_PLAN',
+  /** The operator has not entered Stripe keys yet, so nothing can be bought. */
+  BILLING_NOT_CONFIGURED: 'BILLING_NOT_CONFIGURED',
+  PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
+  /** Stripe refused or could not be reached. The detail is in the log, never in the response. */
+  PAYMENT_PROVIDER_ERROR: 'PAYMENT_PROVIDER_ERROR',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -125,6 +138,12 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
 
   FEATURE_NOT_AVAILABLE: 403,
   TEMPORARILY_UNAVAILABLE: 503,
+  BILLING_LOCKED: 402,
+  PLAN_LIMIT_REACHED: 402,
+  FEATURE_NOT_IN_PLAN: 402,
+  BILLING_NOT_CONFIGURED: 503,
+  PLAN_NOT_FOUND: 404,
+  PAYMENT_PROVIDER_ERROR: 502,
 };
 
 export interface ErrorDetail {
@@ -158,6 +177,19 @@ export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
  * `message` is always safe to show a user. Anything sensitive belongs in `context`, which is
  * logged and never serialised to a client.
  */
+/**
+ * 5xx codes whose message is written for the person, not the log.
+ *
+ * A 5xx normally answers "An unexpected error occurred", because its message describes our
+ * internals. These two describe somebody else's: payments are not set up on this installation,
+ * or the payment provider declined to act. Both messages are composed here, never copied from the
+ * upstream error, so they are safe to show and useless to hide.
+ */
+const EXPOSED_UPSTREAM_CODES: ReadonlySet<ErrorCode> = new Set([
+  ErrorCode.BILLING_NOT_CONFIGURED,
+  ErrorCode.PAYMENT_PROVIDER_ERROR,
+]);
+
 export class AppError extends Error {
   public readonly code: ErrorCode;
   public readonly status: number;
@@ -180,7 +212,7 @@ export class AppError extends Error {
     this.status = ERROR_STATUS[code] ?? 500;
     this.details = options?.details;
     this.context = options?.context;
-    this.expose = this.status < 500;
+    this.expose = this.status < 500 || EXPOSED_UPSTREAM_CODES.has(code);
     if (options?.cause !== undefined) {
       (this as { cause?: unknown }).cause = options.cause;
     }
@@ -254,4 +286,11 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   UPLOAD_FAILED: 'The upload could not be completed',
   FEATURE_NOT_AVAILABLE: 'That is switched off for this website',
   TEMPORARILY_UNAVAILABLE: 'This is temporarily unavailable. Please try again shortly.',
+  BILLING_LOCKED:
+    'Your subscription needs attention before you can make changes. Update your payment details to continue.',
+  PLAN_LIMIT_REACHED: 'Your plan has reached its limit for this. Upgrade to add more.',
+  FEATURE_NOT_IN_PLAN: 'This is not included in your current plan.',
+  BILLING_NOT_CONFIGURED: 'Payments are not set up on this installation yet.',
+  PLAN_NOT_FOUND: 'That plan is not available',
+  PAYMENT_PROVIDER_ERROR: 'The payment provider could not complete that. Please try again shortly.',
 };

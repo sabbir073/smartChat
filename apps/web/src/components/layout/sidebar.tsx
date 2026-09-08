@@ -105,6 +105,14 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/app/billing',
+    label: 'Billing',
+    available: true,
+    icon: icon(
+      'M3 8.5A2.5 2.5 0 0 1 5.5 6h13A2.5 2.5 0 0 1 21 8.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 15.5v-7ZM3 10h18M7 14h3',
+    ),
+  },
+  {
     href: '/app/settings',
     label: 'Settings',
     available: true,
@@ -126,7 +134,9 @@ export function Sidebar({ onNavigate }: { onNavigate?: () => void }) {
       </div>
 
       {NAV.filter((item) => item.available).map((item) => {
-        const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+        // The dashboard home is a prefix of every other page, so it is active only when exact.
+        const active =
+          item.href === '/app' ? pathname === '/app' : pathname.startsWith(item.href);
         return (
           <Link
             key={item.href}

@@ -21,6 +21,7 @@ const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'maintenance.purge_expired_tokens': QueueName.MAINTENANCE,
   'maintenance.apply_retention': QueueName.MAINTENANCE,
   'maintenance.refresh_geo': QueueName.MAINTENANCE,
+  'maintenance.billing_reconcile': QueueName.MAINTENANCE,
 };
 
 /**

@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Container } from '../container.js';
 import { accountRoutes } from './account.routes.js';
 import { authRoutes } from './auth.routes.js';
+import { billingRoutes, stripeWebhookRoutes } from './billing.routes.js';
 import { automationRoutes } from './automation.routes.js';
 import { contactRoutes } from './contact.routes.js';
 import { conversationRoutes } from './conversation.routes.js';
@@ -38,6 +39,10 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       await v1.register(async (scoped) => ticketRoutes(scoped, container));
       await v1.register(async (scoped) => reportRoutes(scoped, container));
       await v1.register(async (scoped) => integrationRoutes(scoped, container));
+      await v1.register(async (scoped) => billingRoutes(scoped, container));
+      // Stripe's webhook: raw body, no session. Its own scope so the raw-body parser it installs
+      // cannot leak into any route that expects parsed JSON.
+      await v1.register(async (scoped) => stripeWebhookRoutes(scoped, container));
       // The platform console: its own scope, its own cookie, its own principal. It must not
       // inherit the tenant authentication hook, and a tenant session must never reach it.
       await v1.register(async (scoped) => platformRoutes(scoped, container));

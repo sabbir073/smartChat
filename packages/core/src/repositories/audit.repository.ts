@@ -46,6 +46,10 @@ export const AuditAction = {
   WEBHOOK_CREATED: 'webhook.created',
   WEBHOOK_UPDATED: 'webhook.updated',
   WEBHOOK_DELETED: 'webhook.deleted',
+  BILLING_CHECKOUT_STARTED: 'billing.checkout_started',
+  BILLING_PLAN_CHANGED: 'billing.plan_changed',
+  BILLING_CANCEL_REQUESTED: 'billing.cancel_requested',
+  BILLING_ENQUIRY_SENT: 'billing.enquiry_sent',
 } as const;
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];
 

@@ -148,6 +148,21 @@ export const RATE_LIMITS = {
    */
   publicApiDaily: { limit: 100_000, windowMs: 24 * 60 * 60_000 },
   mutation: { limit: 120, windowMs: 60_000 },
+  /**
+   * Starting a checkout or opening the Stripe portal creates objects on Stripe's side. Ten a
+   * minute per account is more than anybody changing their mind needs.
+   */
+  billingAction: { limit: 10, windowMs: 60_000 },
+  /**
+   * A custom-plan enquiry sends the operator an email. Three an hour per account: a person
+   * writes one, maybe a correction; a script writes a mailbox full.
+   */
+  billingEnquiry: { limit: 3, windowMs: 60 * 60_000 },
+  /**
+   * Stripe's webhook, per IP. Stripe retries with backoff and never bursts; a flood here is
+   * somebody else's traffic, and the signature check behind this limit costs CPU.
+   */
+  stripeWebhook: { limit: 300, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import type { Database } from '@smartchat/database';
 import {
+  BillingReconcileService,
   GeoService,
   MaintenanceJob,
   RIR_FILE_MAX_BYTES,
@@ -8,6 +9,10 @@ import {
   SessionRepository,
   TokenRepository,
   createOutboundFetch,
+  findAccountOwner,
+  readGraceDays,
+  type BrandContext,
+  type MailMessage,
   type StorageService,
 } from '@smartchat/core';
 import type { Logger } from '@smartchat/logger';
@@ -18,12 +23,20 @@ import type { Logger } from '@smartchat/logger';
  * Every task here is idempotent and bounded: running it twice changes nothing, and running it on
  * a large table deletes by an indexed predicate rather than scanning.
  */
+export interface MaintenanceDeps {
+  storage?: StorageService;
+  /** For the billing notices: who we are, and how an email leaves. */
+  brand: BrandContext;
+  deliver: (message: MailMessage) => Promise<void>;
+}
+
 export async function processMaintenanceJob(
   job: Job,
   db: Database,
   logger: Logger,
-  storage?: StorageService,
+  deps: MaintenanceDeps,
 ): Promise<void> {
+  const { storage } = deps;
   const now = new Date();
 
   switch (job.name) {
@@ -83,6 +96,22 @@ export async function processMaintenanceJob(
           { sources: outcome.sources },
           'geo refresh incomplete - kept the previous data',
         );
+      }
+      return;
+    }
+
+    case MaintenanceJob.BILLING_RECONCILE: {
+      const outcome = await new BillingReconcileService({
+        db,
+        brand: deps.brand,
+        deliver: deps.deliver,
+        ownerOf: (accountId) => findAccountOwner(db, accountId),
+        graceDays: () => readGraceDays(db),
+      }).run();
+      if (outcome.newlyLocked > 0 || outcome.unlocked > 0) {
+        logger.info(outcome, 'billing reconciled');
+      } else {
+        logger.debug(outcome, 'billing reconciled - nothing to do');
       }
       return;
     }

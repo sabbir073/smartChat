@@ -45,6 +45,8 @@ const LAST_USED_RESOLUTION_MS = 60_000;
 
 export interface ApiKeyServiceOptions {
   db: Database;
+  /** Billing's say on whether this account's plan includes API access. Throws when it does not. */
+  assertIntegrationsAllowed?: (accountId: string) => Promise<void>;
   clock?: Clock;
 }
 
@@ -110,6 +112,7 @@ export class ApiKeyService {
    */
   async create(context: TenantContext, input: CreateApiKeyInput): Promise<CreatedApiKey> {
     requirePermission(context, Permission.ACCOUNT_UPDATE);
+    await this.options.assertIntegrationsAllowed?.(context.accountId);
 
     // A key cannot grant what its creator does not have. Otherwise "make an API key" becomes a
     // privilege-escalation primitive for anybody allowed to make one.

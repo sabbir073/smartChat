@@ -10,6 +10,12 @@ import {
   AttachmentService,
   AuthService,
   AutomationService,
+  BillingService,
+  EntitlementService,
+  PlatformBillingService,
+  PlatformSettingsService,
+  StripeGateway,
+  StripeWebhookService,
   ContactService,
   KbService,
   ConversationService,
@@ -25,6 +31,7 @@ import {
   GeoService,
   RedisAvailabilityPublisher,
   createOutboundFetch,
+  findAccountOwner,
   SmtpMailProvider,
   agentAvailabilityReader,
   StorageService,
@@ -73,6 +80,14 @@ export interface Container {
   widgets: WidgetService;
   visitors: VisitorService;
   geo: GeoService;
+  settings: PlatformSettingsService;
+  entitlements: EntitlementService;
+  billing: BillingService;
+  platformBilling: PlatformBillingService;
+  /** The Stripe client for the currently stored secret, or null when none is stored. */
+  stripeGateway: () => Promise<StripeGateway | null>;
+  /** Built per request from the current gateway; null when Stripe is not configured. */
+  stripeWebhooks: () => Promise<{ service: StripeWebhookService; webhookSecret: string } | null>;
   conversations: ConversationService;
   presence: PresenceService;
   connectionTickets: ConnectionTicketService;
@@ -150,6 +165,41 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const accounts = new AccountService(db);
 
   /**
+   * Billing.
+   *
+   * The Stripe keys live in the database, entered through the console, so the gateway is built
+   * from whatever is stored at the time of asking and rebuilt when that changes. Entitlements are
+   * the one reader of the plan table; every limit and feature gate below goes through them.
+   */
+  const settings = new PlatformSettingsService(db, config.SETTINGS_ENCRYPTION_KEY);
+  const entitlements = new EntitlementService({
+    db,
+    graceDays: () => settings.graceDays(),
+    clock,
+  });
+  let gatewayCache: { secretKey: string; gateway: StripeGateway } | null = null;
+  const stripeGateway = async (): Promise<StripeGateway | null> => {
+    const stripe = await settings.stripe();
+    if (!stripe) {
+      gatewayCache = null;
+      return null;
+    }
+    let entry = gatewayCache;
+    if (entry === null || entry.secretKey !== stripe.secretKey) {
+      entry = {
+        secretKey: stripe.secretKey,
+        gateway: new StripeGateway(stripe.secretKey, { productName: config.PRODUCT_NAME }),
+      };
+      gatewayCache = entry;
+    }
+    return entry.gateway;
+  };
+  const deliverBillingMail = (message: Parameters<MailProvider['send']>[0]): Promise<void> =>
+    queue.enqueue(EmailJob.SEND, { message, requestId: 'billing' }).then(() => undefined);
+  /** The person billing emails go to: the account's owner. */
+  const ownerOf = (accountId: string) => findAccountOwner(db, accountId);
+
+  /**
    * Whether anybody on this account is available, and how a change in that reaches open widgets.
    *
    * The read is the persisted choice on the membership rows - see `agentAvailabilityReader` for
@@ -175,6 +225,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
           queue.enqueue(EmailJob.SEND, { message, requestId: 'team' }).then(() => undefined)
       : undefined,
     announceAvailability,
+    assertCanInviteMember: (accountId) => entitlements.assertCanInviteMember(accountId),
     clock,
   });
   const widgets = new WidgetService(db, clock);
@@ -190,6 +241,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     allowLocalhostOrigins: config.ALLOW_LOCALHOST_ORIGINS,
     isAgentAvailable: hasAvailableAgent,
     resolveCountry: (ip) => geo.lookup(ip).then((hit) => hit?.country ?? null),
+    canRemoveBranding: (accountId) => entitlements.hasFeature(accountId, 'removeBranding'),
     maxUploadBytes: config.UPLOAD_MAX_BYTES,
     clock,
   });
@@ -207,7 +259,11 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const contacts = new ContactService({ db, clock });
   const kb = new KbService({ db, flags, clock });
   const analytics = new AnalyticsService({ db, clock });
-  const apiKeys = new ApiKeyService({ db, clock });
+  const apiKeys = new ApiKeyService({
+    db,
+    assertIntegrationsAllowed: (accountId) => entitlements.assertFeature(accountId, 'integrations'),
+    clock,
+  });
   const platform = new PlatformService({ db, clock });
 
   /**
@@ -218,6 +274,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
    * not the delivery - which is the entire reason the row is written first.
    */
   const webhooks = new WebhookService({
+    assertIntegrationsAllowed: (accountId) => entitlements.assertFeature(accountId, 'integrations'),
     db,
     clock,
     flags,
@@ -280,6 +337,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     // An offline message is a request nobody was there to answer, so it becomes a ticket.
     tickets,
     webhooks,
+    assertWritable: (accountId) => entitlements.assertNotLocked(accountId),
     clock,
   });
 
@@ -315,6 +373,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const properties = new PropertyService({
     db,
     widgetUrl: config.WIDGET_URL,
+    assertCanAddProperty: (accountId) => entitlements.assertCanAddProperty(accountId),
     /**
      * The installation check fetches the customer's own site, so it goes through the DNS-pinned
      * outbound client rather than a bare `fetch` - a URL the customer typed is exactly the input
@@ -329,6 +388,42 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     }),
     clock,
   });
+
+  const billing = new BillingService({
+    db,
+    entitlements,
+    settings,
+    gateway: stripeGateway,
+    appUrl: config.APP_URL,
+    brand,
+    deliver: deliverBillingMail,
+    fallbackContactEmail: config.MAIL_FROM_ADDRESS,
+  });
+  const platformBilling = new PlatformBillingService({
+    db,
+    settings,
+    entitlements,
+    gateway: stripeGateway,
+    apiUrl: config.API_URL,
+    clock,
+  });
+  const stripeWebhooks = async () => {
+    const [gateway, stripe] = await Promise.all([stripeGateway(), settings.stripe()]);
+    if (!gateway || !stripe?.webhookSecret) return null;
+    return {
+      webhookSecret: stripe.webhookSecret,
+      service: new StripeWebhookService({
+        db,
+        entitlements,
+        gateway,
+        brand,
+        deliver: deliverBillingMail,
+        ownerOf,
+        graceDays: () => settings.graceDays(),
+        clock,
+      }),
+    };
+  };
 
   return {
     config,
@@ -359,6 +454,12 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     widgets,
     visitors,
     geo,
+    settings,
+    entitlements,
+    billing,
+    platformBilling,
+    stripeGateway,
+    stripeWebhooks,
     conversations,
     presence,
     connectionTickets,

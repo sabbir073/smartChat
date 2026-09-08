@@ -2,6 +2,13 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError, ErrorCode } from '@smartchat/types';
 import { MaintenanceJob, type PlatformPrincipal } from '@smartchat/core';
+import {
+  createPlanSchema,
+  enquiryIdParamSchema,
+  setAccountPlanSchema,
+  updateBillingSettingsSchema,
+  updatePlanSchema,
+} from '@smartchat/validation';
 import type { Container } from '../container.js';
 import { noContent, ok } from '../lib/reply.js';
 import { parseBody, parseParams, parseQuery } from '../lib/validate.js';
@@ -212,6 +219,76 @@ export async function platformRoutes(app: FastifyInstance, container: Container)
       }
       await container.queue.enqueueOnce(MaintenanceJob.REFRESH_GEO, {}, 'geo-manual');
       return ok(reply, { queued: true });
+    });
+
+    // --- billing ---------------------------------------------------------------
+    // Permission checks live in the service, so a route added here later cannot forget one.
+
+    guarded.get('/platform/billing/plans', async (request, reply) => {
+      return ok(reply, { plans: await container.platformBilling.listPlans(requirePlatform(request)) });
+    });
+
+    guarded.post('/platform/billing/plans', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const input = parseBody(createPlanSchema, request.body);
+      return ok(reply, await container.platformBilling.createPlan(principal, input, request.clientIp));
+    });
+
+    guarded.patch('/platform/billing/plans/:id', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const { id } = parseParams(accountParam, request.params);
+      const input = parseBody(updatePlanSchema, request.body);
+      return ok(reply, await container.platformBilling.updatePlan(principal, id, input, request.clientIp));
+    });
+
+    guarded.post('/platform/billing/plans/sync', async (request, reply) => {
+      const principal = requirePlatform(request);
+      return ok(reply, { results: await container.platformBilling.syncPlans(principal, request.clientIp) });
+    });
+
+    guarded.get('/platform/billing/settings', async (request, reply) => {
+      return ok(reply, await container.platformBilling.settings(requirePlatform(request)));
+    });
+
+    guarded.patch('/platform/billing/settings', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const input = parseBody(updateBillingSettingsSchema, request.body);
+      return ok(reply, await container.platformBilling.updateSettings(principal, input, request.clientIp));
+    });
+
+    guarded.post('/platform/billing/settings/test', async (request, reply) => {
+      return ok(reply, await container.platformBilling.testStripe(requirePlatform(request)));
+    });
+
+    guarded.get('/platform/billing/enquiries', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const query = parseQuery(
+        z.object({ includeHandled: z.enum(['true', 'false']).default('false') }),
+        request.query,
+      );
+      return ok(reply, {
+        enquiries: await container.platformBilling.listEnquiries(principal, query.includeHandled === 'true'),
+      });
+    });
+
+    guarded.post('/platform/billing/enquiries/:id/handled', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const { id } = parseParams(enquiryIdParamSchema, request.params);
+      await container.platformBilling.markEnquiryHandled(principal, id, request.clientIp);
+      return noContent(reply);
+    });
+
+    guarded.get('/platform/accounts/:id/billing', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const { id } = parseParams(accountParam, request.params);
+      return ok(reply, await container.platformBilling.accountBilling(principal, id));
+    });
+
+    guarded.put('/platform/accounts/:id/plan', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const { id } = parseParams(accountParam, request.params);
+      const input = parseBody(setAccountPlanSchema, request.body);
+      return ok(reply, await container.platformBilling.setAccountPlan(principal, id, input, request.clientIp));
     });
 
     guarded.get('/platform/audit', async (request, reply) => {

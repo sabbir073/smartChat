@@ -175,6 +175,7 @@ async function seedPlatformAdmin(): Promise<void> {
         'platform:flag:manage',
         'platform:audit:view',
         'platform:settings:manage',
+        'platform:billing:manage',
       ],
     },
   });
@@ -272,6 +273,16 @@ async function seedDemoAccount(): Promise<void> {
           title: 'Support Agent',
         },
       ],
+    });
+
+    // The demo account has two members and one website: put it on a plan that allows that,
+    // so the seed does not produce an account that is locked for being over its limits.
+    const demoPlan =
+      (await tx.plan.findFirst({ where: { isActive: true, maxMembers: { gte: 2 } }, orderBy: { sortOrder: 'asc' } })) ??
+      (await tx.plan.findFirst({ where: { isDefault: true } }));
+    if (!demoPlan) throw new Error('No plans exist; run the migrations first');
+    await tx.subscription.create({
+      data: { id: uuidv7(), accountId: account.id, planId: demoPlan.id, status: 'none', provider: 'manual', note: 'seeded demo account' },
     });
 
     return tx.property.create({

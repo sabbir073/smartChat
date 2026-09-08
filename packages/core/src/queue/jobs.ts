@@ -32,6 +32,11 @@ export const MaintenanceJob = {
    * missing. Daily, and once at startup when the table has never been loaded.
    */
   REFRESH_GEO: 'maintenance.refresh_geo',
+  /**
+   * Notice accounts whose grace window has closed: stamp them locked and tell the owner, once.
+   * Hourly. The lock itself applies at the moment the window closes, with or without this.
+   */
+  BILLING_RECONCILE: 'maintenance.billing_reconcile',
 } as const;
 
 export interface SendEmailPayload {
@@ -78,6 +83,7 @@ export type JobPayloadMap = {
   [MaintenanceJob.PURGE_EXPIRED_TOKENS]: Record<string, never>;
   [MaintenanceJob.APPLY_RETENTION]: Record<string, never>;
   [MaintenanceJob.REFRESH_GEO]: Record<string, never>;
+  [MaintenanceJob.BILLING_RECONCILE]: Record<string, never>;
 };
 
 export type JobName = keyof JobPayloadMap;

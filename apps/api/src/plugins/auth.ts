@@ -1,12 +1,19 @@
 import fp from 'fastify-plugin';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError, ErrorCode, type TenantContext } from '@smartchat/types';
-import { buildTenantContext, safeEqual } from '@smartchat/core';
+import { buildTenantContext, lockMessage, safeEqual } from '@smartchat/core';
 import type { Session, User } from '@smartchat/database';
 import type { Container } from '../container.js';
 import { ACCOUNT_COOKIE, CSRF_COOKIE, SESSION_COOKIE, clearAuthCookies } from '../lib/cookies.js';
 
 declare module 'fastify' {
+  interface FastifyContextConfig {
+    /**
+     * Let this route through on a billing-locked account. For the billing routes themselves -
+     * a locked account must be able to pay - and nothing else.
+     */
+    skipBillingLock?: boolean;
+  }
   interface FastifyRequest {
     session: Session | null;
     currentUser: User | null;
@@ -124,6 +131,25 @@ export const authPlugin = fp<{ container: Container }>(
      * The account is *never* taken on trust: whichever id arrives, membership is re-checked
      * against the database on every request, so a forged cookie or header resolves to nothing.
      */
+    /**
+     * The billing lock.
+     *
+     * A locked account keeps reading - nobody loses their conversations - and stops writing,
+     * through the dashboard and through API keys alike, until it is paid or fits its plan
+     * again. An account locked for being over its plan's limits may still delete things: that
+     * is how it gets back under them.
+     */
+    async function enforceBillingLock(request: FastifyRequest, accountId: string): Promise<void> {
+      if (SAFE_METHODS.has(request.method)) return;
+      if (request.routeOptions.config.skipBillingLock) return;
+      const { lock } = await container.entitlements.forAccount(accountId);
+      if (!lock.locked || !lock.reason) return;
+      if (lock.reason === 'over_limit' && request.method === 'DELETE') return;
+      throw new AppError(ErrorCode.BILLING_LOCKED, lockMessage(lock.reason), {
+        context: { reason: lock.reason },
+      });
+    }
+
     app.decorate('authenticateTenant', async (request: FastifyRequest, reply: FastifyReply) => {
       /**
        * A key is another kind of actor, on the same routes.
@@ -159,6 +185,7 @@ export const authPlugin = fp<{ container: Container }>(
           request.requestId,
           request.clientIp,
         );
+        await enforceBillingLock(request, principal.accountId);
         return;
       }
 
@@ -197,6 +224,7 @@ export const authPlugin = fp<{ container: Container }>(
         ip: request.clientIp,
         userAgent: request.headers['user-agent'],
       });
+      await enforceBillingLock(request, accountId);
     });
   },
   // 'rate-limit' is a hard dependency now that every authenticated request consumes a budget.

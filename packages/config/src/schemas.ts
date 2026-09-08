@@ -69,6 +69,15 @@ export const redisEnvSchema = z.object({
 export const secretsEnvSchema = z.object({
   VISITOR_TOKEN_SECRET: secret,
   SESSION_TTL_DAYS: z.coerce.number().int().min(1).max(365).default(30),
+  /**
+   * Encrypts the secrets an operator types into the console - Stripe's secret key and webhook
+   * signing secret - before they are stored. 32 bytes as 64 hex characters:
+   * `openssl rand -hex 32`. Rotating it means re-entering those secrets in the console; the
+   * stored values cannot be opened with the new key, and say so rather than decrypting to noise.
+   */
+  SETTINGS_ENCRYPTION_KEY: z
+    .string()
+    .regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex characters - generate with: openssl rand -hex 32'),
 });
 
 export const storageEnvSchema = z.object({

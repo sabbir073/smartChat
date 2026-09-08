@@ -36,6 +36,11 @@ export interface PropertyServiceOptions {
    * authoritative signal anyway and needs no outbound request at all.
    */
   fetchSite?: OutboundFetch;
+  /**
+   * Billing's say on whether one more website may be added. Throws `PLAN_LIMIT_REACHED` when
+   * the plan is full. Optional so the service stays testable without a plan table.
+   */
+  assertCanAddProperty?: (accountId: string) => Promise<void>;
   clock?: Clock;
 }
 
@@ -100,6 +105,7 @@ export class PropertyService {
    */
   async create(context: TenantContext, input: CreatePropertyInput): Promise<PropertyWithDomains> {
     requirePermission(context, Permission.PROPERTY_CREATE);
+    await this.options.assertCanAddProperty?.(context.accountId);
 
     const property = await this.repo.create(context, input);
 

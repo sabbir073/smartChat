@@ -100,6 +100,7 @@ describe('loadConfig', () => {
     const env = {
       NODE_ENV: 'development',
       VISITOR_TOKEN_SECRET: `dev_visitor_token_secret_change_me_${'0'.repeat(20)}`,
+      SETTINGS_ENCRYPTION_KEY: '0'.repeat(64),
     } as unknown as NodeJS.ProcessEnv;
 
     expect(loadConfig(schema, env).VISITOR_TOKEN_SECRET).toContain('change_me');

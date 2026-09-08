@@ -66,6 +66,12 @@ export const Permission = {
 
   // audit
   AUDIT_VIEW: 'audit:view',
+
+  // billing
+  /** See the plan, the invoices and the usage. */
+  BILLING_VIEW: 'billing:view',
+  /** Change plan, update the card, cancel. Owners and admins by default. */
+  BILLING_MANAGE: 'billing:manage',
 } as const;
 export type Permission = (typeof Permission)[keyof typeof Permission];
 
@@ -131,6 +137,8 @@ export const PlatformPermission = {
   FEATURE_FLAG_MANAGE: 'platform:flag:manage',
   AUDIT_VIEW: 'platform:audit:view',
   SETTINGS_MANAGE: 'platform:settings:manage',
+  /** Plans, prices, Stripe keys, and assigning a plan to an account by hand. */
+  BILLING_MANAGE: 'platform:billing:manage',
 } as const;
 export type PlatformPermission = (typeof PlatformPermission)[keyof typeof PlatformPermission];
 

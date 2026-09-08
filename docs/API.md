@@ -155,6 +155,12 @@ PATCH  /integrations/webhooks/:id     DELETE /integrations/webhooks/:id
 GET    /integrations/webhooks/:id/deliveries
 POST   /integrations/webhooks/:id/ping
 
+# billing (see BILLING.md; every route here works on a locked account)
+GET    /billing                       GET    /billing/entitlements
+POST   /billing/checkout              POST   /billing/portal
+POST   /billing/enquiries
+POST   /billing/webhooks/stripe       (Stripe only: raw body, signature, no session)
+
 
 # files
 POST   /uploads/sign                  POST   /uploads/:id/confirm
@@ -188,6 +194,12 @@ POST   /platform/accounts/:id/suspend POST   /platform/accounts/:id/resume
 GET    /platform/health               GET    /platform/audit
 GET    /platform/flags                PATCH  /platform/flags/:key
 POST   /platform/maintenance/retention
+GET    /platform/billing/plans        POST   /platform/billing/plans
+PATCH  /platform/billing/plans/:id    POST   /platform/billing/plans/sync
+GET    /platform/billing/settings     PATCH  /platform/billing/settings
+POST   /platform/billing/settings/test
+GET    /platform/billing/enquiries    POST   /platform/billing/enquiries/:id/handled
+GET    /platform/accounts/:id/billing PUT    /platform/accounts/:id/plan
 ```
 
 ## 6. Non-negotiable rules

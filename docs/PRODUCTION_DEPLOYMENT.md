@@ -98,6 +98,7 @@ Then edit `.env`. The values that **must** change are below; anything not listed
 ```bash
 # Run each of these and paste the output into the matching variable.
 openssl rand -hex 32   # VISITOR_TOKEN_SECRET
+openssl rand -hex 32   # SETTINGS_ENCRYPTION_KEY
 openssl rand -hex 24   # POSTGRES_PASSWORD
 openssl rand -hex 24   # REDIS_PASSWORD
 openssl rand -hex 24   # S3_SECRET_KEY
@@ -135,6 +136,7 @@ DATABASE_URL=postgresql://smartchat:<generated>@postgres:5432/smartchat?schema=p
 REDIS_PASSWORD=<generated>
 REDIS_URL=redis://:<generated>@redis:6379/0
 VISITOR_TOKEN_SECRET=<generated>
+SETTINGS_ENCRYPTION_KEY=<generated>   # encrypts the Stripe keys entered in the console
 S3_ACCESS_KEY=smartchat
 S3_SECRET_KEY=<generated>
 SUPERADMIN_EMAIL=you@example.com
@@ -333,6 +335,21 @@ Until the first load completes — a minute or two — visitors show without a c
 Country only. An IP address identifies a network, not a person, and a visitor on a VPN or a
 corporate proxy shows the network's country. Nothing can do better than that, and this makes no
 claim to.
+
+### Payments
+
+Plans, invoices and card payments run through Stripe, and every Stripe setting is entered in the
+console rather than the environment - the only variable involved is `SETTINGS_ENCRYPTION_KEY`,
+which encrypts the keys you paste. New accounts start on the free plan with no card; nothing
+needs Stripe until somebody chooses a paid plan.
+
+To switch it on: console → **Billing** → paste the publishable and secret keys (test keys first),
+Save, **Test connection**. In Stripe, add a webhook endpoint for the URL the console shows
+(`https://api.<your host>/api/v1/billing/webhooks/stripe`) with `checkout.session.completed`,
+`customer.subscription.*` and `invoice.*`, and paste its signing secret. Then **Sync with Stripe**
+so each priced plan gets its Stripe product and prices, and enable Stripe's customer portal so
+"Manage payment method" has somewhere to go. `docs/BILLING.md` has the whole model, the lock
+rules and what each webhook does.
 
 ---
 

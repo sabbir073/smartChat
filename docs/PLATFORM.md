@@ -131,6 +131,19 @@ GET  /api/v1/platform/health
 GET  /api/v1/platform/flags
 PATCH /api/v1/platform/flags/:key            { enabled?, disabledAccountIds? }
 GET  /api/v1/platform/audit?limit=
+
+# billing (platform:billing:manage) - see BILLING.md
+GET   /api/v1/platform/billing/plans
+POST  /api/v1/platform/billing/plans          { key, name, prices, limits, features, flags }
+PATCH /api/v1/platform/billing/plans/:id
+POST  /api/v1/platform/billing/plans/sync
+GET   /api/v1/platform/billing/settings
+PATCH /api/v1/platform/billing/settings       { stripePublishableKey?, stripeSecretKey?, stripeWebhookSecret?, graceDays?, contactEmail? }
+POST  /api/v1/platform/billing/settings/test
+GET   /api/v1/platform/billing/enquiries?includeHandled=
+POST  /api/v1/platform/billing/enquiries/:id/handled
+GET   /api/v1/platform/accounts/:id/billing
+PUT   /api/v1/platform/accounts/:id/plan      { planKey, note? }
 ```
 
 Each is gated on a specific `PlatformPermission`, so a read-only operator role is expressible.
