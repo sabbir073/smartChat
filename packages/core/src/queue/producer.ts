@@ -87,11 +87,22 @@ export class QueueProducer {
   ): Promise<void> {
     const queueName = QUEUE_FOR_JOB[job];
     if (!queueName) throw new Error(`No queue registered for job "${job}"`);
-    await this.queue(queueName).add(job, payload, { jobId: `once:${dedupeKey}` });
+    await this.queue(queueName).add(job, payload, { jobId: onceJobId(dedupeKey) });
   }
 
   async close(): Promise<void> {
     await Promise.all([...this.queues.values()].map((queue) => queue.close()));
     this.queues.clear();
   }
+}
+
+/**
+ * BullMQ refuses a custom job id containing `:`, which is its own key separator - the first
+ * version of this used `once:<key>` and took the worker down in a crash loop at startup. The
+ * repeatable jobs above get away with `repeat:` only because BullMQ derives their real id itself.
+ * Exported so the rule can be tested without a Redis.
+ */
+export function onceJobId(dedupeKey: string): string {
+  const safe = dedupeKey.replace(/[^A-Za-z0-9_-]/g, '-');
+  return `once-${safe}`;
 }
