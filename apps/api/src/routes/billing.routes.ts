@@ -70,6 +70,18 @@ export async function billingRoutes(app: FastifyInstance, container: Container):
 }
 
 /**
+ * The public pricing page's data. No session: what is on sale is not a secret, and the page
+ * that shows it is read by people who do not have an account yet.
+ */
+export async function publicBillingRoutes(app: FastifyInstance, container: Container): Promise<void> {
+  app.get('/billing/plans', async (request, reply) => {
+    await app.rateLimit(request, 'widgetSession');
+    reply.header('cache-control', 'public, max-age=60');
+    return ok(reply, { plans: await container.billing.publicPlans() });
+  });
+}
+
+/**
  * Stripe's webhook.
  *
  * Its own scope, with no session, no CSRF and no tenant: Stripe is the caller. The body is read

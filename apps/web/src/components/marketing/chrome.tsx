@@ -7,6 +7,7 @@ import { cn } from '@/components/ui';
 
 const NAV = [
   { href: '/features', label: 'Features' },
+  { href: '/pricing', label: 'Pricing' },
   { href: '/about', label: 'About' },
   { href: '/contact', label: 'Contact' },
 ];
@@ -172,8 +173,8 @@ export function MarketingFooter() {
           <div>
             <Wordmark />
             <p className="mt-3 max-w-xs text-[13px] leading-relaxed text-ink-muted">
-              Live chat you host yourself. One inbox for every website you run, free to use in full,
-              with no seat count and nothing to buy.
+              Live chat you host yourself. One inbox for every website you run. Free to start,
+              and priced by websites and people rather than by conversation.
             </p>
           </div>
 
@@ -181,6 +182,7 @@ export function MarketingFooter() {
             title="Product"
             links={[
               { href: '/features', label: 'Features' },
+              { href: '/pricing', label: 'Pricing' },
               { href: '/register', label: 'Create an account' },
             ]}
           />

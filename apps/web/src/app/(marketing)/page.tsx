@@ -11,8 +11,10 @@ import {
   icons,
 } from '@/components/marketing/sections';
 import { InboxPreview } from '@/components/marketing/inbox-preview';
+import { PricingTable } from '@/components/marketing/pricing';
 import { Reveal } from '@/components/marketing/reveal';
 import { WidgetPreview } from '@/components/marketing/widget-preview';
+import { loadPublicPlans } from '@/lib/public-plans';
 
 export const metadata: Metadata = {
   title: 'SmartChat — live chat you host yourself',
@@ -37,7 +39,16 @@ const CAPABILITIES = [
   'Data retention',
 ];
 
-export default function HomePage() {
+// The pricing section reads the plans from the API on each request (cached a minute).
+export const dynamic = 'force-dynamic';
+
+export default async function HomePage() {
+  const plans = await loadPublicPlans();
+  const cheapest = plans
+    ?.filter((plan) => !plan.isContactSales && plan.monthlyPriceCents > 0)
+    .sort((a, b) => a.monthlyPriceCents - b.monthlyPriceCents)[0];
+  const fromPrice = cheapest ? `$${Math.round(cheapest.monthlyPriceCents / 100)}` : '$20';
+
   return (
     <>
       {/* ------------------------------------------------------------------ */}
@@ -90,8 +101,8 @@ export default function HomePage() {
 
             <Reveal delay={320}>
               <p className="mt-5 text-[13.5px] text-ink-subtle">
-                Free, in full. No card, no plans, no seat count — every feature on this page is the
-                one you get.
+                Free to start, no card. One website and one seat for as long as you like; paid plans
+                from {fromPrice} a month when you need more.
               </p>
             </Reveal>
           </div>
@@ -285,9 +296,9 @@ export default function HomePage() {
               body: 'Set how long conversations are kept. A nightly job removes what is past the window — the transcripts, the files behind them, and the visitors.',
             },
             {
-              title: 'Not priced per seat',
+              title: 'Not priced per conversation',
               icon: icons.users,
-              body: 'Add the whole team. There is no seat count and no per-agent charge — what it costs to run is the server you already have.',
+              body: 'Plans are sized by websites and people, never by message volume. A busy month costs the same as a quiet one, and nothing counts conversations against you.',
             },
             {
               title: 'One deployment',
@@ -308,37 +319,37 @@ export default function HomePage() {
       {/* What it costs + CTA                                                 */}
       {/* ------------------------------------------------------------------ */}
       <Section tone="surface">
-        <div className="grid gap-10 rounded-3xl border border-border bg-canvas p-8 sm:p-12 lg:grid-cols-2 lg:items-center">
-          <Reveal>
-            <SectionHeading
-              eyebrow="What it costs"
-              title="Nothing. There is no paid tier to move up to."
-              lead="Every feature described on this site is switched on for every account, from the first one. No plans, no allowances, no card, and no screen that asks you to upgrade before it will do its job."
-            />
-            <div className="mt-7 flex flex-wrap gap-3">
-              <Link
-                href="/register"
-                className="rounded-full bg-brand px-6 py-3 text-sm font-semibold text-ink-inverted transition-colors hover:bg-brand-hover"
-              >
-                Create an account
-              </Link>
-              <Link
-                href="/features"
-                className="rounded-full border border-border-strong px-6 py-3 text-sm font-medium text-ink transition-colors hover:bg-surface-raised"
-              >
-                See everything it does
-              </Link>
-            </div>
-          </Reveal>
-
-          <Reveal delay={120}>
-            <dl className="grid grid-cols-2 gap-x-6 gap-y-7">
-              <Figure value="$0" label="The whole product, for every account" />
-              <Figure value="No card" label="Nothing to enter, at signup or afterwards" />
-              <Figure value="Unlimited" label="Websites, teammates and conversations" />
-              <Figure value="Your server" label="The only thing it costs is what you run it on" />
-            </dl>
-          </Reveal>
+        <Reveal>
+          <SectionHeading
+            eyebrow="What it costs"
+            title="Free to start. Priced by websites and people, not conversations."
+            lead="Every account begins on the free plan with no card. Add websites, teammates, integrations and the AI agent as you grow; move between plans from the Billing page whenever you like."
+            centered
+          />
+        </Reveal>
+        <div className="mt-12">
+          {plans && plans.length > 0 ? (
+            <Reveal delay={80}>
+              <PricingTable plans={plans} compact />
+            </Reveal>
+          ) : (
+            <Reveal delay={80}>
+              <dl className="mx-auto grid max-w-3xl grid-cols-2 gap-x-6 gap-y-7">
+                <Figure value="Free" label="One website and one seat, no card" />
+                <Figure value={`From ${fromPrice}`} label="A month, for more websites and people" />
+                <Figure value="Unlimited" label="Conversations on every plan" />
+                <Figure value="Custom" label="For anything bigger - talk to us" />
+              </dl>
+            </Reveal>
+          )}
+        </div>
+        <div className="mt-8 flex flex-wrap justify-center gap-3">
+          <Link
+            href="/pricing"
+            className="rounded-full border border-border-strong px-6 py-3 text-sm font-medium text-ink transition-colors hover:bg-surface-raised"
+          >
+            Compare the plans
+          </Link>
         </div>
       </Section>
 
@@ -346,7 +357,7 @@ export default function HomePage() {
         <Reveal>
           <CallToAction
             title="Put it on your own servers this afternoon."
-            lead="Create an account, add a website, paste one script tag. Nothing expires, and nothing asks you for a card."
+            lead="Create a free account, add a website, paste one script tag. No card until you choose a paid plan."
             primary={{ href: '/register', label: 'Create an account' }}
             secondary={{ href: '/features', label: 'See what it does' }}
           />

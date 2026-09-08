@@ -89,6 +89,18 @@ export class BillingService {
     this.audit = new AuditRepository(options.db);
   }
 
+  /**
+   * The plans as the public pricing page shows them: no context, no account, nothing about
+   * whether Stripe is configured. What is on sale, for anybody to read.
+   */
+  async publicPlans(): Promise<Omit<PlanCard, 'purchasable'>[]> {
+    const plans = await this.options.db.plan.findMany({
+      where: { isActive: true, isPublic: true },
+      orderBy: { sortOrder: 'asc' },
+    });
+    return plans.map(pickPlan);
+  }
+
   async overview(context: TenantContext): Promise<BillingOverview> {
     requirePermission(context, Permission.BILLING_VIEW);
     const [entitlements, usage, plans, invoices, stripe, subscription] = await Promise.all([

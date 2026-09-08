@@ -77,9 +77,9 @@ export default function AboutPage() {
             </h2>
             <div className="mt-4 space-y-4 text-[15px] leading-relaxed text-ink-muted">
               <p>
-                No billing at all. There are no plans, no limits sold as tiers, and no payment
-                screen anywhere in the product — not a disabled one, not a "coming soon" one. If
-                that ever changes, it will be said here first.
+                No metering. Plans are priced by how many websites and people you have, never by
+                how many conversations you handle - a busy month costs the same as a quiet one,
+                and nothing in the product counts messages against you.
               </p>
               <p>
                 No AI answering, no voice or video, and no mobile apps. Each has an obvious place to
