@@ -73,6 +73,39 @@
     -webkit-font-smoothing: antialiased;
   }
 
+  /*
+   * Everything clickable shows a hand.
+   *
+   * Tailwind v4's preflight stopped giving buttons `cursor: pointer`, so every button, tab and
+   * toggle that was not styled by hand showed the arrow - and a control that looks inert is one
+   * people hesitate over. One rule here rather than a class on each of them. A disabled control
+   * says so with the cursor too; the Button component's own `cursor-not-allowed` still wins
+   * where it is set.
+   */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab'],
+  [role='menuitem'],
+  [role='option'],
+  a[href],
+  summary,
+  select:not(:disabled),
+  label[for],
+  input[type='checkbox']:not(:disabled),
+  input[type='radio']:not(:disabled),
+  input[type='file']:not(:disabled),
+  input[type='submit']:not(:disabled),
+  input[type='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  select:disabled,
+  input[type='checkbox']:disabled,
+  input[type='radio']:disabled {
+    cursor: not-allowed;
+  }
+
   /* A visible, consistent focus ring everywhere. Keyboard users should never have to guess. */
   :focus-visible {
     outline: 2px solid var(--color-brand-ring);

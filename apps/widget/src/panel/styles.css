@@ -55,6 +55,20 @@ button {
   color: inherit;
 }
 
+/* Everything clickable shows a hand; a disabled control says so with the cursor too. */
+button:not(:disabled),
+[role='button'],
+a[href],
+label[for],
+input[type='checkbox']:not(:disabled),
+input[type='radio']:not(:disabled) {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
 :focus-visible {
   outline: 2px solid var(--sc-primary);
   outline-offset: 2px;
