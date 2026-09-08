@@ -164,20 +164,67 @@ function isPlausibleIpv6(address: string): boolean {
   return /^[0-9a-f:]+$/i.test(address) && address.includes(':') && address.length <= 39;
 }
 
-/** The five registries, and where each publishes its file. Over https, and only https. */
-export const RIR_SOURCES: readonly { registry: string; url: string }[] = [
-  { registry: 'arin', url: 'https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest' },
+/**
+ * The five registries, and where to get each one's file.
+ *
+ * Each registry publishes its own file, and RIPE NCC and APNIC also mirror everybody else's. The
+ * home registry is tried first and the mirrors after it, because a single host is a single point
+ * of failure and, on the first production run, exactly that: from one cloud region APNIC and
+ * AFRINIC timed out outright while RIPE took two minutes. The mirrors are the same data, and the
+ * file's own header says which registry it belongs to, so a mirror cannot quietly serve the
+ * wrong one. Over https, and only https.
+ */
+export const RIR_SOURCES: readonly { registry: string; urls: readonly string[] }[] = [
+  {
+    registry: 'arin',
+    urls: [
+      'https://ftp.arin.net/pub/stats/arin/delegated-arin-extended-latest',
+      'https://ftp.ripe.net/pub/stats/arin/delegated-arin-extended-latest',
+      'https://ftp.apnic.net/stats/arin/delegated-arin-extended-latest',
+    ],
+  },
   {
     registry: 'ripencc',
-    url: 'https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest',
+    urls: [
+      'https://ftp.ripe.net/pub/stats/ripencc/delegated-ripencc-extended-latest',
+      'https://ftp.apnic.net/stats/ripe-ncc/delegated-ripencc-extended-latest',
+    ],
   },
-  { registry: 'apnic', url: 'https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest' },
+  {
+    registry: 'apnic',
+    urls: [
+      'https://ftp.apnic.net/stats/apnic/delegated-apnic-extended-latest',
+      'https://ftp.ripe.net/pub/stats/apnic/delegated-apnic-extended-latest',
+    ],
+  },
   {
     registry: 'lacnic',
-    url: 'https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-extended-latest',
+    urls: [
+      'https://ftp.lacnic.net/pub/stats/lacnic/delegated-lacnic-extended-latest',
+      'https://ftp.ripe.net/pub/stats/lacnic/delegated-lacnic-extended-latest',
+      'https://ftp.apnic.net/stats/lacnic/delegated-lacnic-extended-latest',
+    ],
   },
   {
     registry: 'afrinic',
-    url: 'https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest',
+    urls: [
+      'https://ftp.afrinic.net/pub/stats/afrinic/delegated-afrinic-extended-latest',
+      'https://ftp.ripe.net/pub/stats/afrinic/delegated-afrinic-extended-latest',
+      'https://ftp.apnic.net/stats/afrinic/delegated-afrinic-extended-latest',
+    ],
   },
 ];
+
+/**
+ * Which registry a file says it is. The version header is the first non-comment line:
+ * `2|apnic|20260908|...`. A mirror serving the wrong file, or an error page, fails this.
+ */
+export function registryOf(text: string): string | null {
+  for (const rawLine of text.split('\n', 50)) {
+    const line = rawLine.trim();
+    if (line === '' || line.startsWith('#')) continue;
+    const fields = line.split('|');
+    return fields.length >= 3 && /^\d+(\.\d+)?$/.test(fields[0] ?? '') ? (fields[1] ?? null) : null;
+  }
+  return null;
+}

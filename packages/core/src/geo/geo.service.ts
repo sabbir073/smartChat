@@ -1,7 +1,7 @@
 import { Prisma, type Database } from '@smartchat/database';
 import type { OutboundFetch } from '../integrations/outbound.js';
 import { systemClock, type Clock } from '../time.js';
-import { RIR_SOURCES, parseDelegatedExtended, type RirRange } from './rir.js';
+import { RIR_SOURCES, parseDelegatedExtended, registryOf, type RirRange } from './rir.js';
 
 /**
  * IP address → country, from the registries' own data.
@@ -50,7 +50,12 @@ export interface GeoServiceOptions {
 const DATASET_ID = 'rir';
 /** Registry files run to ~15MB. Sized with headroom; past this the client drops the rest. */
 export const RIR_FILE_MAX_BYTES = 64 * 1024 * 1024;
-const RIR_FETCH_TIMEOUT_MS = 120_000;
+/**
+ * Generous, because this is a nightly background job and the registries are not fast: RIPE's
+ * 18MB file took two minutes from one cloud region. A tight timeout here does not make anything
+ * quicker; it only turns a slow success into a failure.
+ */
+const RIR_FETCH_TIMEOUT_MS = 5 * 60_000;
 /** Rows per INSERT. Large enough to be fast, small enough that one statement stays bounded. */
 const INSERT_CHUNK = 5_000;
 
@@ -117,37 +122,12 @@ export class GeoService {
     const ranges: RirRange[] = [];
 
     for (const source of RIR_SOURCES) {
-      try {
-        const response = await this.options.fetch(source.url, {
-          method: 'GET',
-          headers: { accept: 'text/plain', 'user-agent': 'SmartChat-GeoRefresh' },
-          body: '',
-          timeoutMs: RIR_FETCH_TIMEOUT_MS,
-        });
-        if (response.status !== 200) {
-          sources[source.registry] = { ok: false, error: `HTTP ${response.status}` };
-          continue;
-        }
-        const parsed = parseDelegatedExtended(await response.text());
-        if (parsed.ranges.length === 0) {
-          // A registry never publishes an empty file. An empty parse is a wrong file, a redirect
-          // page, or a truncated download - none of which should replace real data.
-          sources[source.registry] = { ok: false, error: 'file contained no usable records' };
-          continue;
-        }
-        sources[source.registry] = {
-          ok: true,
-          records: parsed.ranges.length,
-          fetchedAt: this.clock.now().toISOString(),
-        };
+      const outcome = await this.fetchRegistry(source);
+      sources[source.registry] = outcome.status;
+      if (outcome.ranges) {
         // Not `push(...parsed.ranges)`: RIPE alone is ~300,000 records, and spreading that many
         // arguments into one call overflows the stack. It did, on the first real run.
-        for (const range of parsed.ranges) ranges.push(range);
-      } catch (error) {
-        sources[source.registry] = {
-          ok: false,
-          error: error instanceof Error ? error.message : String(error),
-        };
+        for (const range of outcome.ranges) ranges.push(range);
       }
     }
 
@@ -192,6 +172,60 @@ export class GeoService {
   }
 
   /**
+   * One registry, from wherever will serve it.
+   *
+   * The home host first, then each mirror. Every attempt's failure is kept, so a registry that
+   * could not be fetched anywhere reports all of its reasons rather than only the last.
+   */
+  private async fetchRegistry(source: { registry: string; urls: readonly string[] }): Promise<{
+    status: GeoRefreshOutcome['sources'][string];
+    ranges: RirRange[] | null;
+  }> {
+    const failures: string[] = [];
+
+    for (const url of source.urls) {
+      const host = new URL(url).hostname;
+      try {
+        const response = await this.options.fetch!(url, {
+          method: 'GET',
+          headers: { accept: 'text/plain', 'user-agent': 'SmartChat-GeoRefresh' },
+          body: '',
+          timeoutMs: RIR_FETCH_TIMEOUT_MS,
+        });
+        if (response.status !== 200) {
+          failures.push(`${host}: HTTP ${response.status}`);
+          continue;
+        }
+        const text = await response.text();
+        const declared = registryOf(text);
+        if (declared !== source.registry) {
+          // A mirror that served somebody else's file, or an error page with a 200.
+          failures.push(`${host}: file is for "${declared ?? 'unknown'}", not ${source.registry}`);
+          continue;
+        }
+        const parsed = parseDelegatedExtended(text);
+        if (parsed.ranges.length === 0) {
+          // A registry never publishes an empty file. An empty parse is a truncated download.
+          failures.push(`${host}: no usable records`);
+          continue;
+        }
+        return {
+          status: {
+            ok: true,
+            records: parsed.ranges.length,
+            fetchedAt: this.clock.now().toISOString(),
+          },
+          ranges: parsed.ranges,
+        };
+      } catch (error) {
+        failures.push(`${host}: ${describe(error)}`);
+      }
+    }
+
+    return { status: { ok: false, error: failures.join('; ') }, ranges: null };
+  }
+
+  /**
    * Swap the table's contents inside one transaction.
    *
    * Postgres MVCC does the work: readers keep seeing the old rows until COMMIT, then see the new
@@ -226,6 +260,18 @@ export class GeoService {
       },
     );
   }
+}
+
+/**
+ * Node's connection failures come as an `AggregateError` with an empty message and the real
+ * reason in `code` - which is how the first production run logged four registries failing with
+ * `""`. Say the code.
+ */
+function describe(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const code = (error as { code?: unknown }).code;
+  if (error.message) return typeof code === 'string' ? `${error.message} (${code})` : error.message;
+  return typeof code === 'string' ? code : error.name || 'failed';
 }
 
 /**

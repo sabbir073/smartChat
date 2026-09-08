@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GeoService, normaliseIp } from './geo.service.js';
+import { registryOf } from './rir.js';
 
 describe('normaliseIp', () => {
   it.each([
@@ -70,6 +71,12 @@ describe('GeoService.lookup', () => {
 const FILE = (cc: string, registry: string) =>
   `2|${registry}|20260908|1|19830613|20260907|+0000\n${registry}|${cc}|ipv4|10.0.0.0|256|20110412|allocated|X\n`;
 
+/** Which registry a URL is for, from its path - the same way the sources table is laid out. */
+function registryIn(url: string): string {
+  const match = /delegated-([a-z]+)-extended/.exec(url);
+  return match?.[1] ?? 'unknown';
+}
+
 function dbForRefresh() {
   const upsert = vi.fn().mockResolvedValue(undefined);
   const executeRaw = vi.fn().mockResolvedValue(1);
@@ -90,7 +97,7 @@ describe('GeoService.refresh', () => {
   it('rebuilds the table when every registry answers', async () => {
     const fetch = vi.fn(async (url: string) => ({
       status: 200,
-      text: async () => FILE('US', url.includes('arin') ? 'arin' : 'x'),
+      text: async () => FILE('US', registryIn(url)),
     }));
     const { db, upsert, executeRaw, transaction } = dbForRefresh();
     // The DELETE reports 0, the one INSERT reports the five records it wrote.
@@ -114,7 +121,7 @@ describe('GeoService.refresh', () => {
     const fetch = vi.fn(async (url: string) =>
       url.includes('lacnic')
         ? { status: 503, text: async () => '' }
-        : { status: 200, text: async () => FILE('US', 'arin') },
+        : { status: 200, text: async () => FILE('US', registryIn(url)) },
     );
     const { db, upsert, transaction } = dbForRefresh();
 
@@ -122,7 +129,11 @@ describe('GeoService.refresh', () => {
 
     expect(outcome.complete).toBe(false);
     expect(transaction).not.toHaveBeenCalled();
-    expect(outcome.sources['lacnic']).toEqual({ ok: false, error: 'HTTP 503' });
+    // Every mirror was tried and every one is named in the reason.
+    expect(outcome.sources['lacnic']).toMatchObject({ ok: false });
+    const reason = (outcome.sources['lacnic'] as { error: string }).error;
+    expect(reason).toContain('ftp.lacnic.net: HTTP 503');
+    expect(reason).toContain('ftp.ripe.net: HTTP 503');
     expect(upsert.mock.calls[0]?.[0]?.update?.lastError).toContain('lacnic');
   });
 
@@ -141,7 +152,10 @@ describe('GeoService.refresh', () => {
   });
 
   it('refuses to record a count the database did not confirm', async () => {
-    const fetch = vi.fn(async () => ({ status: 200, text: async () => FILE('US', 'arin') }));
+    const fetch = vi.fn(async (url: string) => ({
+      status: 200,
+      text: async () => FILE('US', registryIn(url)),
+    }));
     const { db, executeRaw, upsert } = dbForRefresh();
     executeRaw.mockResolvedValue(0); // the insert "succeeds" and writes nothing
 
@@ -151,5 +165,74 @@ describe('GeoService.refresh', () => {
 
   it('needs a fetch client', async () => {
     await expect(serviceWith(dbForRefresh().db).refresh()).rejects.toThrow(/outbound fetch/);
+  });
+});
+
+describe('GeoService.refresh - mirrors', () => {
+  /**
+   * The first production run: APNIC and AFRINIC timed out from the server's region. RIPE mirrors
+   * both, so a registry whose own host is unreachable is fetched from a mirror instead of taking
+   * the whole rebuild down.
+   */
+  it('falls back to a mirror when the home registry is unreachable', async () => {
+    const fetch = vi.fn(async (url: string) => {
+      if (url.startsWith('https://ftp.apnic.net/')) {
+        const error = new Error('') as Error & { code: string };
+        error.code = 'ETIMEDOUT';
+        throw error;
+      }
+      return { status: 200, text: async () => FILE('AU', registryIn(url)) };
+    });
+    const { db, executeRaw } = dbForRefresh();
+    executeRaw.mockResolvedValueOnce(0).mockResolvedValueOnce(5);
+
+    const outcome = await serviceWith(db, fetch).refresh();
+
+    expect(outcome.complete).toBe(true);
+    expect(outcome.sources['apnic']).toMatchObject({ ok: true, records: 1 });
+    expect(
+      fetch.mock.calls.some(
+        ([url]) => url === 'https://ftp.ripe.net/pub/stats/apnic/delegated-apnic-extended-latest',
+      ),
+    ).toBe(true);
+  });
+
+  /** A mirror serving the wrong file - or an error page with a 200 - must not be accepted. */
+  it('refuses a mirror that serves a different registry’s file', async () => {
+    const fetch = vi.fn(async (url: string) => ({
+      status: 200,
+      // Every host answers with ARIN's file, whatever was asked for.
+      text: async () => FILE('US', url.includes('arin') ? 'arin' : 'arin'),
+    }));
+    const { db, transaction } = dbForRefresh();
+
+    const outcome = await serviceWith(db, fetch).refresh();
+
+    expect(outcome.complete).toBe(false);
+    expect(transaction).not.toHaveBeenCalled();
+    expect((outcome.sources['apnic'] as { error: string }).error).toContain('file is for "arin"');
+  });
+
+  it('names the failure code when Node gives an empty message', async () => {
+    const fetch = vi.fn(async () => {
+      const error = new AggregateError([], '') as AggregateError & { code: string };
+      error.code = 'ETIMEDOUT';
+      throw error;
+    });
+    const { db } = dbForRefresh();
+    const outcome = await serviceWith(db, fetch).refresh();
+    expect((outcome.sources['arin'] as { error: string }).error).toContain('ETIMEDOUT');
+  });
+});
+
+describe('registryOf', () => {
+  it('reads the registry from the version header, skipping comments', () => {
+    expect(registryOf('# comment\n2|apnic|20260908|1|x|y|+1000\napnic|AU|...')).toBe('apnic');
+    expect(registryOf('2.3|ripencc|20260908|1|x|y|+0100')).toBe('ripencc');
+  });
+
+  it('has no answer for an HTML page or an empty body', () => {
+    expect(registryOf('<html>oops</html>')).toBeNull();
+    expect(registryOf('')).toBeNull();
   });
 });
