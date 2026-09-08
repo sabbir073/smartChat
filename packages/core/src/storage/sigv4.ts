@@ -82,11 +82,18 @@ export interface PresignInput {
 export function presignS3Url(input: PresignInput): string {
   const url = new URL(input.endpoint);
   const host = url.host;
+  /**
+   * A path on the public endpoint - `https://cdn.example.com/files` - is the proxy's, not the
+   * store's. The proxy strips it before the request reaches the store, so the store verifies the
+   * signature over the path *without* it. It used to be signed in, and every upload through a
+   * prefixed endpoint failed with a signature mismatch; the prefix belongs on the URL the browser
+   * calls, and nowhere else.
+   */
   const basePath = url.pathname.replace(/\/+$/, '');
 
   const canonicalUri = input.forcePathStyle
-    ? `${basePath}/${encodeRfc3986(input.bucket)}/${encodeKey(input.key)}`
-    : `${basePath}/${encodeKey(input.key)}`;
+    ? `/${encodeRfc3986(input.bucket)}/${encodeKey(input.key)}`
+    : `/${encodeKey(input.key)}`;
   const requestHost = input.forcePathStyle ? host : `${input.bucket}.${host}`;
 
   const { amzDate, dateStamp } = stamps(input.now);
@@ -124,7 +131,7 @@ export function presignS3Url(input: PresignInput): string {
   const origin = input.forcePathStyle
     ? `${url.protocol}//${host}`
     : `${url.protocol}//${input.bucket}.${host}`;
-  return `${origin}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
+  return `${origin}${basePath}${canonicalUri}?${canonicalQuery}&X-Amz-Signature=${signature}`;
 }
 
 export interface SignedRequestInput extends Omit<PresignInput, 'expiresInSeconds' | 'query'> {
@@ -146,11 +153,12 @@ export function signS3Request(input: SignedRequestInput): {
 } {
   const url = new URL(input.endpoint);
   const host = url.host;
+  // Same rule as `presignS3Url`: a path on the endpoint is the proxy's and is not signed.
   const basePath = url.pathname.replace(/\/+$/, '');
 
   const canonicalUri = input.forcePathStyle
-    ? `${basePath}/${encodeRfc3986(input.bucket)}/${encodeKey(input.key)}`
-    : `${basePath}/${encodeKey(input.key)}`;
+    ? `/${encodeRfc3986(input.bucket)}/${encodeKey(input.key)}`
+    : `/${encodeKey(input.key)}`;
   const requestHost = input.forcePathStyle ? host : `${input.bucket}.${host}`;
 
   const { amzDate, dateStamp } = stamps(input.now);
@@ -190,7 +198,7 @@ export function signS3Request(input: SignedRequestInput): {
     : `${url.protocol}//${input.bucket}.${host}`;
 
   return {
-    url: `${origin}${canonicalUri}`,
+    url: `${origin}${basePath}${canonicalUri}`,
     headers: {
       ...headers,
       authorization:

@@ -6,8 +6,10 @@
  * what an attachment is - so a PHP script named `photo.png` and declared as `image/png` is
  * recognised for what it is and refused.
  *
- * Deliberately a small allow-list rather than a general sniffer. Every type here is one a support
- * conversation actually needs, and anything unrecognised is rejected rather than guessed at.
+ * Deliberately an allow-list rather than a general sniffer: images, documents, spreadsheets,
+ * presentations, archives, video and audio - the things a support conversation actually needs -
+ * and anything unrecognised is rejected rather than guessed at. Nothing here is a type a browser
+ * or an operating system executes, and nothing but an image is ever served inline.
  */
 
 export interface FileKind {
@@ -24,7 +26,7 @@ interface Signature extends FileKind {
   magic: (number | null)[];
   offset: number;
   /** Extra check for containers whose magic bytes are shared (ZIP, RIFF, ISO-BMFF). */
-  refine?: (bytes: Uint8Array) => FileKind | null;
+  refine?: (bytes: Uint8Array, declaredName: string) => FileKind | null;
 }
 
 const ascii = (text: string): number[] => [...text].map((c) => c.charCodeAt(0));
@@ -70,6 +72,56 @@ function refineZip(bytes: Uint8Array): FileKind | null {
 function refineRiff(bytes: Uint8Array): FileKind | null {
   if (!at(bytes, 8, 'WEBP')) return null;
   return { contentType: 'image/webp', extension: 'webp', isImage: true };
+}
+
+/**
+ * ISO base media files - MP4, MOV, M4V - carry a brand at byte 8 after the `ftyp` box. The
+ * brand says which container it is; the same family also covers HEIC photos, which browsers do
+ * not display, so those are named for what they are rather than shown as a broken image.
+ */
+function refineIsoMedia(bytes: Uint8Array): FileKind | null {
+  const brand = new TextDecoder('latin1').decode(bytes.subarray(8, 12));
+  if (brand === 'qt  ') return { contentType: 'video/quicktime', extension: 'mov', isImage: false };
+  if (brand === 'M4V ' || brand === 'M4VH' || brand === 'M4VP') {
+    return { contentType: 'video/x-m4v', extension: 'm4v', isImage: false };
+  }
+  if (brand === 'M4A ') return { contentType: 'audio/mp4', extension: 'm4a', isImage: false };
+  if (brand.startsWith('hei') || brand.startsWith('mif') || brand.startsWith('avif')) {
+    return {
+      contentType: brand.startsWith('avif') ? 'image/avif' : 'image/heic',
+      extension: brand.startsWith('avif') ? 'avif' : 'heic',
+      isImage: false,
+    };
+  }
+  // isom, iso2, mp41, mp42, avc1, dash, ... - MP4 in one of its many spellings.
+  return { contentType: 'video/mp4', extension: 'mp4', isImage: false };
+}
+
+/** EBML is the container for both WebM and Matroska; the DocType a little way in tells them apart. */
+function refineEbml(bytes: Uint8Array): FileKind | null {
+  const head = new TextDecoder('latin1').decode(bytes.subarray(0, Math.min(bytes.length, 64)));
+  if (head.includes('webm'))
+    return { contentType: 'video/webm', extension: 'webm', isImage: false };
+  if (head.includes('matroska')) {
+    return { contentType: 'video/x-matroska', extension: 'mkv', isImage: false };
+  }
+  return null;
+}
+
+/**
+ * Legacy Office (.doc, .xls, .ppt) shares one container signature. The bytes cannot tell the
+ * three apart cheaply, and the name is allowed to, because every branch is an office document
+ * served as an attachment - never anything a browser would execute.
+ */
+function refineOleByName(declaredName: string): FileKind {
+  const lower = declaredName.toLowerCase();
+  if (lower.endsWith('.xls')) {
+    return { contentType: 'application/vnd.ms-excel', extension: 'xls', isImage: false };
+  }
+  if (lower.endsWith('.ppt')) {
+    return { contentType: 'application/vnd.ms-powerpoint', extension: 'ppt', isImage: false };
+  }
+  return { contentType: 'application/msword', extension: 'doc', isImage: false };
 }
 
 const SIGNATURES: Signature[] = [
@@ -128,14 +180,35 @@ const SIGNATURES: Signature[] = [
     extension: 'gz',
     isImage: false,
   },
-  // Legacy Office. One signature covers .doc, .xls and .ppt; the generic type is honest about that.
+  // Legacy Office. One signature covers .doc, .xls and .ppt; the name picks between them.
   {
     magic: [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
     offset: 0,
-    contentType: 'application/x-ole-storage',
-    extension: 'bin',
+    contentType: 'application/msword',
+    extension: 'doc',
     isImage: false,
+    refine: (_bytes, declaredName) => refineOleByName(declaredName),
   },
+  // Video. MP4 and its relatives declare themselves with an `ftyp` box after a 4-byte size.
+  {
+    magic: ascii('ftyp'),
+    offset: 4,
+    contentType: 'video/mp4',
+    extension: 'mp4',
+    isImage: false,
+    refine: refineIsoMedia,
+  },
+  {
+    magic: [0x1a, 0x45, 0xdf, 0xa3],
+    offset: 0,
+    contentType: 'video/webm',
+    extension: 'webm',
+    isImage: false,
+    refine: refineEbml,
+  },
+  // Audio, for the voice note somebody attaches instead of typing it out.
+  { magic: ascii('ID3'), offset: 0, contentType: 'audio/mpeg', extension: 'mp3', isImage: false },
+  { magic: ascii('OggS'), offset: 0, contentType: 'audio/ogg', extension: 'ogg', isImage: false },
 ];
 
 function matches(bytes: Uint8Array, signature: Signature): boolean {
@@ -170,7 +243,7 @@ export function identifyFile(bytes: Uint8Array, declaredName: string): FileKind 
   for (const signature of SIGNATURES) {
     if (!matches(bytes, signature)) continue;
     if (signature.refine) {
-      const refined = signature.refine(bytes);
+      const refined = signature.refine(bytes, declaredName);
       if (refined) return refined;
       continue;
     }

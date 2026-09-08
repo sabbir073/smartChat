@@ -146,10 +146,97 @@ describe('presignS3Url', () => {
     expect(presignS3Url({ ...base, method: 'PUT', key: 'a/other.png' })).not.toBe(put);
   });
 
+  /**
+   * `https://cdn.example.com/files` is the shape a single-box deployment uses: the proxy owns
+   * `/files/` and strips it before the store sees the request. The browser must be sent the
+   * prefixed URL, and the signature must be over the unprefixed path - the one the store checks.
+   */
+  it('keeps a proxy prefix on the URL but out of the signature', () => {
+    const plain = presignS3Url({ ...base, method: 'PUT', endpoint: 'https://cdn.example.com' });
+    const prefixed = presignS3Url({
+      ...base,
+      method: 'PUT',
+      endpoint: 'https://cdn.example.com/files',
+    });
+    expect(prefixed).toContain('https://cdn.example.com/files/smartchat/a/');
+    expect(plain).toContain('https://cdn.example.com/smartchat/a/');
+    // Same host, same path once the prefix is stripped: the same signature.
+    const signatureOf = (url: string) => new URL(url).searchParams.get('X-Amz-Signature');
+    expect(signatureOf(prefixed)).toBe(signatureOf(plain));
+  });
+
   it('puts the bucket in the path or in the host, as the deployment requires', () => {
     expect(presignS3Url({ ...base, method: 'GET' })).toContain('localhost:9100/smartchat/a/');
     expect(presignS3Url({ ...base, method: 'GET', forcePathStyle: false })).toContain(
       'smartchat.localhost:9100/a/',
     );
+  });
+});
+
+describe('identifyFile - video, audio and legacy Office', () => {
+  const box = (brand: string) =>
+    new Uint8Array([
+      0,
+      0,
+      0,
+      0x18,
+      ...'ftyp'.split('').map((c) => c.charCodeAt(0)),
+      ...brand.split('').map((c) => c.charCodeAt(0)),
+      0,
+      0,
+      0,
+      0,
+    ]);
+  const ebml = (doctype: string) =>
+    new Uint8Array([
+      0x1a,
+      0x45,
+      0xdf,
+      0xa3,
+      0x9f,
+      0x42,
+      0x86,
+      0x81,
+      0x01,
+      0x42,
+      0x82,
+      0x84,
+      ...doctype.split('').map((c) => c.charCodeAt(0)),
+    ]);
+
+  it('recognises MP4, MOV, WebM and Matroska from their container bytes', () => {
+    expect(identifyFile(box('isom'), 'clip.mp4')?.contentType).toBe('video/mp4');
+    expect(identifyFile(box('mp42'), 'whatever.bin')?.extension).toBe('mp4');
+    expect(identifyFile(box('qt  '), 'clip.mov')?.contentType).toBe('video/quicktime');
+    expect(identifyFile(ebml('webm'), 'clip.webm')?.contentType).toBe('video/webm');
+    expect(identifyFile(ebml('matroska'), 'clip.mkv')?.extension).toBe('mkv');
+  });
+
+  it('never renders a video inline', () => {
+    expect(identifyFile(box('isom'), 'clip.mp4')?.isImage).toBe(false);
+  });
+
+  it('recognises MP3 and Ogg audio', () => {
+    expect(identifyFile(new Uint8Array([0x49, 0x44, 0x33, 4, 0, 0]), 'note.mp3')?.contentType).toBe(
+      'audio/mpeg',
+    );
+    expect(
+      identifyFile(new Uint8Array([0x4f, 0x67, 0x67, 0x53, 0, 2]), 'note.ogg')?.extension,
+    ).toBe('ogg');
+  });
+
+  it('names a legacy Office file by what it was called, since the bytes cannot tell', () => {
+    const ole = new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 0, 0]);
+    expect(identifyFile(ole, 'report.doc')?.contentType).toBe('application/msword');
+    expect(identifyFile(ole, 'numbers.xls')?.extension).toBe('xls');
+    expect(identifyFile(ole, 'deck.ppt')?.contentType).toBe('application/vnd.ms-powerpoint');
+    expect(identifyFile(ole, 'mystery')?.extension).toBe('doc');
+  });
+
+  it('still refuses executables and scripts whatever they are called', () => {
+    const exe = new Uint8Array([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00, 0x00, 0x00]);
+    expect(identifyFile(exe, 'holiday.mp4')).toBeNull();
+    const elf = new Uint8Array([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01, 0x01, 0x00]);
+    expect(identifyFile(elf, 'photo.png')).toBeNull();
   });
 });
