@@ -449,10 +449,12 @@ climbing without falling means the worker is not running.
 MinIO on the same box is the default and is genuinely fine for a single-server deployment — the
 data lives in the `minio_data` volume and is included in §11's backup.
 
-Two things to know. First, uploaded files are served to browsers over **signed URLs pointing at
-`S3_PUBLIC_ENDPOINT`**, so that hostname has to be reachable from a browser and has to match the
-one the signature was made against. On a single box, either publish MinIO behind a fifth hostname
-with its own nginx block, or set `S3_PUBLIC_ENDPOINT` to a path you proxy from `app.example.com`.
+Two things to know. First, uploaded files go to and come from browsers over **signed URLs pointing
+at `S3_PUBLIC_ENDPOINT`**, so that hostname has to be reachable from a browser. The edge already
+serves it for you: set `S3_PUBLIC_ENDPOINT=https://<CDN_HOST>/files` and the `/files/` path on the
+CDN host is proxied to MinIO, with the prefix stripped, CORS answered for the app host, and the
+body limit sized for `UPLOAD_MAX_BYTES`. (The signature is made over the path MinIO sees, without
+the prefix, so nothing about the proxy has to be configured on the MinIO side.)
 
 Second, if you would rather not run it: any S3-compatible service works. Set `S3_ENDPOINT`,
 `S3_PUBLIC_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY` and `S3_SECRET_KEY`, set

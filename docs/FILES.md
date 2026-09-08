@@ -52,8 +52,14 @@ Decided by reading the first bytes, never by the name or the `Content-Type` (ADR
 | PDF | `%PDF-` |
 | DOCX, XLSX, PPTX | ZIP magic, then the member names near the start |
 | ZIP, GZIP | magic bytes |
-| Legacy Office | OLE compound-file magic |
+| DOC, XLS, PPT | OLE compound-file magic; the three share it, so the name picks which |
+| MP4, MOV, M4V, M4A | the `ftyp` box at byte 4, then its brand |
+| WebM, Matroska | EBML magic, then the DocType |
+| MP3, Ogg | `ID3` / `OggS` |
 | CSV, JSON, plain text | no signature: nothing else matched and every byte is text |
+
+Only images are ever served inline; everything else - video included - is a download
+(`Content-Disposition: attachment`), so nothing a browser could run is ever run in our origin.
 
 Everything else is refused. An ELF or PE binary matches nothing. A PHP script named `photo.png` is
 text, and is stored and served as `text/plain` — which nothing will execute on our behalf.
