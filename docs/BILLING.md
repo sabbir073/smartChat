@@ -122,6 +122,24 @@ Stripe statuses map as: `trialing → active`, `paused → unpaid`; everything e
 
 ### Keys
 
+A **restricted key** is the right secret key to use; the console accepts `rk_test_` / `rk_live_`
+as well as `sk_`. Everything billing calls, and the permission each needs when creating the key
+in Stripe (Developers → API keys → Create restricted key):
+
+| Stripe permission | level | used for |
+| --- | --- | --- |
+| Customers | Write | creating the customer at first checkout |
+| Checkout Sessions | Write | the hosted checkout page |
+| Customer portal | Write | "Manage payment method" |
+| Subscriptions | Write | re-fetching after a webhook, plan changes, cancellation |
+| Invoices | Read | re-fetching an invoice |
+| Products | Write | Sync with Stripe (one product per plan) |
+| Prices | Write | Sync with Stripe (one price per plan and interval) |
+| Balance | Read | Test connection (it reads `livemode` from the balance) |
+
+Everything else can stay at None. Webhook signatures are verified with the signing secret, not
+the key, so no webhook permission is needed.
+
 Entered in the console (Billing tab), stored in `platform_settings`. The secret key and the
 webhook signing secret are sealed with AES-256-GCM under `SETTINGS_ENCRYPTION_KEY` (`SecretBox`,
 `v1:nonce:tag:ciphertext`), and the console only ever says "stored", never what. A test

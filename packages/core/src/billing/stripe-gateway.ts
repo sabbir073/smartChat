@@ -68,14 +68,16 @@ export class StripeGateway {
   /** Is the key real and live? Cheap, and what the console's "Test connection" button calls. */
   async testConnection(): Promise<{ ok: true; livemode: boolean; accountName: string | null }> {
     // The balance object carries `livemode`, which tells us which side of Stripe the key belongs
-    // to without guessing from its prefix; the account gives us a name to show.
-    const [balance, account] = await this.wrap(() =>
-      Promise.all([this.stripe.balance.retrieve(), this.stripe.accounts.retrieveCurrent()]),
-    );
+    // to without guessing from its prefix. The account name is decoration: a restricted key
+    // without the account-information permission cannot read it, and that must not turn a key
+    // that can do everything billing needs into a "connection failed".
+    const balance = await this.wrap(() => this.stripe.balance.retrieve());
+    const account = await this.stripe.accounts.retrieveCurrent().catch(() => null);
     return {
       ok: true,
       livemode: balance.livemode,
-      accountName: account.settings?.dashboard?.display_name ?? account.business_profile?.name ?? null,
+      accountName:
+        account?.settings?.dashboard?.display_name ?? account?.business_profile?.name ?? null,
     };
   }
 
