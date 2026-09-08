@@ -297,7 +297,7 @@ function BillingPageInner() {
               <Usage label="Websites" used={data.usage.properties} max={plan.maxProperties} />
               <Usage label="Team members" used={data.usage.members} max={plan.maxMembers} />
               <div>
-                <dt className="text-[13px] text-ink-muted">Included</dt>
+                <dt className="text-[13px] text-ink-muted">Features</dt>
                 <dd className="mt-1 space-y-0.5 text-sm text-ink">
                   <Feature on={plan.aiAgent}>AI agent</Feature>
                   <Feature on={plan.integrations}>API keys &amp; webhooks</Feature>
@@ -566,11 +566,28 @@ function Usage({ label, used, max }: { label: string; used: number; max: number 
   );
 }
 
+/**
+ * One feature line: a green tick for what the plan includes, a cross and a crossed-out name for
+ * what it does not. It used to be a tick or a dash under the heading
+ * "Included", and a grey dash next to "AI agent" read as a bullet point - as if the free plan
+ * had it.
+ */
 function Feature({ on, children }: { on: boolean; children: React.ReactNode }) {
   return (
     <p className={cn('flex items-center gap-1.5', !on && 'text-ink-subtle')}>
-      <span aria-hidden="true">{on ? '✓' : '–'}</span>
-      {children}
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className={cn('size-4 shrink-0', on ? 'text-success' : 'text-ink-subtle')}
+        aria-hidden="true"
+      >
+        <path d={on ? 'M5 12.5 10 17l9-10' : 'M7 7l10 10M17 7 7 17'} />
+      </svg>
+      <span className={cn(!on && 'line-through')}>{children}</span>
       <span className="sr-only">{on ? ' included' : ' not included'}</span>
     </p>
   );
