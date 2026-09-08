@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { ApiError, api, browserKeptSession } from '@/lib/api-client';
+import { ApiError, api } from '@/lib/api-client';
 
 /**
  * Signing in to the platform console.
@@ -26,8 +26,16 @@ export default function ConsoleLoginPage() {
     try {
       await api.post('/platform/auth/login', { email, password });
       // Same reasoning as the dashboard's sign-in: a session this browser did not keep produces a
-      // redirect straight back to here with nothing said. See `browserKeptSession`.
-      if (!browserKeptSession()) {
+      // redirect straight back to here with nothing said. The console's cookie is HttpOnly and
+      // has no script-readable companion, so the check is the only honest one there is: ask the
+      // API who we are. (This used to look for the dashboard's `sc_csrf` cookie, which the
+      // console never sets - and told every operator with a clean browser that their cookies
+      // were blocked.)
+      const kept = await api.get('/platform/auth/me').then(
+        () => true,
+        () => false,
+      );
+      if (!kept) {
         setError(
           'Signed in, but your browser did not keep the session. Check that cookies are allowed for this site, then try again.',
         );
