@@ -1,4 +1,10 @@
-import type { Conversation, DatabaseOrTransaction, Message, Visitor } from '@smartchat/database';
+import type {
+  Conversation,
+  DatabaseOrTransaction,
+  Message,
+  Visitor,
+  VisitorSession,
+} from '@smartchat/database';
 import { toJson } from '@smartchat/database';
 import { clampLimit, type CursorPage, type TenantContext } from '@smartchat/types';
 import { afterCursor, encodeCursor, notDeleted, tenantScope } from './scope.js';
@@ -33,7 +39,45 @@ export interface PersistedMessage {
   created: boolean;
 }
 
-export type ConversationWithVisitor = Conversation & { visitor: Visitor };
+/**
+ * The slice of the latest session an agent needs to see beside the conversation.
+ *
+ * Where they are, and where they are connecting from. Fetched with the conversation rather than
+ * on demand, because the inbox list shows it for every row and an extra round trip per row is
+ * the N+1 that makes an inbox feel slow.
+ */
+export const LATEST_SESSION_SELECT = {
+  id: true,
+  ip: true,
+  country: true,
+  currentUrl: true,
+  currentTitle: true,
+  landingUrl: true,
+  referrer: true,
+  pageViewCount: true,
+  lastSeenAt: true,
+} as const;
+
+export type LatestSession = Pick<
+  VisitorSession,
+  keyof typeof LATEST_SESSION_SELECT & keyof VisitorSession
+>;
+
+export const VISITOR_WITH_LATEST_SESSION = {
+  visitor: {
+    include: {
+      sessions: {
+        orderBy: { lastSeenAt: 'desc' as const },
+        take: 1,
+        select: LATEST_SESSION_SELECT,
+      },
+    },
+  },
+} as const;
+
+export type ConversationWithVisitor = Conversation & {
+  visitor: Visitor & { sessions: LatestSession[] };
+};
 
 /** A message with just enough of its sender to attribute it. */
 export type MessageWithSender = Message & {
@@ -87,7 +131,7 @@ export class ConversationRepository {
         : {};
     return this.db.conversation.findFirst({
       where: { id: conversationId, ...tenantScope(context), ...notDeleted(), ...restriction },
-      include: { visitor: true },
+      include: VISITOR_WITH_LATEST_SESSION,
     });
   }
 
@@ -314,7 +358,7 @@ export class ConversationRepository {
         ],
         ...afterCursor(query.cursor),
       },
-      include: { visitor: true },
+      include: VISITOR_WITH_LATEST_SESSION,
       orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
     });

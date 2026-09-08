@@ -128,7 +128,19 @@ export function App() {
     (token: string) => {
       if (client.current) return;
       const chat = new ChatClient(token, {
-        onState: (state) => setConnection(state),
+        onState: (state) => {
+          setConnection(state);
+          /**
+           * Say which page this is the moment the socket is up - and again on every reconnect.
+           *
+           * Presence is written from the socket's idea of the current page, which starts empty:
+           * without this the visitor showed online with no page until they navigated, and a
+           * visitor who stays on one page (most of them) never showed one at all.
+           */
+          if (state === 'connected' && hostPage.current) {
+            chat.reportPage(hostPage.current.url, hostPage.current.title);
+          }
+        },
         onAvailability: (available) => setOnline(available),
         onMessage: (message) => {
           upsertMessage(message, 'sent');

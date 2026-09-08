@@ -192,6 +192,7 @@ interface SmartChatGlobal {
 
       window.addEventListener('message', onPanelMessage);
       document.addEventListener('visibilitychange', onVisibility);
+      watchNavigation();
 
       for (const call of pending) {
         const [command, ...args] = call;
@@ -384,6 +385,45 @@ interface SmartChatGlobal {
     function onVisibility(): void {
       post({ type: HOST_TO_PANEL.VISIBILITY, nonce, visible: !d.hidden });
     }
+
+    /**
+     * Tell the panel when the host page's URL changes, without touching `history`.
+     *
+     * A single-page app navigates with `pushState`, which fires no event. The usual answer is to
+     * monkey-patch `history.pushState`, and this loader promised at the top of the file never to
+     * patch anything on somebody else's page - a promise worth more than the convenience. So:
+     * the Navigation API where the browser has it (a standard event, no patching), `popstate`
+     * and `hashchange` everywhere, and a once-a-second comparison of `location.href` as the
+     * floor. The comparison is one string equality; it only runs while the panel exists, because
+     * a visitor who never opened the chat has no socket for this to feed.
+     *
+     * This is what makes "which page are they on" live in the inbox. Without it the panel only
+     * ever knew the page it was first created on.
+     */
+    let lastHref = location.href;
+    let navigationTimer: number | null = null;
+
+    function announcePage(): void {
+      if (!iframe) return;
+      const href = location.href;
+      if (href === lastHref) return;
+      lastHref = href;
+      post({ type: HOST_TO_PANEL.PAGE, nonce, page: { url: href, title: d.title || '' } });
+    }
+
+    function watchNavigation(): void {
+      const nav = (w as unknown as { navigation?: EventTarget }).navigation;
+      if (nav && typeof nav.addEventListener === 'function') {
+        // Fires after the URL has changed for every kind of same-document navigation.
+        nav.addEventListener('navigatesuccess', announcePage);
+      }
+      w.addEventListener('popstate', announcePage);
+      w.addEventListener('hashchange', announcePage);
+      navigationTimer = w.setInterval(announcePage, 1000);
+    }
+
+    // Kept referenced so a future teardown has it; the loader never removes itself today.
+    void navigationTimer;
 
     // --- helpers -------------------------------------------------------------
     function findOwnScript(doc: Document): HTMLScriptElement | null {

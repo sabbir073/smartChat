@@ -46,4 +46,6 @@ export * from './services/platform.service.js';
 export * from './services/retention.service.js';
 export * from './services/webhook.service.js';
 export * from './integrations/outbound.js';
+export * from './geo/geo.service.js';
+export * from './geo/rir.js';
 export * from './integrations/signature.js';

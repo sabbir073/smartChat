@@ -70,7 +70,12 @@ export interface AgentClientHandlers {
   onMessage(message: AgentMessage): void;
   onTyping(payload: { conversationId: string; actorType: string; typing: boolean }): void;
   onConversationEvent(type: string, payload: Record<string, unknown>): void;
-  onVisitorPresence(payload: { visitorId: string; online: boolean; url?: string | null }): void;
+  onVisitorPresence(payload: {
+    visitorId: string;
+    online: boolean;
+    url?: string | null;
+    title?: string | null;
+  }): void;
 }
 
 interface Ack<T> {
@@ -150,8 +155,17 @@ export class AgentRealtimeClient {
       (payload: { conversationId: string; actorType: string; typing: boolean }) =>
         this.handlers.onTyping(payload),
     );
-    socket.on(ServerEvent.PRESENCE_VISITOR, (payload: { visitorId: string; online: boolean }) =>
-      this.handlers.onVisitorPresence(payload),
+    socket.on(
+      ServerEvent.PRESENCE_VISITOR,
+      (payload: {
+        visitorId: string;
+        online: boolean;
+        url?: string | null;
+        title?: string | null;
+      }) =>
+        // The whole payload. This used to be narrowed to `{ visitorId, online }`, which threw
+        // away the page the server had just gone to the trouble of sending.
+        this.handlers.onVisitorPresence(payload),
     );
 
     for (const event of [

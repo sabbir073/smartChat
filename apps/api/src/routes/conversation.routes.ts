@@ -9,9 +9,8 @@ import {
   sendMessageSchema,
   updateConversationSchema,
 } from '@smartchat/validation';
-import type { Conversation, Visitor } from '@smartchat/database';
+import { requirePermission, type ConversationWithVisitor } from '@smartchat/core';
 import { Permission } from '@smartchat/types';
-import { requirePermission } from '@smartchat/core';
 import type { Container } from '../container.js';
 import { requireTenant } from '../plugins/auth.js';
 import { created, noContent, ok } from '../lib/reply.js';
@@ -53,6 +52,23 @@ export interface ConversationDto {
     isBanned: boolean;
     bannedUntil: string | null;
   };
+  /**
+   * The latest session: where they are on the site and where they are connecting from.
+   *
+   * Null when a visitor has no session yet, which is possible for a conversation created from a
+   * ticket or an import. The page is the value at the last HTTP touch; the realtime presence
+   * event carries the live one, and the dashboard prefers that when it has it.
+   */
+  session: {
+    ip: string | null;
+    country: string | null;
+    currentUrl: string | null;
+    currentTitle: string | null;
+    landingUrl: string | null;
+    referrer: string | null;
+    pageViewCount: number;
+    lastSeenAt: string;
+  } | null;
 }
 
 /** Flatten the stored JSON, dropping anything that is not a plain string. */
@@ -63,7 +79,8 @@ function toPreChatEntries(value: unknown): { key: string; value: string }[] {
     .map(([key, entry]) => ({ key, value: entry as string }));
 }
 
-export function toConversationDto(row: Conversation & { visitor: Visitor }): ConversationDto {
+export function toConversationDto(row: ConversationWithVisitor): ConversationDto {
+  const session = row.visitor.sessions[0] ?? null;
   return {
     id: row.id,
     propertyId: row.propertyId,
@@ -96,6 +113,18 @@ export function toConversationDto(row: Conversation & { visitor: Visitor }): Con
         (!row.visitor.bannedUntil || row.visitor.bannedUntil.getTime() > Date.now()),
       bannedUntil: row.visitor.bannedUntil?.toISOString() ?? null,
     },
+    session: session
+      ? {
+          ip: session.ip,
+          country: session.country,
+          currentUrl: session.currentUrl,
+          currentTitle: session.currentTitle,
+          landingUrl: session.landingUrl,
+          referrer: session.referrer,
+          pageViewCount: session.pageViewCount,
+          lastSeenAt: session.lastSeenAt.toISOString(),
+        }
+      : null,
   };
 }
 

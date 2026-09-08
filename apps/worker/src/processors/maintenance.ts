@@ -1,10 +1,13 @@
 import type { Job } from 'bullmq';
 import type { Database } from '@smartchat/database';
 import {
+  GeoService,
   MaintenanceJob,
+  RIR_FILE_MAX_BYTES,
   RetentionService,
   SessionRepository,
   TokenRepository,
+  createOutboundFetch,
   type StorageService,
 } from '@smartchat/core';
 import type { Logger } from '@smartchat/logger';
@@ -58,6 +61,27 @@ export async function processMaintenanceJob(
         logger.warn(
           { orphaned: outcome.objectsOrphaned },
           'retention deleted attachment rows whose objects could not be removed',
+        );
+      }
+      return;
+    }
+
+    case MaintenanceJob.REFRESH_GEO: {
+      const geo = new GeoService({
+        db,
+        // The registries are public hosts on the internet, fetched through the same DNS-pinned
+        // client as everything else that leaves this process - with a cap sized for a ~15MB
+        // registry file rather than a webhook acknowledgement.
+        fetch: createOutboundFetch({ maxResponseBytes: RIR_FILE_MAX_BYTES }),
+      });
+      const outcome = await geo.refresh();
+      if (outcome.complete) {
+        logger.info({ rangeCount: outcome.rangeCount }, 'geo ranges rebuilt from the registries');
+      } else {
+        // Loud, because the alternative is a flag quietly missing for a whole continent.
+        logger.error(
+          { sources: outcome.sources },
+          'geo refresh incomplete - kept the previous data',
         );
       }
       return;

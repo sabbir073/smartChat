@@ -1,7 +1,7 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { AppError, ErrorCode } from '@smartchat/types';
-import type { PlatformPrincipal } from '@smartchat/core';
+import { MaintenanceJob, type PlatformPrincipal } from '@smartchat/core';
 import type { Container } from '../container.js';
 import { noContent, ok } from '../lib/reply.js';
 import { parseBody, parseParams, parseQuery } from '../lib/validate.js';
@@ -187,6 +187,31 @@ export async function platformRoutes(app: FastifyInstance, container: Container)
       }
       const outcome = await container.retention.apply();
       return ok(reply, outcome);
+    });
+
+    /**
+     * The IP → country data: whether it has ever been loaded, when, and from which registries.
+     *
+     * Read by anybody who can see system health, because "no flags anywhere" has two very
+     * different causes - an address the registries do not list, or a table nobody has loaded -
+     * and this is how an operator tells them apart.
+     */
+    guarded.get('/platform/geo', async (request, reply) => {
+      const principal = requirePlatform(request);
+      if (!principal.permissions.has('platform:system:view')) {
+        throw new AppError(ErrorCode.FORBIDDEN, 'Your platform role does not include that');
+      }
+      return ok(reply, await container.geo.status());
+    });
+
+    /** Queue a rebuild now rather than at 05:30. De-duplicated: pressing twice queues once. */
+    guarded.post('/platform/geo/refresh', async (request, reply) => {
+      const principal = requirePlatform(request);
+      if (!principal.permissions.has('platform:settings:manage')) {
+        throw new AppError(ErrorCode.FORBIDDEN, 'Your platform role does not include that');
+      }
+      await container.queue.enqueueOnce(MaintenanceJob.REFRESH_GEO, {}, 'geo-manual');
+      return ok(reply, { queued: true });
     });
 
     guarded.get('/platform/audit', async (request, reply) => {

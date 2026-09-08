@@ -27,9 +27,11 @@ export const MaintenanceJob = {
   PURGE_EXPIRED_TOKENS: 'maintenance.purge_expired_tokens',
   APPLY_RETENTION: 'maintenance.apply_retention',
   /**
-   * Roll subscriptions forward: end trials, start new periods, issue invoices, apply the grace
-   * window. Idempotent, so it is safe to run hourly even though it usually finds nothing.
+   * Rebuild the IP → country table from the five registries' daily files. Idempotent and
+   * all-or-nothing: a partial fetch leaves yesterday's data in place rather than a continent
+   * missing. Daily, and once at startup when the table has never been loaded.
    */
+  REFRESH_GEO: 'maintenance.refresh_geo',
 } as const;
 
 export interface SendEmailPayload {
@@ -75,6 +77,7 @@ export type JobPayloadMap = {
   [MaintenanceJob.PURGE_EXPIRED_SESSIONS]: Record<string, never>;
   [MaintenanceJob.PURGE_EXPIRED_TOKENS]: Record<string, never>;
   [MaintenanceJob.APPLY_RETENTION]: Record<string, never>;
+  [MaintenanceJob.REFRESH_GEO]: Record<string, never>;
 };
 
 export type JobName = keyof JobPayloadMap;

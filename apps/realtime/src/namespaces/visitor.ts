@@ -13,7 +13,12 @@ import {
   syncSinceSchema,
   widgetPageViewSchema,
 } from '@smartchat/validation';
-import { agentAvailabilityReader, sanitiseUrl, type VisitorIdentity } from '@smartchat/core';
+import {
+  VisitorRepository,
+  agentAvailabilityReader,
+  sanitiseUrl,
+  type VisitorIdentity,
+} from '@smartchat/core';
 import { z } from 'zod';
 import type { RealtimeContainer } from '../container.js';
 import { MAX_STRIKES, SocketAbuseGuard } from '../lib/abuse.js';
@@ -334,8 +339,34 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
       void (async () => {
         try {
           const input = parsePayload(widgetPageViewSchema, payload);
-          currentPage = { url: sanitiseUrl(input.url), title: input.title ?? null };
+          const url = sanitiseUrl(input.url);
+          const changed = url !== currentPage.url;
+          currentPage = { url, title: input.title ?? null };
           await touchPresence();
+
+          /**
+           * Persist it too, when it is a new page.
+           *
+           * This handler used to update Redis presence and nothing else, so `current_url` in
+           * the session row was frozen at the landing page and the page-view history only ever
+           * had one entry. The socket is where navigations arrive, so the socket is where they
+           * are recorded. Not on a repeat of the same URL: a reconnect re-announces the page it
+           * is already on.
+           */
+          if (url && changed && identity.sessionId) {
+            await new VisitorRepository(container.db)
+              .recordPageView({
+                accountId: identity.accountId,
+                propertyId: identity.propertyId,
+                visitorId: identity.visitorId,
+                sessionId: identity.sessionId,
+                url,
+                title: currentPage.title,
+                referrer: null,
+                now: new Date(),
+              })
+              .catch((error: unknown) => logger.error({ err: error }, 'page view not recorded'));
+          }
           void automation.onPage({ url: currentPage.url ?? input.url, title: currentPage.title });
           // Agents watching this property see the visitor move around the site live.
           namespace.server

@@ -22,6 +22,7 @@ import {
   RateLimiter,
   PresenceService,
   RedisEventPublisher,
+  GeoService,
   RedisAvailabilityPublisher,
   createOutboundFetch,
   SmtpMailProvider,
@@ -71,6 +72,7 @@ export interface Container {
   properties: PropertyService;
   widgets: WidgetService;
   visitors: VisitorService;
+  geo: GeoService;
   conversations: ConversationService;
   presence: PresenceService;
   connectionTickets: ConnectionTicketService;
@@ -179,11 +181,15 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const presence = new PresenceService(redis);
   const connectionTickets = new ConnectionTicketService(redis);
 
+  // Lookup only. The table is rebuilt by the worker; this process never fetches a registry.
+  const geo = new GeoService({ db, clock });
+
   const visitors = new VisitorService({
     db,
     visitorTokenSecret: config.VISITOR_TOKEN_SECRET,
     allowLocalhostOrigins: config.ALLOW_LOCALHOST_ORIGINS,
     isAgentAvailable: hasAvailableAgent,
+    resolveCountry: (ip) => geo.lookup(ip).then((hit) => hit?.country ?? null),
     maxUploadBytes: config.UPLOAD_MAX_BYTES,
     clock,
   });
@@ -315,7 +321,12 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
      * a server-side request forgery needs. The same setting that governs webhook targets governs
      * this one, so a deployment cannot end up with two different answers about private addresses.
      */
-    fetchSite: createOutboundFetch({ allowPrivateTargets: config.ALLOW_PRIVATE_WEBHOOK_URLS }),
+    fetchSite: createOutboundFetch({
+      allowPrivateTargets: config.ALLOW_PRIVATE_WEBHOOK_URLS,
+      // A home page, not a webhook acknowledgement: the snippet sits just before </body>, at the
+      // end of the document, and the default cap was cutting it off on any page over 64KB.
+      maxResponseBytes: 2 * 1024 * 1024,
+    }),
     clock,
   });
 
@@ -347,6 +358,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     properties,
     widgets,
     visitors,
+    geo,
     conversations,
     presence,
     connectionTickets,

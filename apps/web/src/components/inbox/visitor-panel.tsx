@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Badge, Button, Field, Modal, Select, TextInput, useToast } from '@/components/ui';
 import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
+import { countryFlag, countryName, pageLabel, pagePath } from '@/lib/geo';
 import type { ConversationDto } from '@/lib/types';
 
 /** Offered lengths. "Permanent" is the absence of an end, not a date a century away. */
@@ -14,12 +15,28 @@ const BAN_LENGTHS = [
   { value: '', label: 'Permanently' },
 ];
 
-function Row({ label, value }: { label: string; value: string | null | undefined }) {
-  if (!value) return null;
+function Row({
+  label,
+  value,
+  title,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  title?: string | undefined;
+  /** For an address or a path: fixed-width so digits line up and a truncation is visible. */
+  mono?: boolean;
+}) {
+  if (value === null || value === undefined || value === '') return null;
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5">
       <dt className="shrink-0 text-[12px] text-ink-subtle">{label}</dt>
-      <dd className="truncate text-right text-[13px] text-ink">{value}</dd>
+      <dd
+        className={`truncate text-right text-[13px] text-ink ${mono ? 'font-mono text-[12px]' : ''}`}
+        title={title}
+      >
+        {value}
+      </dd>
     </div>
   );
 }
@@ -39,17 +56,23 @@ function humaniseKey(key: string): string {
 export function VisitorPanel({
   conversation,
   online,
-  currentUrl,
+  currentPage,
   onVisitorChanged,
 }: {
   conversation: ConversationDto;
   online: boolean;
-  currentUrl: string | null;
+  /** Live, from presence. Null when offline or not yet known; the session's last page then shows. */
+  currentPage: { url: string; title: string | null } | null;
   /** Lets the inbox refresh, so the badge and the button agree with the server. */
   onVisitorChanged?: () => void;
 }) {
-  const { visitor } = conversation;
+  const { visitor, session } = conversation;
   const { can } = useAuth();
+  const country = session?.country ?? visitor.country;
+  const flag = countryFlag(country);
+  const page =
+    currentPage ??
+    (session?.currentUrl ? { url: session.currentUrl, title: session.currentTitle } : null);
   const toast = useToast();
   const [banOpen, setBanOpen] = useState(false);
   const [hours, setHours] = useState('24');
@@ -122,12 +145,67 @@ export function VisitorPanel({
           Session
         </h3>
         <dl className="divide-y divide-border">
-          <Row label="Currently on" value={currentUrl} />
+          {/*
+            Where they are, live when they are online and the session's last page otherwise. A
+            link, because the fastest way to understand "the checkout is broken" is to open the
+            checkout - in a new tab, never this one.
+          */}
+          {page && (
+            <Row
+              label={online ? 'Currently on' : 'Last seen on'}
+              title={page.url}
+              value={
+                <a
+                  href={page.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand hover:underline"
+                >
+                  {pageLabel(page)}
+                  {page.title?.trim() && pagePath(page.url) !== '/' ? (
+                    <span className="ml-1 text-ink-subtle">{pagePath(page.url)}</span>
+                  ) : null}
+                </a>
+              }
+            />
+          )}
+          {session?.landingUrl && session.landingUrl !== page?.url && (
+            <Row
+              label="Landed on"
+              value={pagePath(session.landingUrl)}
+              title={session.landingUrl}
+              mono
+            />
+          )}
+          {session && session.pageViewCount > 1 && (
+            <Row label="Pages this visit" value={String(session.pageViewCount)} />
+          )}
+          <Row
+            label="Country"
+            value={
+              country ? (
+                <span className="inline-flex items-center gap-1.5">
+                  {flag && (
+                    <span role="img" aria-hidden="true" className="text-[15px] leading-none">
+                      {flag}
+                    </span>
+                  )}
+                  {countryName(country)}
+                </span>
+              ) : null
+            }
+          />
+          {/*
+            The address is shown because an agent handling abuse, a fraud check or a "why does it
+            say I'm in the wrong country" question needs it. It is the visitor's, it is personal
+            data, and it is on this panel for people who are allowed to see this conversation -
+            the same rule as their email above.
+          */}
+          <Row label="IP address" value={session?.ip} mono />
           <Row label="Browser" value={visitor.browser} />
           <Row label="Operating system" value={visitor.os} />
           <Row label="Device" value={visitor.deviceType} />
           <Row label="Language" value={visitor.language} />
-          <Row label="Country" value={visitor.country} />
           <Row label="Returning" value={visitor.isReturning ? 'Yes' : 'First visit'} />
         </dl>
       </section>

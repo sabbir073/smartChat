@@ -147,10 +147,21 @@ export interface OutboundFetchOptions {
    * has to run somewhere, and in development that somewhere is this machine.
    */
   allowPrivateTargets?: boolean;
+  /**
+   * How much of a response is kept. Past this the rest is read and dropped, never buffered.
+   *
+   * The default is sized for a webhook acknowledgement, which is the client's first job. It is
+   * an option because two other callers need more and one of them was silently broken by the
+   * default: the installation check reads a customer's home page looking for a snippet that
+   * sits just before `</body>` — the end of the document — and a page over 64KB was being
+   * truncated before the check reached it, reporting a correct paste as missing.
+   */
+  maxResponseBytes?: number;
 }
 
 export function createOutboundFetch(options: OutboundFetchOptions = {}): OutboundFetch {
   const allowPrivate = options.allowPrivateTargets === true;
+  const maxResponseBytes = options.maxResponseBytes ?? MAX_RESPONSE_BYTES;
 
   return async function send(rawUrl, request) {
     let url: URL;
@@ -208,7 +219,7 @@ export function createOutboundFetch(options: OutboundFetchOptions = {}): Outboun
             size += chunk.length;
             // A receiver that answers with a gigabyte should not be able to use our memory as
             // the place it lands. Past the cap the rest is dropped, not buffered.
-            if (size <= MAX_RESPONSE_BYTES) chunks.push(chunk);
+            if (size <= maxResponseBytes) chunks.push(chunk);
           });
           incoming.on('end', () => {
             const text = Buffer.concat(chunks).toString('utf8');

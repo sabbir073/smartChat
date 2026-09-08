@@ -17,6 +17,8 @@ export interface VisitorContextInput {
   browser?: string | null;
   os?: string | null;
   deviceType: DeviceType;
+  /** ISO 3166-1 alpha-2, from the IP via the registry data. Null when unknown - never guessed. */
+  country?: string | null;
 }
 
 export class VisitorRepository {
@@ -173,6 +175,7 @@ export class VisitorRepository {
         screenWidth: input.screenWidth ?? null,
         screenHeight: input.screenHeight ?? null,
         language: input.language ?? null,
+        country: input.country ?? null,
       },
     });
   }
@@ -204,6 +207,12 @@ export class VisitorRepository {
     sessionId: string,
     now: Date,
     page?: { url?: string | null; title?: string | null },
+    /**
+     * Where they are connecting from *now*. A resumed session is the same visit continuing from
+     * a possibly different network - a phone leaving the office wifi - and the agent looking at
+     * the panel wants the current answer, not the one from an hour ago.
+     */
+    network?: { ip?: string | null; country?: string | null },
   ): Promise<void> {
     await this.db.visitorSession.updateMany({
       where: { id: sessionId },
@@ -211,8 +220,18 @@ export class VisitorRepository {
         lastSeenAt: now,
         ...(page?.url ? { currentUrl: page.url } : {}),
         ...(page?.title !== undefined ? { currentTitle: page.title } : {}),
+        ...(network?.ip ? { ip: network.ip } : {}),
+        ...(network?.country !== undefined ? { country: network.country } : {}),
       },
     });
+  }
+
+  /**
+   * The visitor's most recent country, kept on the durable row so a conversation list and the
+   * automation rules can read it without joining sessions.
+   */
+  async setCountry(visitorId: string, country: string | null): Promise<void> {
+    await this.db.visitor.updateMany({ where: { id: visitorId }, data: { country } });
   }
 
   async recordPageView(input: {

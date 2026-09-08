@@ -62,7 +62,10 @@ export default function InboxPage() {
   const [threadError, setThreadError] = useState<string | null>(null);
 
   const [onlineVisitors, setOnlineVisitors] = useState<Set<string>>(new Set());
-  const [visitorUrls, setVisitorUrls] = useState<Record<string, string>>({});
+  /** Where each online visitor is right now, from presence. Keyed by visitor id. */
+  const [visitorPages, setVisitorPages] = useState<
+    Record<string, { url: string; title: string | null }>
+  >({});
   const [typingIn, setTypingIn] = useState<Set<string>>(new Set());
 
   const clientRef = useRef<AgentRealtimeClient | null>(null);
@@ -262,7 +265,7 @@ export default function InboxPage() {
         }
       },
 
-      onVisitorPresence: ({ visitorId, online, url }) => {
+      onVisitorPresence: ({ visitorId, online, url, title }) => {
         setOnlineVisitors((current) => {
           const next = new Set(current);
           if (online) next.add(visitorId);
@@ -270,23 +273,26 @@ export default function InboxPage() {
           return next;
         });
         if (typeof url === 'string' && url.length > 0) {
-          setVisitorUrls((current) => ({ ...current, [visitorId]: url }));
+          setVisitorPages((current) => ({
+            ...current,
+            [visitorId]: { url, title: title ?? null },
+          }));
         }
       },
 
       onPresenceSnapshot: (snapshot) => {
         const online = new Set<string>();
-        const urls: Record<string, string> = {};
+        const pages: Record<string, { url: string; title: string | null }> = {};
         for (const property of snapshot) {
           for (const visitor of property.visitors) {
             online.add(visitor.visitorId);
-            if (visitor.url) urls[visitor.visitorId] = visitor.url;
+            if (visitor.url) pages[visitor.visitorId] = { url: visitor.url, title: visitor.title };
           }
         }
         // A snapshot replaces rather than merges: it is the gateway's complete answer for the
         // properties just subscribed, so anyone missing from it is genuinely gone.
         setOnlineVisitors(online);
-        setVisitorUrls((current) => ({ ...current, ...urls }));
+        setVisitorPages((current) => ({ ...current, ...pages }));
       },
 
       onConversationEvent: (_type, payload) => {
@@ -767,6 +773,7 @@ export default function InboxPage() {
                 conversations={conversations}
                 selectedId={selectedId}
                 onlineVisitors={onlineVisitors}
+                visitorPages={visitorPages}
                 onSelect={(conversation) => void openConversation(conversation)}
               />
               {cursor && (
@@ -865,7 +872,7 @@ export default function InboxPage() {
             <VisitorPanel
               conversation={selected}
               online={onlineVisitors.has(selected.visitor.id)}
-              currentUrl={visitorUrls[selected.visitor.id] ?? null}
+              currentPage={visitorPages[selected.visitor.id] ?? null}
               // A ban changes the conversation payload, so the list is re-read rather than
               // patched locally - the badge should show what the server believes, not what this
               // tab hoped would happen.

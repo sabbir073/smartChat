@@ -33,6 +33,17 @@ interface HealthDto {
   failedWebhookDeliveries: number;
 }
 
+interface GeoDto {
+  loaded: boolean;
+  refreshedAt: string | null;
+  rangeCount: number;
+  sources: Record<
+    string,
+    { ok: true; records: number; fetchedAt: string } | { ok: false; error: string }
+  >;
+  lastError: string | null;
+}
+
 interface AuditRow {
   id: string;
   action: string;
@@ -58,6 +69,8 @@ export default function ConsolePage() {
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [flags, setFlags] = useState<FlagRow[]>([]);
   const [health, setHealth] = useState<HealthDto | null>(null);
+  const [geo, setGeo] = useState<GeoDto | null>(null);
+  const [geoRefreshing, setGeoRefreshing] = useState(false);
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +94,7 @@ export default function ConsolePage() {
         setFlags((await api.get<FlagRow[]>('/platform/flags')).data);
       } else if (tab === 'health') {
         setHealth((await api.get<HealthDto>('/platform/health')).data);
+        setGeo((await api.get<GeoDto>('/platform/geo')).data);
       } else {
         setAudit((await api.get<AuditRow[]>('/platform/audit', { query: { limit: 50 } })).data);
       }
@@ -298,6 +312,61 @@ export default function ConsolePage() {
             Counts, not verdicts. How many pending deliveries is too many depends on the hour, and a
             threshold guessed here would either cry wolf or stay quiet during the outage.
           </p>
+
+          {geo && (
+            <div className="rounded-[var(--radius-surface)] border border-ink-inverted/10 p-4 sm:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-[15px] font-semibold">Visitor country data</h3>
+                  <p className="mt-0.5 text-[13px] text-ink-inverted/60">
+                    Built from the five internet registries&apos; own allocation files, refreshed
+                    daily at 05:30 UTC.{' '}
+                    {geo.loaded
+                      ? `${geo.rangeCount.toLocaleString()} blocks, last rebuilt ${
+                          geo.refreshedAt ? new Date(geo.refreshedAt).toLocaleString() : 'never'
+                        }.`
+                      : 'Not loaded yet - every visitor shows without a country until it is.'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={geoRefreshing}
+                  onClick={() => {
+                    setGeoRefreshing(true);
+                    void api
+                      .post('/platform/geo/refresh', {})
+                      .then(() => setError(null))
+                      .catch((caught) =>
+                        setError(
+                          caught instanceof ApiError ? caught.message : 'Could not queue that.',
+                        ),
+                      )
+                      .finally(() => setGeoRefreshing(false));
+                  }}
+                  className="h-9 rounded-[var(--radius-control)] border border-ink-inverted/20 px-3 text-[13px] font-medium disabled:opacity-50"
+                >
+                  {geoRefreshing ? 'Queuing…' : 'Rebuild now'}
+                </button>
+              </div>
+              {geo.lastError && (
+                <p className="mt-2 text-[13px] text-danger-soft">
+                  The last rebuild was not applied: {geo.lastError}
+                </p>
+              )}
+              <ul className="mt-3 grid gap-1 text-[12.5px] text-ink-inverted/70 sm:grid-cols-5">
+                {Object.entries(geo.sources).map(([registry, source]) => (
+                  <li key={registry}>
+                    <span className="font-mono uppercase">{registry}</span>{' '}
+                    {source.ok ? (
+                      <span>{source.records.toLocaleString()} records</span>
+                    ) : (
+                      <span className="text-danger-soft">{source.error}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

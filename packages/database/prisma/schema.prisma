@@ -1727,3 +1727,43 @@ model PlatformAuditLog {
   @@index([accountId, createdAt(sort: Desc)])
   @@map("platform_audit_logs")
 }
+
+// -----------------------------------------------------------------------------
+// Geolocation
+//
+// Built from the five regional internet registries' own daily allocation files rather than a
+// vendor database: no licence, no key, no per-lookup call, and the same upstream every vendor
+// starts from. Country only - an IP address says where a network is, and nothing finer than that
+// is honest. See packages/core/src/geo.
+// -----------------------------------------------------------------------------
+
+/// One allocated block and the country the registry allocated it to. Rebuilt wholesale by the
+/// refresh job; never edited by hand. The GiST index is what makes `network >>= $ip` fast.
+model IpCountryRange {
+  id       Int                  @id @default(autoincrement())
+  /// Optional to Prisma only. A model with a *required* `Unsupported` field loses its create and
+  /// upsert operations, which breaks the id-assigning client extension for every model at once.
+  /// The migration adds a CHECK constraint so the column can never actually be null; Prisma
+  /// does not model CHECK constraints, so the two stay in agreement.
+  network  Unsupported("cidr")?
+  country  String               @db.Char(2)
+  registry String               @db.VarChar(8)
+
+  @@index([network(ops: raw("inet_ops"))], type: Gist, map: "ip_country_ranges_network_idx")
+  @@map("ip_country_ranges")
+}
+
+/// When the ranges were last rebuilt and from what, so the console can say whether the data is
+/// fresh, stale, or was never loaded - the difference between "no flag because we do not know"
+/// and "no flag because nobody ran the job".
+model GeoDataset {
+  id          String    @id
+  refreshedAt DateTime? @map("refreshed_at") @db.Timestamptz(6)
+  rangeCount  Int       @default(0) @map("range_count")
+  /// Per-registry outcome of the last refresh: fetched-at, record count, or the error.
+  sources     Json      @default("{}")
+  lastError   String?   @map("last_error")
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("geo_datasets")
+}

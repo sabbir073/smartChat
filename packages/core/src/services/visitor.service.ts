@@ -88,6 +88,13 @@ export interface VisitorServiceOptions {
    * realtime layer's concern, and this keeps the two testable apart.
    */
   isAgentAvailable?: (accountId: string) => Promise<boolean>;
+  /**
+   * IP → country, from the registries' own data. Injected for the same reason as presence: the
+   * lookup lives in its own module with its own table, and a service test should not need it.
+   * Absent means every visitor is "unknown", which is honest and is what a fresh deployment
+   * shows until the first registry load has run.
+   */
+  resolveCountry?: (ip: string | null | undefined) => Promise<string | null>;
   maxUploadBytes?: number;
   clock?: Clock;
 }
@@ -126,10 +133,22 @@ export class VisitorService {
     const now = this.clock.now();
     const agent = parseUserAgent(input.userAgent);
 
+    /**
+     * Resolved once per bootstrap, from the address the request actually arrived from.
+     *
+     * The address is the only thing here the page cannot lie about: it comes from the socket
+     * (or from the proxy chain we trust), never from the body. Country-level only - see
+     * `geo/rir.ts` for why that is the honest limit.
+     */
+    const country = this.options.resolveCountry
+      ? await this.options.resolveCountry(input.ip).catch(() => null)
+      : null;
+
     const context = {
       accountId: property.accountId,
       propertyId: property.propertyId,
       ip: input.ip ?? null,
+      country,
       userAgent: input.userAgent ?? null,
       referrer: sanitiseUrl(input.page?.referrer),
       landingUrl: sanitiseUrl(input.page?.url),
@@ -172,10 +191,12 @@ export class VisitorService {
       if (resumable) {
         sessionId = resumable.id;
         startedNewSession = false;
-        await this.visitors.touchSession(sessionId, now, {
-          url: context.landingUrl,
-          title: input.page?.title ?? null,
-        });
+        await this.visitors.touchSession(
+          sessionId,
+          now,
+          { url: context.landingUrl, title: input.page?.title ?? null },
+          { ip: context.ip, country },
+        );
       } else {
         sessionId = (await this.visitors.createSession(context, visitor.id, now)).id;
       }
@@ -185,6 +206,11 @@ export class VisitorService {
     }
 
     await this.visitors.touch(visitor.id, now, startedNewSession && isReturning);
+    // The durable row carries the latest answer, so the inbox can show a flag without a join and
+    // an automation rule on `visitor.country` matches a returning visitor too.
+    if (existing && country !== visitor.country) {
+      await this.visitors.setCountry(visitor.id, country);
+    }
 
     if (context.landingUrl) {
       await this.visitors.recordPageView({

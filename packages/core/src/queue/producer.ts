@@ -20,6 +20,7 @@ const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'maintenance.purge_expired_sessions': QueueName.MAINTENANCE,
   'maintenance.purge_expired_tokens': QueueName.MAINTENANCE,
   'maintenance.apply_retention': QueueName.MAINTENANCE,
+  'maintenance.refresh_geo': QueueName.MAINTENANCE,
 };
 
 /**
@@ -70,6 +71,23 @@ export class QueueProducer {
       repeat: { pattern },
       jobId: `repeat:${job}`,
     });
+  }
+
+  /**
+   * Run once, now, and only if the same request is not already queued or running.
+   *
+   * `jobId` is BullMQ's de-duplication key: a second call with the same id while the first is
+   * still in the queue is a no-op. Used for "load this the first time" work that must not stack
+   * up when several replicas start together.
+   */
+  async enqueueOnce<T extends JobName>(
+    job: T,
+    payload: JobPayloadMap[T],
+    dedupeKey: string,
+  ): Promise<void> {
+    const queueName = QUEUE_FOR_JOB[job];
+    if (!queueName) throw new Error(`No queue registered for job "${job}"`);
+    await this.queue(queueName).add(job, payload, { jobId: `once:${dedupeKey}` });
   }
 
   async close(): Promise<void> {

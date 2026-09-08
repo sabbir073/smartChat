@@ -117,6 +117,17 @@ export interface ConversationDto {
     isBanned: boolean;
     bannedUntil: string | null;
   };
+  /** The latest session: where they are on the site and where they are connecting from. */
+  session: {
+    ip: string | null;
+    country: string | null;
+    currentUrl: string | null;
+    currentTitle: string | null;
+    landingUrl: string | null;
+    referrer: string | null;
+    pageViewCount: number;
+    lastSeenAt: string;
+  } | null;
 }
 
 export interface TriggerCondition {

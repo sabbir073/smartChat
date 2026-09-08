@@ -37,8 +37,12 @@ vi.mock('@/components/ui', async (importOriginal) => {
   return { ...actual, useToast: () => ({ success: vi.fn(), error: vi.fn(), info: vi.fn() }) };
 });
 
-function conversation(visitor: Partial<ConversationDto['visitor']> = {}): ConversationDto {
+function conversation(
+  visitor: Partial<ConversationDto['visitor']> = {},
+  session: ConversationDto['session'] = null,
+): ConversationDto {
   return {
+    session,
     id: 'c1',
     propertyId: 'p1',
     status: 'open',
@@ -80,18 +84,18 @@ afterEach(cleanup);
 describe('VisitorPanel moderation', () => {
   it('offers nothing to somebody without the permission', () => {
     can.mockReturnValue(false);
-    render(<VisitorPanel conversation={conversation()} online currentUrl={null} />);
+    render(<VisitorPanel conversation={conversation()} online currentPage={null} />);
     expect(screen.queryByRole('button', { name: /ban visitor/i })).toBeNull();
     expect(screen.queryByText(/moderation/i)).toBeNull();
   });
 
   it('asks for the permission by name rather than by role', () => {
-    render(<VisitorPanel conversation={conversation()} online currentUrl={null} />);
+    render(<VisitorPanel conversation={conversation()} online currentPage={null} />);
     expect(can).toHaveBeenCalledWith('contact:update');
   });
 
   it('sends the length the manager chose, and the reason they typed', async () => {
-    render(<VisitorPanel conversation={conversation()} online currentUrl={null} />);
+    render(<VisitorPanel conversation={conversation()} online currentPage={null} />);
     fireEvent.click(screen.getByRole('button', { name: /^ban visitor$/i }));
 
     fireEvent.change(screen.getByLabelText(/for how long/i), { target: { value: '168' } });
@@ -113,7 +117,7 @@ describe('VisitorPanel moderation', () => {
   });
 
   it('sends no end date when the ban is permanent', async () => {
-    render(<VisitorPanel conversation={conversation()} online currentUrl={null} />);
+    render(<VisitorPanel conversation={conversation()} online currentPage={null} />);
     fireEvent.click(screen.getByRole('button', { name: /^ban visitor$/i }));
     fireEvent.change(screen.getByLabelText(/for how long/i), { target: { value: '' } });
     fireEvent.click(
@@ -126,7 +130,7 @@ describe('VisitorPanel moderation', () => {
   });
 
   it('omits the reason entirely rather than sending an empty one', async () => {
-    render(<VisitorPanel conversation={conversation()} online currentUrl={null} />);
+    render(<VisitorPanel conversation={conversation()} online currentPage={null} />);
     fireEvent.click(screen.getByRole('button', { name: /^ban visitor$/i }));
     fireEvent.click(
       screen.getAllByRole('button', { name: /^ban visitor$/i }).at(-1) as HTMLElement,
@@ -146,7 +150,7 @@ describe('VisitorPanel moderation', () => {
       <VisitorPanel
         conversation={conversation({ isBanned: true, bannedUntil: null })}
         online={false}
-        currentUrl={null}
+        currentPage={null}
       />,
     );
     expect(screen.getByText('Banned')).toBeTruthy();
@@ -162,7 +166,7 @@ describe('VisitorPanel moderation', () => {
       <VisitorPanel
         conversation={conversation({ isBanned: true, bannedUntil: until })}
         online={false}
-        currentUrl={null}
+        currentPage={null}
       />,
     );
     expect(screen.getByText(/banned until/i)).toBeTruthy();
@@ -174,11 +178,71 @@ describe('VisitorPanel moderation', () => {
       <VisitorPanel
         conversation={conversation({ isBanned: true })}
         online={false}
-        currentUrl={null}
+        currentPage={null}
         onVisitorChanged={onVisitorChanged}
       />,
     );
     fireEvent.click(screen.getByRole('button', { name: /lift ban/i }));
     await waitFor(() => expect(onVisitorChanged).toHaveBeenCalled());
+  });
+});
+
+/**
+ * Where they are and where they are from. This is what an agent asks first, and until now the
+ * panel had a Country row that could never render because nothing ever wrote the column.
+ */
+describe('VisitorPanel session', () => {
+  const session: NonNullable<ConversationDto['session']> = {
+    ip: '123.200.2.234',
+    country: 'BD',
+    currentUrl: 'https://example.com/pricing?plan=pro',
+    currentTitle: 'Pricing',
+    landingUrl: 'https://example.com/',
+    referrer: null,
+    pageViewCount: 3,
+    lastSeenAt: new Date('2026-09-08T10:00:00Z').toISOString(),
+  };
+
+  it('shows the flag, the country name and the address', () => {
+    render(
+      <VisitorPanel conversation={conversation({}, session)} online={false} currentPage={null} />,
+    );
+    expect(screen.getByText('Bangladesh')).toBeTruthy();
+    expect(screen.getByText('🇧🇩')).toBeTruthy();
+    expect(screen.getByText('123.200.2.234')).toBeTruthy();
+  });
+
+  it('prefers the live page over the session’s last page when the visitor is online', () => {
+    render(
+      <VisitorPanel
+        conversation={conversation({}, session)}
+        online
+        currentPage={{ url: 'https://example.com/checkout', title: 'Checkout' }}
+      />,
+    );
+    expect(screen.getByText('Currently on')).toBeTruthy();
+    const link = screen.getByRole('link', { name: /checkout/i }) as HTMLAnchorElement;
+    expect(link.href).toBe('https://example.com/checkout');
+    expect(link.target).toBe('_blank');
+  });
+
+  it('falls back to the last page the session recorded when offline', () => {
+    render(
+      <VisitorPanel conversation={conversation({}, session)} online={false} currentPage={null} />,
+    );
+    expect(screen.getByText('Last seen on')).toBeTruthy();
+    expect(screen.getByRole('link', { name: /pricing/i })).toBeTruthy();
+  });
+
+  it('shows nothing for a country it does not know rather than a blank flag', () => {
+    render(
+      <VisitorPanel
+        conversation={conversation({}, { ...session, country: null, ip: null })}
+        online={false}
+        currentPage={null}
+      />,
+    );
+    expect(screen.queryByText('Country')).toBeNull();
+    expect(screen.queryByText('IP address')).toBeNull();
   });
 });

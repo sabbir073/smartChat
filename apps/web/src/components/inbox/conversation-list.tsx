@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/components/ui';
+import { countryFlag, countryName, pageLabel } from '@/lib/geo';
 import type { ConversationDto } from '@/lib/types';
 
 function relativeTime(iso: string): string {
@@ -28,11 +29,14 @@ export function ConversationList({
   conversations,
   selectedId,
   onlineVisitors,
+  visitorPages = {},
   onSelect,
 }: {
   conversations: ConversationDto[];
   selectedId: string | null;
   onlineVisitors: Set<string>;
+  /** Live pages from presence. Falls back to the session's last recorded page when absent. */
+  visitorPages?: Record<string, { url: string; title: string | null }>;
   onSelect: (conversation: ConversationDto) => void;
 }) {
   return (
@@ -41,6 +45,20 @@ export function ConversationList({
         const selected = conversation.id === selectedId;
         const online = onlineVisitors.has(conversation.visitor.id);
         const label = conversation.visitor.name ?? conversation.visitor.email ?? 'Visitor';
+        const country = conversation.session?.country ?? conversation.visitor.country;
+        const flag = countryFlag(country);
+        /**
+         * Where they are. Live presence when they are online, the session's last page otherwise:
+         * an agent picking up a conversation from an hour ago still wants to know which page it
+         * came from.
+         */
+        const live = online ? visitorPages[conversation.visitor.id] : undefined;
+        const page =
+          live ??
+          (conversation.session?.currentUrl
+            ? { url: conversation.session.currentUrl, title: conversation.session.currentTitle }
+            : null);
+        const where = pageLabel(page);
 
         return (
           <li key={conversation.id}>
@@ -67,11 +85,38 @@ export function ConversationList({
 
               <span className="min-w-0 flex-1">
                 <span className="flex items-baseline justify-between gap-2">
-                  <span className="truncate text-sm font-medium text-ink">{label}</span>
+                  <span className="flex min-w-0 items-baseline gap-1.5">
+                    {flag && (
+                      <span
+                        className="shrink-0 text-[14px] leading-none"
+                        role="img"
+                        aria-label={countryName(country) ?? country ?? undefined}
+                        title={countryName(country) ?? undefined}
+                      >
+                        {flag}
+                      </span>
+                    )}
+                    <span className="truncate text-sm font-medium text-ink">{label}</span>
+                  </span>
                   <span className="shrink-0 text-[11px] tabular-nums text-ink-subtle">
                     {relativeTime(conversation.lastMessageAt)}
                   </span>
                 </span>
+                {where && (
+                  <span
+                    className={cn(
+                      'mt-0.5 flex items-center gap-1 truncate text-[12px]',
+                      online ? 'text-brand' : 'text-ink-subtle',
+                    )}
+                    title={page?.url}
+                  >
+                    <span aria-hidden="true">{online ? '●' : '○'}</span>
+                    <span className="truncate">
+                      {online ? 'On ' : 'Was on '}
+                      {where}
+                    </span>
+                  </span>
+                )}
                 <span className="mt-0.5 flex items-center gap-2">
                   <span className="truncate text-[13px] text-ink-muted">
                     {conversation.subject ?? conversation.visitor.email ?? 'No subject'}

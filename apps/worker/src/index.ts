@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { Worker, type Job } from 'bullmq';
 import {
+  GeoService,
   LogMailProvider,
   QueueName,
   QueueProducer,
@@ -153,6 +154,20 @@ async function main(): Promise<void> {
   await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_SESSIONS, {}, '0 3 * * *');
   await scheduler.schedule(MaintenanceJob.PURGE_EXPIRED_TOKENS, {}, '30 3 * * *');
   await scheduler.schedule(MaintenanceJob.APPLY_RETENTION, {}, '0 4 * * *');
+  // The registries publish once a day, early UTC. Fetch after they have.
+  await scheduler.schedule(MaintenanceJob.REFRESH_GEO, {}, '30 5 * * *');
+
+  /**
+   * A fresh deployment should not wait until tomorrow for its first flag.
+   *
+   * Enqueued rather than run inline so a slow registry cannot hold up the worker's own start,
+   * and only when the table is empty: a restart during the day must not trigger a rebuild.
+   */
+  const geoStatus = await new GeoService({ db }).status();
+  if (!geoStatus.loaded) {
+    await scheduler.enqueueOnce(MaintenanceJob.REFRESH_GEO, {}, 'geo-initial-load');
+    logger.info('geo table is empty - queued the first registry load');
+  }
   // Every quarter of an hour. Frequent enough that a report opened after lunch reflects the
   // morning; cheap enough that it is two days of aggregate per account, not the whole history.
   await scheduler.schedule(AnalyticsJob.ROLLUP, {}, '*/15 * * * *');

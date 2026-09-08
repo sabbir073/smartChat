@@ -317,6 +317,23 @@ docker compose ps          # every service should read "healthy"
 > afterwards. It also refuses to start if `SUPERADMIN_EMAIL` or `SUPERADMIN_PASSWORD` is still the
 > value from `.env.example`, or if the password is shorter than twelve characters.
 
+### Visitor country data
+
+Agents see a flag and a country beside each visitor. It comes from a table this deployment builds
+itself, from the five regional internet registries' daily allocation files (ARIN, RIPE NCC, APNIC,
+LACNIC, AFRINIC) — no vendor database, no API key, no per-lookup call. The worker fetches the five
+files over https from `ftp.arin.net`, `ftp.ripe.net`, `ftp.apnic.net`, `ftp.lacnic.net` and
+`ftp.afrinic.net`, so outbound access to those hosts is needed; ~40MB a day.
+
+The worker queues the first load on its first start when the table is empty, and rebuilds daily at
+05:30 UTC. The load is all-or-nothing: if any registry cannot be fetched, yesterday's data stays
+and the console's Health tab says which registry failed. The same tab has a **Rebuild now** button.
+Until the first load completes — a minute or two — visitors show without a country.
+
+Country only. An IP address identifies a network, not a person, and a visitor on a VPN or a
+corporate proxy shows the network's country. Nothing can do better than that, and this makes no
+claim to.
+
 ---
 
 ## 7. Check it actually works
