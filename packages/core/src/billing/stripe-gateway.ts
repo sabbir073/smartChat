@@ -126,7 +126,11 @@ export class StripeGateway {
         allow_promotion_codes: true,
         billing_address_collection: 'auto',
         // Stripe collects tax ids and addresses for the invoice when the customer wants them.
+        // With an existing customer (ours always is - the customer is created before the
+        // session), Stripe requires permission to write the business name and address it
+        // collects back onto that customer, or it refuses the session outright.
         tax_id_collection: { enabled: true },
+        customer_update: { name: 'auto', address: 'auto' },
       }),
     );
     if (!session.url) {
