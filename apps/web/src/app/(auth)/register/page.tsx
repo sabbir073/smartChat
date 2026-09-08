@@ -68,7 +68,10 @@ export default function RegisterPage() {
                   aria-describedby={describedBy}
                   invalid={invalid}
                   autoComplete="name"
-                  autoFocus
+                  // Not auto-focused. Focusing the email field on load makes Chrome open its
+                  // saved-passwords dropdown before the person has touched anything, and Chrome
+                  // swallows the next click anywhere on the page to close it - so the first
+                  // click on "Create an account" did nothing.
                   required
                   value={form.name}
                   onChange={update('name')}

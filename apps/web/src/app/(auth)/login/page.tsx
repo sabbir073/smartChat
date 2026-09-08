@@ -81,7 +81,10 @@ function LoginForm() {
                   type="email"
                   name="email"
                   autoComplete="username"
-                  autoFocus
+                  // Not auto-focused. Focusing the email field on load makes Chrome open its
+                  // saved-passwords dropdown before the person has touched anything, and Chrome
+                  // swallows the next click anywhere on the page to close it - so the first
+                  // click on "Create an account" did nothing.
                   required
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
