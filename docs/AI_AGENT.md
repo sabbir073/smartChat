@@ -10,19 +10,21 @@ to a hosted model the operator configures in the console.
    callback. Its inputs are text — the system prompt, the passages retrieved for this website, the
    last few messages, the visitor's question — and its output is text that the worker validates
    before anything is written. A hijacked prompt has nothing to reach.
-2. **Public content only.** It answers from the website itself (crawled and indexed), the
-   published help-centre articles and the "key facts" its owner typed in. Nothing from the inbox,
-   contacts, tickets or other conversations is ever in the prompt.
+2. **Public content only.** It answers from the website itself (crawled and indexed, rendered
+   through a browser when it is JavaScript-only), the product feed, the files its owner
+   uploaded, the published help-centre articles and the "key facts" its owner typed in. Nothing
+   from the inbox, contacts, tickets or other conversations is ever in the prompt.
 3. **Anything about the business that needs the backend, or that it does not know, becomes a
    ticket.** It says so in one sentence and shows *Create a ticket* / *Ask something else*. Never
    a guess. Greetings, thanks, small talk and general questions that are not about the business
    are answered in the model's own words (`chat`) - "Hello" gets "Hello", not a ticket form.
 4. **The owner chooses the mode** per website: *Team* (today's behaviour), *AI when the team is
-   offline*, or *AI answers first*. A person replying or being assigned always takes a
-   conversation over; the AI never speaks in it again.
+   offline*, or *AI answers first*. Every website has its own assistant - name, voice, knowledge,
+   mode. A person replying or being assigned always takes a conversation over; the AI speaks in
+   it again only when a person hands it back.
 5. **Local first, hosted fallback.** The local model (`ai` container) has priority. The fallback
-   (OpenAI or DeepSeek, key in the console) is used when the local model fails, times out, is busy,
-   or has failed repeatedly.
+   (OpenAI, DeepSeek or Anthropic, key in the console - or the account's own key) is used when
+   the local model fails, times out, is busy, or has failed repeatedly.
 
 ## Architecture
 
