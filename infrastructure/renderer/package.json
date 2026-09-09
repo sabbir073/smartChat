@@ -4,6 +4,6 @@
   "type": "module",
   "description": "A headless browser behind one endpoint, for pages that are empty until their JavaScript runs.",
   "dependencies": {
-    "playwright": "1.50.1"
+    "playwright": "1.55.1"
   }
 }
