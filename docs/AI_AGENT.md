@@ -225,6 +225,17 @@ written on the turn (`ai_turns.rating`, for analytics) and into the message's me
 widget shows it after a reload and the inbox shows it next to the reply). Only the visitor whose
 conversation it is can rate, and only a bot message the AI wrote.
 
+## Drafts for agents (`AiReplyService.draft`, `POST /conversations/:id/ai/draft`)
+
+"Suggest a reply" in the composer. The same retrieval, prompt and contract as a visitor-facing
+reply, run in the API against the latest visitor message, and the text comes back to the agent
+instead of being posted: they read it, edit it, send it - or not. When the model would have
+offered a ticket there is no draft and the agent is told the content does not cover it (with a
+nudge to add it to Key facts after replying); when the visitor asked for a person, the draft
+says so. Needs a plan with the AI agent and the reply permission; twenty a minute per person.
+Recorded as a `draft` turn (never counted as a reply) so the report shows how much the team
+leans on it.
+
 ## The report (`analytics.service.ts`, `/reports/ai`, Reports → AI assistant)
 
 Read live from `ai_turns` for a range of days in the account's timezone, per website or all:

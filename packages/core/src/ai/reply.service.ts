@@ -1,9 +1,10 @@
 import type { AiSetting, Database } from '@smartchat/database';
-import { AppError, ErrorCode, ServerEvent, room } from '@smartchat/types';
+import { AppError, ErrorCode, Permission, ServerEvent, room, type TenantContext } from '@smartchat/types';
 import type { EntitlementService } from '../billing/entitlements.js';
 import { toMessageDto, type EventPublisher } from '../realtime/events.js';
 import { ConversationRepository } from '../repositories/conversation.repository.js';
 import { agentAvailabilityReader } from '../services/availability.js';
+import { requirePermission } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
 import { parseReply, REPLY_SCHEMA } from './contract.js';
 import { decideAiReply, type AiSkipReason } from './dispatch.js';
@@ -31,6 +32,16 @@ export interface AiReplyServiceOptions {
   events: EventPublisher;
   clock?: Clock;
   log?: (event: string, detail: Record<string, unknown>) => void;
+}
+
+/** A reply drafted for an agent. `draft` is null when the content does not answer the question. */
+export interface AiDraft {
+  draft: string | null;
+  sources: Array<{ title: string; url: string | null }>;
+  /** Why there is no draft: the content does not cover it, or the model is unavailable. */
+  reason?: 'not_in_content' | 'wants_person' | 'unavailable' | 'no_question';
+  provider: string | null;
+  latencyMs: number;
 }
 
 export type AiReplyOutcome =
@@ -260,6 +271,150 @@ export class AiReplyService {
     } finally {
       await this.typing(conversation, settings.assistantName, false);
     }
+  }
+
+  /**
+   * A reply drafted for a person to edit and send.
+   *
+   * The same retrieval, prompt and contract as a visitor-facing reply - the draft is as grounded
+   * as an answer would be - but nothing is posted: the text comes back to the agent, who decides.
+   * When the model would have offered a ticket there is no draft, and the agent is told the
+   * content does not cover it; a person can answer what the assistant cannot, that is the point.
+   * Recorded as a `draft` turn so the report can say how often the team leans on it.
+   */
+  async draft(context: TenantContext, conversationId: string): Promise<AiDraft> {
+    requirePermission(context, Permission.CONVERSATION_REPLY);
+    await this.options.entitlements.assertFeature(context.accountId, 'aiAgent');
+    const { db } = this.options;
+    const conversation = await db.conversation.findFirst({
+      where: {
+        accountId: context.accountId,
+        id: conversationId,
+        deletedAt: null,
+        ...(context.propertyIds && context.propertyIds.size > 0 ? { propertyId: { in: [...context.propertyIds] } } : {}),
+      },
+      include: {
+        property: { select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } } },
+      },
+    });
+    if (!conversation) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+    const message = await db.message.findFirst({
+      where: { conversationId: conversation.id, senderType: 'visitor', deletedAt: null, type: 'text' },
+      orderBy: { seq: 'desc' },
+    });
+    const question = message?.body.trim().slice(0, MAX_QUESTION_CHARS) ?? '';
+    if (!message || !question) return { draft: null, sources: [], reason: 'no_question', provider: null, latencyMs: 0 };
+
+    const settings =
+      (await db.aiSetting.findUnique({
+        where: { accountId_propertyId: { accountId: context.accountId, propertyId: conversation.propertyId } },
+      })) ?? null;
+    const assistantName = settings?.assistantName ?? 'AI assistant';
+    const instructions = settings?.instructions ?? '';
+
+    const started = this.clock.timestamp();
+    const [retrieved, history] = await Promise.all([
+      this.options.knowledge.retrieve(context.accountId, conversation.propertyId, question),
+      this.history(conversation.id, message.seq),
+    ]);
+    const passages: PromptPassage[] = retrieved.chunks.map((chunk, i) => ({
+      number: i + 1,
+      title: chunk.title,
+      heading: chunk.heading,
+      text: chunk.text,
+    }));
+    const prompt = buildPrompt({
+      assistantName,
+      businessName: conversation.property.name,
+      instructions,
+      passages,
+      history,
+      question,
+    });
+    const chunksInPrompt = retrieved.chunks.slice(0, prompt.passages.length);
+
+    let outcome;
+    try {
+      outcome = await this.options.gateway.complete({
+        messages: prompt.messages,
+        schema: REPLY_SCHEMA,
+        maxTokens: 300,
+        temperature: 0.2,
+      });
+    } catch (error) {
+      const latencyMs = this.clock.timestamp() - started;
+      await this.recordDraft(context, conversation, message.id, chunksInPrompt, {
+        provider: null,
+        model: null,
+        fellBack: false,
+        promptTokens: 0,
+        completionTokens: 0,
+        latencyMs,
+        error: `unavailable: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+      });
+      return { draft: null, sources: [], reason: 'unavailable', provider: null, latencyMs };
+    }
+    const latencyMs = this.clock.timestamp() - started;
+    const parsed = parseReply(outcome.result.content, {
+      passageCount: chunksInPrompt.length,
+      allowedHosts: allowedHosts(conversation.property),
+      grounding: [
+        ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text]),
+        question,
+        instructions,
+      ],
+      practicePhrases: [...PRACTICE_PHRASES],
+    });
+    const decision = parsed.ok ? parsed.reply.decision : 'failed';
+    const text = parsed.ok && (decision === 'answer' || decision === 'chat') ? parsed.reply.text : null;
+    const cited = parsed.ok && decision === 'answer' ? parsed.reply.sources.map((n) => chunksInPrompt[n - 1]!).filter(Boolean) : [];
+    await this.recordDraft(context, conversation, message.id, chunksInPrompt, {
+      provider: outcome.provider,
+      model: outcome.result.model,
+      fellBack: outcome.fellBack,
+      promptTokens: outcome.result.promptTokens,
+      completionTokens: outcome.result.completionTokens,
+      latencyMs,
+      citedChunkIds: cited.map((chunk) => chunk.chunkId),
+      error: [outcome.fallbackReason, parsed.ok ? parsed.downgraded : parsed.reason, text ? null : `model decided: ${decision}`]
+        .filter(Boolean)
+        .join('; ') || null,
+    });
+    return {
+      draft: text,
+      sources: dedupeSources(cited),
+      ...(text ? {} : { reason: decision === 'human' ? 'wants_person' : 'not_in_content' }),
+      provider: outcome.provider,
+      latencyMs,
+    };
+  }
+
+  private async recordDraft(
+    context: TenantContext,
+    conversation: { id: string; propertyId: string },
+    visitorMessageId: string,
+    retrieved: RetrievedChunk[],
+    turn: Omit<TurnRecord, 'decision'> & { citedChunkIds?: string[] },
+  ): Promise<void> {
+    await this.options.db.aiTurn.create({
+      data: {
+        accountId: context.accountId,
+        propertyId: conversation.propertyId,
+        conversationId: conversation.id,
+        visitorMessageId,
+        replyMessageId: null,
+        decision: 'draft',
+        provider: turn.provider,
+        model: turn.model,
+        fellBack: turn.fellBack,
+        promptTokens: turn.promptTokens,
+        completionTokens: turn.completionTokens,
+        latencyMs: turn.latencyMs,
+        retrievedChunkIds: retrieved.map((chunk) => chunk.chunkId),
+        citedChunkIds: turn.citedChunkIds ?? [],
+        error: turn.error,
+      },
+    });
   }
 
   // ---------------------------------------------------------------------------

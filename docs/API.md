@@ -159,6 +159,7 @@ POST   /integrations/webhooks/:id/ping
 GET    /properties/:id/ai             PATCH  /properties/:id/ai        { mode?, assistantName?, keyFacts?, … }
 GET    /reports/ai?from&to&propertyId   the AI assistant's report
 POST   /conversations/:id/ai/resume     POST /conversations/:id/ai/pause
+POST   /conversations/:id/ai/draft      → { draft, sources, reason? }
 POST   /widget/messages/:id/feedback   { rating: "up" | "down" | null }   (visitor token)
 POST   /properties/:id/ai/reindex
 GET    /properties/:id/ai/files          POST /properties/:id/ai/files/sign { fileName, byteSize }

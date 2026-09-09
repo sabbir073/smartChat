@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
+import { useBilling } from '@/lib/billing';
 import {
   AgentRealtimeClient,
   ulid,
@@ -15,6 +16,7 @@ import { DEFAULT_FILTERS, FilterBar, type InboxFilters } from '@/components/inbo
 import {
   MessageThread,
   AgentComposer,
+  type SuggestedReply,
   type ThreadMessage,
 } from '@/components/inbox/message-thread';
 import { VisitorPanel } from '@/components/inbox/visitor-panel';
@@ -33,6 +35,7 @@ import type { ConversationDto, MemberDto, PropertyDto, ShortcutDto } from '@/lib
 export default function InboxPage() {
   const { activeAccount, user } = useAuth();
   const toast = useToast();
+  const aiIncluded = useBilling().entitlements?.plan.aiAgent ?? false;
 
   const [connection, setConnection] = useState<AgentConnectionState>('idle');
   const [conversations, setConversations] = useState<ConversationDto[]>([]);
@@ -958,6 +961,11 @@ export default function InboxPage() {
                   selected.status === 'closed'
                     ? undefined
                     : (file) => void sendFile(selected.id, file)
+                }
+                onSuggest={
+                  selected.status === 'closed' || !aiIncluded
+                    ? undefined
+                    : async () => (await api.post<SuggestedReply>(`/conversations/${selected.id}/ai/draft`)).data
                 }
                 placeholderValues={{
                   'visitor.name': selected.visitor.name,

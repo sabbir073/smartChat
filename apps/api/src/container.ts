@@ -48,6 +48,7 @@ import {
   type RedisClient,
   AiAnalyticsService,
   AiFeedbackService,
+  AiReplyService,
   AiSettingsService,
   KnowledgeFileService,
   KnowledgeService,
@@ -99,6 +100,8 @@ export interface Container {
   aiFeedback: AiFeedbackService;
   /** The AI report. */
   aiAnalytics: AiAnalyticsService;
+  /** Drafts for agents. The visitor-facing replies run in the worker; this is the same engine, asked directly. */
+  aiReplies: AiReplyService;
   platformAi: PlatformAiService;
   /** The Stripe client for the currently stored secret, or null when none is stored. */
   stripeGateway: () => Promise<StripeGateway | null>;
@@ -345,11 +348,12 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
    * than calling the gateway directly. A message sent over HTTP therefore reaches connected
    * clients by exactly the same route as one sent over a socket.
    */
+  const events = new RedisEventPublisher(redis, (error) =>
+    logger.error({ err: error }, 'failed to publish domain event'),
+  );
   const conversations = new ConversationService({
     db,
-    events: new RedisEventPublisher(redis, (error) =>
-      logger.error({ err: error }, 'failed to publish domain event'),
-    ),
+    events,
     // An offline message is a request nobody was there to answer, so it becomes a ticket.
     tickets,
     webhooks,
@@ -447,6 +451,15 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const aiFiles = new KnowledgeFileService({ db, storage, knowledge, queue, clock });
   const aiFeedback = new AiFeedbackService({ db, clock });
   const aiAnalytics = new AiAnalyticsService({ db });
+  const aiReplies = new AiReplyService({
+    db,
+    knowledge,
+    gateway: aiGateway,
+    entitlements,
+    events,
+    clock,
+    log: (event, detail) => logger.warn(detail, event),
+  });
   const platformAi = new PlatformAiService({
     db,
     settings,
@@ -521,6 +534,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     aiFiles,
     aiFeedback,
     aiAnalytics,
+    aiReplies,
     platformAi,
     stripeGateway,
     stripeWebhooks,

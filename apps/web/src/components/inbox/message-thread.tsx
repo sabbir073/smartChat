@@ -215,6 +215,12 @@ export function MessageThread({
  * never delivered to the visitor, so the mode must be visible at the moment of typing rather than
  * discovered afterwards.
  */
+export interface SuggestedReply {
+  draft: string | null;
+  sources: Array<{ title: string; url: string | null }>;
+  reason?: 'not_in_content' | 'wants_person' | 'unavailable' | 'no_question';
+}
+
 export function AgentComposer({
   disabled,
   disabledReason,
@@ -225,9 +231,15 @@ export function AgentComposer({
   placeholderValues = {},
   onAttach,
   maxBytes = 26_214_400,
+  onSuggest,
 }: {
   disabled: boolean;
   disabledReason?: string;
+  /**
+   * Ask the assistant for a draft of the reply. Absent when the plan has no AI agent. The draft
+   * lands in the box for the agent to edit; nothing is sent by this.
+   */
+  onSuggest?: (() => Promise<SuggestedReply>) | undefined;
   onSend: (body: string, asNote: boolean) => void;
   onTyping: (typing: boolean) => void;
   /** Saved replies this agent may insert. Empty is a valid state, not an error. */
@@ -250,6 +262,41 @@ export function AgentComposer({
   const [activeIndex, setActiveIndex] = useState(0);
   const [fileError, setFileError] = useState<string | null>(null);
   const filePicker = useRef<HTMLInputElement>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestion, setSuggestion] = useState<{ note: string; tone: 'ok' | 'none' } | null>(null);
+
+  async function suggest() {
+    if (!onSuggest || suggesting || disabled) return;
+    setSuggesting(true);
+    setSuggestion(null);
+    try {
+      const result = await onSuggest();
+      if (result.draft) {
+        setValue(result.draft);
+        setAsNote(false);
+        setToken(null);
+        const from = result.sources.map((s) => s.title).join(', ');
+        setSuggestion({ note: from ? `Drafted from ${from}. Read it, edit it, then send.` : 'Drafted by the assistant. Read it, edit it, then send.', tone: 'ok' });
+        textarea.current?.focus();
+      } else {
+        setSuggestion({
+          note:
+            result.reason === 'wants_person'
+              ? 'The visitor is asking for a person - that is you.'
+              : result.reason === 'unavailable'
+                ? 'The assistant is not reachable right now.'
+                : result.reason === 'no_question'
+                  ? 'There is no visitor message to answer yet.'
+                  : 'Nothing in your website, files or key facts answers this. Once you reply, consider adding it to Key facts.',
+          tone: 'none',
+        });
+      }
+    } catch {
+      setSuggestion({ note: 'Could not get a draft.', tone: 'none' });
+    } finally {
+      setSuggesting(false);
+    }
+  }
 
   /**
    * Refuse an obviously-too-large file before anything is uploaded.
@@ -438,7 +485,23 @@ export function AgentComposer({
         {asNote && (
           <span className="ml-1 text-[12px] text-ink-muted">The visitor will not see this.</span>
         )}
+        {onSuggest && !asNote && (
+          <button
+            type="button"
+            disabled={disabled || suggesting}
+            onClick={() => void suggest()}
+            title="Ask the AI assistant to draft a reply from your content. You edit and send it."
+            className="ml-auto rounded-full px-2.5 py-0.5 text-[12px] font-medium text-brand transition-colors hover:bg-brand-soft disabled:opacity-50"
+          >
+            {suggesting ? 'Drafting…' : '✦ Suggest a reply'}
+          </button>
+        )}
       </div>
+      {suggestion && (
+        <p className={cn('mb-1.5 text-[12px]', suggestion.tone === 'ok' ? 'text-ink-muted' : 'text-warning')} role="status">
+          {suggestion.note}
+        </p>
+      )}
 
       {token && !disabled && (
         <ShortcutPicker

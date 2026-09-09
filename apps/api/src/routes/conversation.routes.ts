@@ -220,6 +220,14 @@ export async function conversationRoutes(
     return ok(reply, { id: conversation.id, aiPausedAt: conversation.aiPausedAt?.toISOString() ?? null });
   });
 
+  /** A reply drafted by the assistant for the agent to edit and send. Nothing is posted. */
+  app.post('/conversations/:id/ai/draft', async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'aiDraft', `member:${tenant.memberId ?? tenant.accountId}`);
+    const { id } = parseParams(idParam, request.params);
+    return ok(reply, await container.aiReplies.draft(tenant, id));
+  });
+
   app.post('/conversations/:id/read', async (request, reply) => {
     const tenant = requireTenant(request);
     const { id } = parseParams(idParam, request.params);

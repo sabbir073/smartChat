@@ -148,6 +148,8 @@ export const RATE_LIMITS = {
    */
   publicApiDaily: { limit: 100_000, windowMs: 24 * 60 * 60_000 },
   mutation: { limit: 120, windowMs: 60_000 },
+  /** A draft costs a model call; twenty a minute per person is a busy agent, not a script. */
+  aiDraft: { limit: 20, windowMs: 60_000 },
   /**
    * Starting a checkout or opening the Stripe portal creates objects on Stripe's side. Ten a
    * minute per account is more than anybody changing their mind needs.
