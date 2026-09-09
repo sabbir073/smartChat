@@ -13,6 +13,7 @@ export interface AiSettingsView {
   handoffText: string;
   maxRepliesPerConversation: number;
   crawlMaxPages: number;
+  crawlExclude: string[];
   enabledAt: string | null;
   website: {
     url: string;
@@ -26,6 +27,7 @@ export interface AiSettingsView {
   knowledge: {
     documents: number;
     pages: number;
+    files: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;
@@ -33,6 +35,17 @@ export interface AiSettingsView {
     failures: Array<{ documentId: string; title: string; error: string }>;
   };
   usage: { replies: number; answers: number; chats: number; tickets: number; handoffs: number; failed: number };
+}
+
+export interface KnowledgeFileView {
+  id: string;
+  fileName: string;
+  contentType: string;
+  byteSize: number;
+  status: 'pending' | 'processing' | 'ready' | 'failed';
+  error: string | null;
+  chunks: number;
+  createdAt: string;
 }
 
 export const AI_MODES: ReadonlyArray<{ value: AiMode; label: string; short: string; description: string }> = [

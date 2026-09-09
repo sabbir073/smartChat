@@ -36,6 +36,11 @@ export interface CrawlOptions {
   /** Stop early - the job was cancelled, the property is gone. */
   shouldStop?: () => boolean;
   /**
+   * Paths the owner does not want read: `/blog/*`, `/cart`, `*.pdf`. See `excludes`. The start
+   * page is always read.
+   */
+  exclude?: string[];
+  /**
    * Development only: let the crawler reach private addresses (a test site on localhost). The
    * production compose file never sets it, and the config schema defaults it to false.
    */
@@ -152,6 +157,7 @@ export async function crawlSite(
   await sleep(delayMs);
 
   // --- the queue -------------------------------------------------------------------------------
+  const excluded = excludes(options.exclude ?? []);
   const queued = new Set<string>();
   const queue: string[] = [];
   const enqueue = (candidate: string, base: string | null): void => {
@@ -161,6 +167,10 @@ export async function crawlSite(
     if (!hosts.has(parsed.hostname)) return;
     if (SKIP_EXTENSIONS.test(parsed.pathname)) return;
     if (!rules.allows(parsed.pathname + parsed.search)) return;
+    if (url !== start && excluded(parsed.pathname + parsed.search)) {
+      summary.skipped += 1;
+      return;
+    }
     queued.add(url);
     queue.push(url);
   };
@@ -249,6 +259,32 @@ export async function crawlSite(
 // --- URL handling ----------------------------------------------------------------------------------
 
 /** Absolute, http(s), default port, no fragment, no tracking parameters, trailing slash on bare paths. */
+/**
+ * The owner's exclusions, as a test on a URL's path.
+ *
+ * A pattern is a path with `*` wildcards. One that starts with `/` is anchored at the start of
+ * the path and, with no wildcard, also covers everything beneath it, so `/blog` excludes `/blog`
+ * and `/blog/2024/hello`. One that does not start with `/` may match anywhere in the path, so
+ * `*.pdf` and `.pdf` both exclude every PDF, and `?add-to-cart` excludes the shop's action links.
+ * Matching ignores case. An empty or unparseable pattern excludes nothing.
+ */
+export function excludes(patterns: string[]): (path: string) => boolean {
+  const tests = patterns
+    .map((raw) => raw.trim())
+    .filter((pattern) => pattern.length > 0 && pattern.length <= 200)
+    .map((pattern) => {
+      const anchored = pattern.startsWith('/');
+      const body = pattern
+        .split('*')
+        .map((piece) => piece.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*');
+      const tail = anchored && !pattern.includes('*') ? '(?:$|[/?#])' : '';
+      return new RegExp(`${anchored ? '^' : ''}${body}${tail}`, 'i');
+    });
+  if (tests.length === 0) return () => false;
+  return (path) => tests.some((test) => test.test(path));
+}
+
 export function normaliseUrl(candidate: string, base: string | null): string | null {
   let url: URL;
   try {

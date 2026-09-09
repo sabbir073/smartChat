@@ -6,6 +6,7 @@ import {
   AiSettingsService,
   CrawlService,
   EntitlementService,
+  KnowledgeFileService,
   GeoService,
   KnowledgeService,
   LogMailProvider,
@@ -155,6 +156,7 @@ async function main(): Promise<void> {
     allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
     log: (event, detail) => logger.warn(detail, event),
   });
+  const aiFiles = new KnowledgeFileService({ db, storage, knowledge, queue: scheduler });
 
   /**
    * Say at boot whether the local model is there, the same way mail is reported: reachable with
@@ -179,7 +181,7 @@ async function main(): Promise<void> {
       QueueName.AI,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined, requestId: (job.data as { requestId?: string }).requestId }, () =>
-          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings, crawler, queue: scheduler }),
+          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings, crawler, files: aiFiles, queue: scheduler }),
         ),
       // As many as the local model serves at once, plus a little so overflow reaches the
       // fallback rather than queueing here first. Indexing shares the queue and is rare.

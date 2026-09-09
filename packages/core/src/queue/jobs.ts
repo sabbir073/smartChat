@@ -56,6 +56,7 @@ export const AiJob = {
   REINDEX_PROPERTY: 'ai.reindex_property',
   /** Crawl one property's website and index it. Minutes long; one at a time per property. */
   CRAWL_PROPERTY: 'ai.crawl_property',
+  EXTRACT_FILE: 'ai.extract_file',
   /** Daily: queue a crawl for every AI-enabled website not read in the last week. */
   RECRAWL_DUE: 'ai.recrawl_due',
 } as const;
@@ -77,6 +78,11 @@ export interface AiIndexDocumentPayload {
 export interface AiReindexPropertyPayload {
   accountId: string;
   propertyId: string;
+}
+
+export interface AiExtractFilePayload {
+  accountId: string;
+  fileId: string;
 }
 
 export interface SendEmailPayload {
@@ -129,6 +135,7 @@ export type JobPayloadMap = {
   [AiJob.REMOVE_DOCUMENT]: AiIndexDocumentPayload;
   [AiJob.REINDEX_PROPERTY]: AiReindexPropertyPayload;
   [AiJob.CRAWL_PROPERTY]: AiReindexPropertyPayload;
+  [AiJob.EXTRACT_FILE]: AiExtractFilePayload;
   [AiJob.RECRAWL_DUE]: Record<string, never>;
 };
 

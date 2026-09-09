@@ -34,6 +34,14 @@ export function attachmentKey(input: {
   return `a/${input.accountId}/${input.propertyId}/${input.attachmentId}`;
 }
 
+/** Where a knowledge file's bytes live. Same rule as attachments: ids only, no extension. */
+export function knowledgeFileKey(input: { accountId: string; propertyId: string; fileId: string }): string {
+  for (const [field, value] of Object.entries(input)) {
+    if (!UUID.test(value)) throw new Error(`refusing to build a storage key from ${field}`);
+  }
+  return `k/${input.accountId}/${input.propertyId}/${input.fileId}`;
+}
+
 /**
  * Code points that must not survive into a displayed file name.
  *

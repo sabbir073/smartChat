@@ -158,6 +158,8 @@ POST   /integrations/webhooks/:id/ping
 # the AI agent (see AI_AGENT.md)
 GET    /properties/:id/ai             PATCH  /properties/:id/ai        { mode?, assistantName?, keyFacts?, … }
 POST   /properties/:id/ai/reindex
+GET    /properties/:id/ai/files          POST /properties/:id/ai/files/sign { fileName, byteSize }
+POST   /properties/:id/ai/files/:fileId/confirm   DELETE /properties/:id/ai/files/:fileId
 POST   /widget/offline-message        { values, conversationId? }  (conversationId: the ticket the AI offered)
 
 # billing (see BILLING.md; every route here works on a locked account)

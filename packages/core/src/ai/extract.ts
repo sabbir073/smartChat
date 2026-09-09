@@ -36,7 +36,7 @@ export function extractPage(html: string, url: string): ExtractedPage | null {
     const copy = parseHTML(html).document;
     const article = new Readability(copy as never, { charThreshold: MIN_READABLE_CHARS }).parse();
     if (article?.content && (article.textContent ?? '').trim().length >= MIN_READABLE_CHARS) {
-      const { document: articleDoc } = parseHTML(`<body>${article.content}</body>`);
+      const { document: articleDoc } = parseHTML(`<html><body>${article.content}</body></html>`);
       text = toText(articleDoc.body as unknown as DomElement);
     }
   } catch {
@@ -49,6 +49,12 @@ export function extractPage(html: string, url: string): ExtractedPage | null {
   text = text.trim();
   if (!text) return null;
   return { title, description, text };
+}
+
+/** An HTML fragment (a converted document, say) as the same markdown-ish text a page becomes. */
+export function htmlToText(html: string): string {
+  const { document } = parseHTML(`<html><body>${html}</body></html>`);
+  return toText(document.body as unknown as DomElement);
 }
 
 const BLOCK = new Set(['P', 'DIV', 'SECTION', 'ARTICLE', 'MAIN', 'UL', 'OL', 'TABLE', 'TR', 'BLOCKQUOTE', 'PRE', 'DL', 'DD', 'DT', 'FIGURE', 'FIGCAPTION', 'ADDRESS', 'DETAILS', 'SUMMARY']);

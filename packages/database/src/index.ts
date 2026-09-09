@@ -49,6 +49,7 @@ export type {
   AiSetting,
   KnowledgeDocument,
   KnowledgeChunk,
+  KnowledgeFile,
   AiTurn,
 } from '@prisma/client';
 export {
@@ -83,6 +84,7 @@ export {
   InvoiceStatus,
   AiMode,
   KnowledgeDocumentKind,
+  KnowledgeFileStatus,
   AiDecision,
   AiProviderKind,
 } from '@prisma/client';

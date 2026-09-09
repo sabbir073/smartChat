@@ -3,6 +3,7 @@ import {
   siteHosts,
   crawlSite,
   extractLinks,
+  excludes,
   isPrivateAddress,
   normaliseUrl,
   parseRobots,
@@ -175,5 +176,31 @@ describe('extractPage', () => {
     expect(out.text).toContain('- Notes');
     expect(out.text).not.toContain('Home');
     expect(out.text).not.toContain('© Acme');
+  });
+});
+
+describe('excludes', () => {
+  it('anchors a pattern that starts with a slash and covers what is beneath it', () => {
+    const test = excludes(['/blog', '/cart']);
+    expect(test('/blog')).toBe(true);
+    expect(test('/blog/2024/hello')).toBe(true);
+    expect(test('/blogger')).toBe(false);
+    expect(test('/shop/cart')).toBe(false);
+    expect(test('/cart?item=1')).toBe(true);
+  });
+
+  it('expands wildcards and matches anywhere without a leading slash', () => {
+    const test = excludes(['/docs/*/draft', '*.pdf', '?add-to-cart']);
+    expect(test('/docs/v1/draft')).toBe(true);
+    expect(test('/docs/v1/final')).toBe(false);
+    expect(test('/files/Price-List.PDF')).toBe(true);
+    expect(test('/shop/?add-to-cart=12')).toBe(true);
+    expect(test('/shop/')).toBe(false);
+  });
+
+  it('excludes nothing for empty or absurd patterns', () => {
+    expect(excludes([])('/anything')).toBe(false);
+    expect(excludes(['', '   ', 'x'.repeat(201)])('/anything')).toBe(false);
+    expect(excludes(['(unbalanced'])('/(unbalanced/page')).toBe(true);
   });
 });

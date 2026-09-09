@@ -37,6 +37,7 @@ export interface AiSettingsView {
   handoffText: string;
   maxRepliesPerConversation: number;
   crawlMaxPages: number;
+  crawlExclude: string[];
   enabledAt: string | null;
   /** The website sync: what the crawler found and when, and why it could not, in a sentence. */
   website: {
@@ -51,6 +52,7 @@ export interface AiSettingsView {
   knowledge: {
     documents: number;
     pages: number;
+    files: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;
@@ -61,7 +63,17 @@ export interface AiSettingsView {
   usage: { replies: number; answers: number; chats: number; tickets: number; handoffs: number; failed: number };
 }
 
-export const DEFAULT_AI_SETTINGS = {
+export const DEFAULT_AI_SETTINGS: {
+  mode: AiSetting['mode'];
+  assistantName: string;
+  instructions: string;
+  keyFacts: string;
+  ticketOfferText: string;
+  handoffText: string;
+  maxRepliesPerConversation: number;
+  crawlMaxPages: number;
+  crawlExclude: string[];
+} = {
   mode: 'team',
   assistantName: 'AI assistant',
   instructions: '',
@@ -71,7 +83,8 @@ export const DEFAULT_AI_SETTINGS = {
   handoffText: "I'm passing this to a member of our team - they'll pick it up right here in a moment.",
   maxRepliesPerConversation: 50,
   crawlMaxPages: 200,
-} as const;
+  crawlExclude: [],
+};
 
 export class AiSettingsService {
   private readonly clock: Clock;
@@ -119,6 +132,7 @@ export class AiSettingsService {
         ? { maxRepliesPerConversation: input.maxRepliesPerConversation }
         : {}),
       ...(input.crawlMaxPages !== undefined ? { crawlMaxPages: input.crawlMaxPages } : {}),
+      ...(input.crawlExclude !== undefined ? { crawlExclude: dedupe(input.crawlExclude) } : {}),
       ...(input.mode && input.mode !== 'team' && (!existing || existing.mode === 'team')
         ? { enabledAt: now }
         : {}),
@@ -303,6 +317,7 @@ export class AiSettingsService {
       maxRepliesPerConversation:
         settings?.maxRepliesPerConversation ?? DEFAULT_AI_SETTINGS.maxRepliesPerConversation,
       crawlMaxPages: settings?.crawlMaxPages ?? DEFAULT_AI_SETTINGS.crawlMaxPages,
+      crawlExclude: settings?.crawlExclude ?? DEFAULT_AI_SETTINGS.crawlExclude,
       enabledAt: settings?.enabledAt?.toISOString() ?? null,
       website: {
         url: property?.websiteUrl ?? '',
@@ -321,6 +336,7 @@ export class AiSettingsService {
       knowledge: {
         documents: knowledge.documents,
         pages: knowledge.pages,
+        files: knowledge.files,
         chunks: knowledge.chunks,
         articles,
         lastIndexedAt: knowledge.lastIndexedAt?.toISOString() ?? null,
@@ -330,6 +346,10 @@ export class AiSettingsService {
       usage,
     };
   }
+}
+
+function dedupe(patterns: string[]): string[] {
+  return [...new Set(patterns.map((p) => p.trim()).filter(Boolean))];
 }
 
 function startOfMonthUtc(now: Date): Date {

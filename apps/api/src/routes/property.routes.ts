@@ -4,6 +4,8 @@ import {
   addDomainSchema,
   createPropertySchema,
   listPropertiesSchema,
+  aiFileParamSchema,
+  signKnowledgeFileSchema,
   updateAiSettingsSchema,
   updatePropertySchema,
   updateWidgetConfigSchema,
@@ -148,5 +150,34 @@ export async function propertyRoutes(app: FastifyInstance, container: Container)
     await app.rateLimit(request, 'aiReindex', `account:${tenant.accountId}`);
     const { id } = parseParams(idParam, request.params);
     return ok(reply, await container.aiSettings.reindex(tenant, id));
+  });
+
+  // Files the assistant reads: the attachment flow (sign, PUT to the store, confirm), then the
+  // worker extracts the text and indexes it.
+  app.get('/properties/:id/ai/files', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    return ok(reply, await container.aiFiles.list(tenant, id));
+  });
+
+  app.post('/properties/:id/ai/files/sign', async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'mutation', `account:${tenant.accountId}`);
+    const { id } = parseParams(idParam, request.params);
+    const input = parseBody(signKnowledgeFileSchema, request.body);
+    return ok(reply, await container.aiFiles.sign(tenant, id, input));
+  });
+
+  app.post('/properties/:id/ai/files/:fileId/confirm', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id, fileId } = parseParams(aiFileParamSchema, request.params);
+    return ok(reply, await container.aiFiles.confirm(tenant, id, fileId));
+  });
+
+  app.delete('/properties/:id/ai/files/:fileId', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id, fileId } = parseParams(aiFileParamSchema, request.params);
+    await container.aiFiles.remove(tenant, id, fileId);
+    return noContent(reply);
   });
 }

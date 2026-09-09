@@ -141,6 +141,25 @@ Cloudflare "Just a moment…") are recognised and the crawl stops with an explan
 indexing the challenge page. The crawler does not attempt to pass such challenges; the owner asks
 the host to allow the agent, or types the content into Key facts.
 
+**Pages to skip** (`ai_settings.crawl_exclude`, the "Pages to skip" box): path patterns with `*`
+wildcards. `/blog` is anchored and covers everything beneath it; `/docs/*/draft` is anchored with
+a wildcard; `*.pdf` and `?add-to-cart` match anywhere in the path. The start page is always read.
+An excluded page that was indexed earlier is pruned on the next completed crawl, like any page
+the crawl no longer sees.
+
+## Files (`files.service.ts`, `extract-file.ts`)
+
+A PDF price list, a DOCX prospectus, a text or Markdown file - up to 10 MB each, fifty a
+website. The upload is the attachment flow: `POST …/ai/files/sign` returns a key the API chose
+and a five-minute PUT URL, the browser PUTs the bytes to the store, `POST …/ai/files/:fileId/confirm`
+reads them back and identifies them by their bytes (not their name). Anything but PDF, DOCX,
+plain text, CSV or Markdown is deleted from the store and refused. A readable file is marked
+`processing` and the worker's `ai.extract_file` job extracts the text (pdf.js for PDFs, page by
+page; mammoth → the crawler's HTML walk for DOCX, so headings and lists survive), makes a `file`
+knowledge document titled with the file name, and indexes it inline. `ready` with the passage
+count, or `failed` with the reason on the row - a scanned PDF says so. Delete removes the
+document, its chunks and the object together.
+
 ## The contract (`contract.ts`)
 
 The model must answer `{"decision": "answer"|"chat"|"ticket"|"human", "text": string, "sources": number[]}`.
@@ -174,8 +193,8 @@ reciprocal rank; key-facts chunks get a small boost. **Every query starts with
 `account_id = … AND property_id = …`**: isolation is the SQL, not the model.
 
 Documents: `page` (one per crawled URL), `article` (one per published article, removed on
-unpublish/delete, re-indexed when its content hash changes) and `notes` (the key facts, one per
-website). Indexing replaces a document's
+unpublish/delete, re-indexed when its content hash changes), `notes` (the key facts, one per
+website) and `file` (one per uploaded file). Indexing replaces a document's
 chunks in one transaction, so a failure leaves the previous passages answering.
 
 ## Modes and takeover (`dispatch.ts`)

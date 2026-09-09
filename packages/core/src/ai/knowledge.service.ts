@@ -29,7 +29,7 @@ export interface KnowledgeServiceOptions {
 export interface RetrievedChunk {
   chunkId: string;
   documentId: string;
-  kind: 'article' | 'notes' | 'page';
+  kind: 'article' | 'notes' | 'page' | 'file';
   title: string;
   url: string | null;
   heading: string | null;
@@ -41,6 +41,8 @@ export interface KnowledgeStatus {
   documents: number;
   /** How many of the documents are crawled pages. */
   pages: number;
+  /** How many are uploaded files. */
+  files: number;
   chunks: number;
   lastIndexedAt: Date | null;
   /** Documents whose last indexing failed, with the reason. */
@@ -202,6 +204,30 @@ export class KnowledgeService {
     return { documentId: created.id, changed: true };
   }
 
+  /**
+   * The text of one uploaded file. The document is created on the first extraction and replaced
+   * on a later one (a file is immutable, so that only happens after a failure was fixed).
+   */
+  async syncFile(
+    accountId: string,
+    propertyId: string,
+    file: { documentId: string | null; title: string; text: string },
+  ): Promise<{ documentId: string }> {
+    const text = file.text.slice(0, 200_000);
+    const hash = contentHash(file.title, text);
+    if (file.documentId) {
+      const updated = await this.options.db.knowledgeDocument.updateMany({
+        where: { accountId, id: file.documentId, kind: 'file' },
+        data: { title: file.title, text, contentHash: hash, tokenCount: estimateTokens(text), error: null, indexedAt: null },
+      });
+      if (updated.count === 1) return { documentId: file.documentId };
+    }
+    const created = await this.options.db.knowledgeDocument.create({
+      data: { accountId, propertyId, kind: 'file', title: file.title, text, contentHash: hash, tokenCount: estimateTokens(text) },
+    });
+    return { documentId: created.id };
+  }
+
   /** Pages a completed crawl did not find any more are gone from the site; they go from the index. */
   async prunePages(accountId: string, propertyId: string, seenBefore: Date): Promise<number> {
     const result = await this.options.db.knowledgeDocument.deleteMany({
@@ -277,7 +303,7 @@ export class KnowledgeService {
   async listDocumentIds(
     accountId: string,
     propertyId: string,
-    kinds?: Array<'article' | 'notes' | 'page'>,
+    kinds?: Array<'article' | 'notes' | 'page' | 'file'>,
   ): Promise<string[]> {
     const rows = await this.options.db.knowledgeDocument.findMany({
       where: { accountId, propertyId, ...(kinds ? { kind: { in: kinds } } : {}) },
@@ -294,19 +320,21 @@ export class KnowledgeService {
     });
     let chunks = 0;
     let pages = 0;
+    let files = 0;
     let lastIndexedAt: Date | null = null;
     let pending = 0;
     const failures: KnowledgeStatus['failures'] = [];
     for (const document of documents) {
       chunks += document.chunkCount;
       if (document.kind === 'page') pages += 1;
+      if (document.kind === 'file') files += 1;
       if (document.indexedAt && (!lastIndexedAt || document.indexedAt > lastIndexedAt)) {
         lastIndexedAt = document.indexedAt;
       }
       if (document.error) failures.push({ documentId: document.id, title: document.title, error: document.error });
       else if (!document.indexedAt) pending += 1;
     }
-    return { documents: documents.length, pages, chunks, lastIndexedAt, failures: failures.slice(0, 20), pending };
+    return { documents: documents.length, pages, files, chunks, lastIndexedAt, failures: failures.slice(0, 20), pending };
   }
 
   async document(accountId: string, documentId: string): Promise<KnowledgeDocument | null> {
@@ -383,7 +411,7 @@ export class KnowledgeService {
       chunks: rows.map((row) => ({
         chunkId: row.chunk_id,
         documentId: row.document_id,
-        kind: row.kind === 'notes' ? 'notes' : row.kind === 'page' ? 'page' : 'article',
+        kind: row.kind === 'notes' ? 'notes' : row.kind === 'page' ? 'page' : row.kind === 'file' ? 'file' : 'article',
         title: row.title,
         url: row.url,
         heading: row.heading,

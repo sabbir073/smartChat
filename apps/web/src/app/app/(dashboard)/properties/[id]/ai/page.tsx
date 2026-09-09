@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { ApiError, api } from '@/lib/api-client';
@@ -20,7 +20,7 @@ import {
   useToast,
 } from '@/components/ui';
 import type { PropertyDto } from '@/lib/types';
-import { AI_MODES, type AiMode, type AiSettingsView } from '@/lib/ai';
+import { AI_MODES, type AiMode, type AiSettingsView, type KnowledgeFileView } from '@/lib/ai';
 
 /**
  * The AI agent, per website.
@@ -43,7 +43,10 @@ type Draft = Pick<
   | 'handoffText'
   | 'maxRepliesPerConversation'
   | 'crawlMaxPages'
->;
+> & { crawlExclude: string };
+
+const ACCEPTED_FILES = '.pdf,.docx,.txt,.md,.markdown,.csv';
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 export default function AiAgentPage() {
   const { id } = useParams<{ id: string }>();
@@ -58,11 +61,19 @@ export default function AiAgentPage() {
     [id],
   );
 
+  const files = useResource<KnowledgeFileView[]>(
+    (signal) => api.get<KnowledgeFileView[]>(`/properties/${id}/ai/files`, { signal }).then((r) => r.data),
+    [id],
+  );
+
   const [draft, setDraft] = useState<Draft | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [switching, setSwitching] = useState(false);
   const [reindexing, setReindexing] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [removingFile, setRemovingFile] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!settings.data) return;
@@ -74,8 +85,19 @@ export default function AiAgentPage() {
       handoffText: settings.data.handoffText,
       maxRepliesPerConversation: settings.data.maxRepliesPerConversation,
       crawlMaxPages: settings.data.crawlMaxPages,
+      crawlExclude: settings.data.crawlExclude.join('\n'),
     });
   }, [settings.data]);
+
+  // A file being read by the worker: poll until it is ready or has failed.
+  useEffect(() => {
+    if (!files.data?.some((file) => file.status === 'processing' || file.status === 'pending')) return;
+    const timer = window.setTimeout(() => {
+      files.reload();
+      settings.reload();
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [files, files.data, settings]);
 
   // While the index is catching up or the site is being read, poll: the owner has just pressed
   // the button and wants to see the count climb.
@@ -106,11 +128,19 @@ export default function AiAgentPage() {
     }
   }
 
+  function currentOf(view: AiSettingsView, key: keyof Draft): Draft[keyof Draft] {
+    return key === 'crawlExclude' ? view.crawlExclude.join('\n') : view[key];
+  }
+
   async function save() {
     if (!draft || !settings.data) return;
-    const changed: Partial<Draft> = {};
+    const changed: Record<string, unknown> = {};
     for (const key of Object.keys(draft) as Array<keyof Draft>) {
-      if (draft[key] !== settings.data[key]) (changed as Record<string, unknown>)[key] = draft[key];
+      if (draft[key] === currentOf(settings.data, key)) continue;
+      changed[key] =
+        key === 'crawlExclude'
+          ? draft.crawlExclude.split('\n').map((line) => line.trim()).filter(Boolean)
+          : draft[key];
     }
     if (Object.keys(changed).length === 0) {
       toast.success('Nothing to save.');
@@ -120,7 +150,7 @@ export default function AiAgentPage() {
     setErrors({});
     try {
       await api.patch(`/properties/${id}/ai`, changed);
-      toast.success(changed.keyFacts !== undefined ? 'Saved. Indexing the key facts…' : 'Saved.');
+      toast.success(changed['keyFacts'] !== undefined ? 'Saved. Indexing the key facts…' : 'Saved.');
       settings.reload();
     } catch (error) {
       if (error instanceof ApiError) {
@@ -147,6 +177,44 @@ export default function AiAgentPage() {
     }
   }
 
+  async function upload(file: File) {
+    if (file.size > MAX_FILE_BYTES) {
+      toast.error('Files can be up to 10 MB.');
+      return;
+    }
+    setUploading(file.name);
+    try {
+      const signed = await api.post<{ fileId: string; uploadUrl: string }>(`/properties/${id}/ai/files/sign`, {
+        fileName: file.name,
+        byteSize: file.size,
+      });
+      const put = await fetch(signed.data.uploadUrl, { method: 'PUT', body: file });
+      if (!put.ok) throw new Error(`upload failed: ${put.status}`);
+      await api.post(`/properties/${id}/ai/files/${signed.data.fileId}/confirm`);
+      toast.success(`Reading ${file.name}…`);
+      files.reload();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'The upload did not go through.');
+    } finally {
+      setUploading(null);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  }
+
+  async function removeFile(file: KnowledgeFileView) {
+    setRemovingFile(file.id);
+    try {
+      await api.delete(`/properties/${id}/ai/files/${file.id}`);
+      toast.success(`${file.fileName} removed.`);
+      files.reload();
+      settings.reload();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not remove the file.');
+    } finally {
+      setRemovingFile(null);
+    }
+  }
+
   if (property.error || settings.error) {
     return (
       <Alert tone="danger" title="Could not load the AI agent">
@@ -159,7 +227,7 @@ export default function AiAgentPage() {
   }
 
   const view = settings.data;
-  const dirty = (Object.keys(draft) as Array<keyof Draft>).some((k) => draft[k] !== view[k]);
+  const dirty = (Object.keys(draft) as Array<keyof Draft>).some((k) => draft[k] !== currentOf(view, k));
 
   return (
     <>
@@ -266,6 +334,84 @@ export default function AiAgentPage() {
                 />
               )}
             </Field>
+            <Field
+              label="Pages to skip"
+              hint="One path per line. /blog skips the blog and everything under it; /docs/*/draft and *.pdf use wildcards; ?add-to-cart skips shop action links. Takes effect on the next sync."
+              error={errors['crawlExclude']}
+            >
+              {({ id: fieldId }) => (
+                <textarea
+                  id={fieldId}
+                  rows={3}
+                  value={draft.crawlExclude}
+                  onChange={(event) => setDraft({ ...draft, crawlExclude: event.target.value })}
+                  className={cn(TEXTAREA, 'font-mono text-[13px]')}
+                  placeholder={'/blog\n/cart\n*.pdf'}
+                  spellCheck={false}
+                />
+              )}
+            </Field>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Files"
+            description="Price lists, brochures, prospectuses, policies - PDF, Word, text or Markdown, up to 10 MB each. The assistant reads them like pages of your site."
+            action={
+              <>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept={ACCEPTED_FILES}
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void upload(file);
+                  }}
+                />
+                <Button size="sm" loading={uploading !== null} onClick={() => fileInput.current?.click()}>
+                  {uploading ? `Uploading ${uploading}…` : 'Upload a file'}
+                </Button>
+              </>
+            }
+          />
+          <CardBody>
+            {files.error ? (
+              <p className="text-sm text-danger">{files.error.message}</p>
+            ) : !files.data ? (
+              <p className="text-sm text-ink-muted">Loading…</p>
+            ) : files.data.length === 0 ? (
+              <p className="text-sm text-ink-muted">No files yet. A PDF price list is the quickest way to give the assistant your prices.</p>
+            ) : (
+              <ul className="divide-y divide-border">
+                {files.data.map((file) => (
+                  <li key={file.id} className="flex items-center gap-4 py-3 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-ink">{file.fileName}</p>
+                      <p className="text-[13px] text-ink-subtle">
+                        {formatBytes(file.byteSize)}
+                        {file.status === 'ready' && ` · ${file.chunks} passage${file.chunks === 1 ? '' : 's'}`}
+                        {' · '}
+                        {new Date(file.createdAt).toLocaleDateString()}
+                      </p>
+                      {file.status === 'failed' && file.error && <p className="mt-1 text-[13px] text-danger">{file.error}</p>}
+                    </div>
+                    <Badge tone={file.status === 'ready' ? 'success' : file.status === 'failed' ? 'danger' : 'neutral'} dot={file.status === 'processing'}>
+                      {file.status === 'ready' ? 'Indexed' : file.status === 'failed' ? 'Failed' : file.status === 'processing' ? 'Reading…' : 'Uploading…'}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={removingFile === file.id}
+                      onClick={() => void removeFile(file)}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </CardBody>
         </Card>
 
@@ -277,7 +423,7 @@ export default function AiAgentPage() {
           <CardBody className="space-y-5">
             <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
               <Stat label="Help-centre articles" value={String(view.knowledge.articles)} hint="Published ones are indexed automatically." />
-              <Stat label="Passages indexed" value={String(view.knowledge.chunks)} hint="Across the website, articles and key facts." />
+              <Stat label="Passages indexed" value={String(view.knowledge.chunks)} hint="Across the website, files, articles and key facts." />
               <Stat
                 label="Last indexed"
                 value={view.knowledge.lastIndexedAt ? new Date(view.knowledge.lastIndexedAt).toLocaleString() : 'Never'}
@@ -431,6 +577,12 @@ export default function AiAgentPage() {
       </div>
     </>
   );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {

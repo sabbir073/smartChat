@@ -33,11 +33,24 @@ export const updateAiSettingsSchema = z
     maxRepliesPerConversation: z.number().int().min(1).max(500).optional(),
     /** How many pages one website sync reads. */
     crawlMaxPages: z.number().int().min(1).max(1_000).optional(),
+    /** Paths the sync skips: `/blog/*`, `/cart`, `*.pdf`. */
+    crawlExclude: z
+      .array(z.string().trim().min(1).max(200).regex(/^[^\s<>"']+$/, 'One path pattern per line, no spaces'))
+      .max(50)
+      .optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to change');
 export type UpdateAiSettingsInput = z.infer<typeof updateAiSettingsSchema>;
 
 export const aiPropertyParamSchema = z.object({ id: uuidSchema });
+export const aiFileParamSchema = z.object({ id: uuidSchema, fileId: uuidSchema });
+
+/** Step one of a knowledge-file upload: the claimed name and size. Both are checked again on confirm. */
+export const signKnowledgeFileSchema = z.object({
+  fileName: z.string().trim().min(1).max(255),
+  byteSize: z.number().int().positive().max(10 * 1024 * 1024),
+});
+export type SignKnowledgeFileInput = z.infer<typeof signKnowledgeFileSchema>;
 
 // --- operator side ----------------------------------------------------------
 

@@ -176,6 +176,7 @@ async function seedPlatformAdmin(): Promise<void> {
         'platform:audit:view',
         'platform:settings:manage',
         'platform:billing:manage',
+        'platform:ai:manage',
       ],
     },
   });

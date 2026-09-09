@@ -72,6 +72,7 @@ export class CrawlService {
         {
           startUrl: property.websiteUrl,
           maxPages: Math.min(Math.max(settings.crawlMaxPages, 1), CRAWL_MAX_PAGES_CEILING),
+          exclude: settings.crawlExclude,
           ...(this.options.delayMs !== undefined ? { delayMs: this.options.delayMs } : {}),
           ...(this.options.allowPrivateAddresses ? { allowPrivateAddresses: true } : {}),
         },

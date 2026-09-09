@@ -1,12 +1,14 @@
 import type { Job } from 'bullmq';
 import {
   AiJob,
+  type AiExtractFilePayload,
   type AiIndexDocumentPayload,
   type AiReindexPropertyPayload,
   type AiReplyPayload,
   type AiReplyService,
   type AiSettingsService,
   type CrawlService,
+  type KnowledgeFileService,
   type KnowledgeService,
   type QueueProducer,
 } from '@smartchat/core';
@@ -26,6 +28,7 @@ export interface AiDeps {
   knowledge: KnowledgeService;
   settings: AiSettingsService;
   crawler: CrawlService;
+  files: KnowledgeFileService;
   queue: QueueProducer;
 }
 
@@ -71,6 +74,13 @@ export async function processAiJob(job: Job, logger: Logger, deps: AiDeps): Prom
       const started = Date.now();
       const outcome = await deps.crawler.crawlProperty(payload.accountId, payload.propertyId);
       logger.info({ propertyId: payload.propertyId, ...outcome, ms: Date.now() - started }, outcome.error ? 'website sync failed' : 'website synced');
+      return;
+    }
+    case AiJob.EXTRACT_FILE: {
+      const payload = job.data as AiExtractFilePayload;
+      const started = Date.now();
+      const result = await deps.files.extract(payload.accountId, payload.fileId);
+      logger.info({ fileId: payload.fileId, chunks: result.chunks, ms: Date.now() - started }, 'knowledge file indexed');
       return;
     }
     case AiJob.RECRAWL_DUE: {

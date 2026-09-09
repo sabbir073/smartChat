@@ -427,6 +427,7 @@ model Account {
   aiSettings         AiSetting[]
   knowledgeDocuments KnowledgeDocument[]
   knowledgeChunks    KnowledgeChunk[]
+  knowledgeFiles     KnowledgeFile[]
   aiTurns            AiTurn[]
 
   @@index([status, deletedAt])
@@ -542,6 +543,7 @@ model Property {
   dailyMetrics       DailyMetric[]
   aiSetting          AiSetting?
   knowledgeDocuments KnowledgeDocument[]
+  knowledgeFiles     KnowledgeFile[]
   aiTurns            AiTurn[]
 
   @@unique([accountId, id])
@@ -2037,6 +2039,19 @@ enum KnowledgeDocumentKind {
   notes
   /// A page of the website, found by the crawler. Removed when a later crawl no longer finds it.
   page
+  /// A file the owner uploaded - a PDF price list, a DOCX prospectus. One document per file.
+  file
+}
+
+enum KnowledgeFileStatus {
+  /// A signed upload URL was issued; the bytes may or may not have arrived.
+  pending
+  /// The upload was confirmed and the worker is extracting its text.
+  processing
+  /// Extracted and indexed.
+  ready
+  /// Could not be read or indexed; `error` says why. The owner can delete it and try again.
+  failed
 }
 
 enum AiDecision {
@@ -2091,6 +2106,8 @@ model AiSetting {
   crawlPagesIndexed Int       @default(0) @map("crawl_pages_indexed")
   /// Why the last crawl could not read the site, in a sentence the owner can act on. Null after a good one.
   crawlError        String?   @map("crawl_error")
+  /// Paths the crawl skips: `/blog/*`, `/cart`, `*.pdf`. Matched against the URL path.
+  crawlExclude      String[]  @default([]) @map("crawl_exclude")
 
   /// When the mode was last set to something other than `team`. Reporting only.
   enabledAt DateTime? @map("enabled_at") @db.Timestamptz(6)
@@ -2136,6 +2153,7 @@ model KnowledgeDocument {
   property Property         @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
   article  KbArticle?       @relation(fields: [accountId, articleId], references: [accountId, id], onDelete: Cascade)
   chunks   KnowledgeChunk[]
+  file     KnowledgeFile?
 
   @@unique([accountId, id])
   @@unique([accountId, articleId])
@@ -2143,6 +2161,38 @@ model KnowledgeDocument {
   @@unique([accountId, propertyId, url])
   @@index([accountId, propertyId, kind])
   @@map("knowledge_documents")
+}
+
+/// A file the owner uploaded for the assistant to read. The bytes live in object storage under a
+/// key made of ids; the text the worker extracts becomes a `file` knowledge document, and the two
+/// are deleted together. `status` is the upload's life: signed, confirmed, indexed, or failed.
+model KnowledgeFile {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String  @map("account_id") @db.Uuid
+  propertyId String  @map("property_id") @db.Uuid
+  /// The document made from it, once the text has been extracted.
+  documentId String? @unique @map("document_id") @db.Uuid
+
+  fileName           String              @map("file_name")
+  contentType        String              @default("") @map("content_type")
+  byteSize           Int                 @default(0) @map("byte_size")
+  storageKey         String              @map("storage_key")
+  status             KnowledgeFileStatus @default(pending)
+  error              String?
+  /// The member who uploaded it. Null once they leave.
+  uploadedByMemberId String?             @map("uploaded_by_member_id") @db.Uuid
+
+  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account  Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property           @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  document KnowledgeDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  @@unique([accountId, id])
+  @@index([accountId, propertyId, createdAt])
+  @@map("knowledge_files")
 }
 
 /// A passage of roughly 400 tokens, with its embedding and its full-text vector. Retrieval is
