@@ -1,8 +1,10 @@
 import { createServer } from 'node:http';
 import { Worker, type Job } from 'bullmq';
 import {
+  AiJob,
   AiReplyService,
   AiSettingsService,
+  CrawlService,
   EntitlementService,
   GeoService,
   KnowledgeService,
@@ -147,6 +149,12 @@ async function main(): Promise<void> {
     log: (event, detail) => logger.warn(detail, event),
   });
   const aiSettings = new AiSettingsService({ db, knowledge, queue: scheduler, entitlements });
+  const crawler = new CrawlService({
+    db,
+    knowledge,
+    allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
+    log: (event, detail) => logger.warn(detail, event),
+  });
 
   /**
    * Say at boot whether the local model is there, the same way mail is reported: reachable with
@@ -171,7 +179,7 @@ async function main(): Promise<void> {
       QueueName.AI,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined, requestId: (job.data as { requestId?: string }).requestId }, () =>
-          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings }),
+          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings, crawler, queue: scheduler }),
         ),
       // As many as the local model serves at once, plus a little so overflow reaches the
       // fallback rather than queueing here first. Indexing shares the queue and is rare.
@@ -248,6 +256,8 @@ async function main(): Promise<void> {
   await scheduler.schedule(MaintenanceJob.REFRESH_GEO, {}, '30 5 * * *');
   // Hourly, at a quarter past: an account whose grace window closed is told within the hour.
   await scheduler.schedule(MaintenanceJob.BILLING_RECONCILE, {}, '15 * * * *');
+  // Websites with the AI on are re-read weekly; the daily check finds the ones that are due.
+  await scheduler.schedule(AiJob.RECRAWL_DUE, {}, '45 4 * * *');
 
   /**
    * A fresh deployment should not wait until tomorrow for its first flag.

@@ -1,0 +1,480 @@
+import { isIP } from 'node:net';
+import { lookup as dnsLookup } from 'node:dns/promises';
+import type { LookupAddress } from 'node:dns';
+import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
+import { extractPage, type ExtractedPage } from './extract.js';
+
+/**
+ * The website crawler: the owner's public pages, found and read.
+ *
+ * It is a classic SSRF target - a URL somebody typed, fetched by a server inside a private
+ * network - and is built as one:
+ *
+ *   - it only ever fetches the property's own host (and its `www.` twin), over http(s) on the
+ *     default ports; nothing else is even queued;
+ *   - every connection resolves the name itself and refuses private, loopback, link-local and
+ *     cloud-metadata ranges *at connect time*, so a name that rebinds between check and use gets
+ *     nothing;
+ *   - redirects are followed by hand, up to three, each re-checked like a fresh URL;
+ *   - only `text/html` bodies are read, at most 2 MB each, 20 s each, one request a second;
+ *   - robots.txt is honoured, and the crawler names itself.
+ *
+ * Pages come from the sitemap first (the owner's own list of what matters) and then from links
+ * found on pages already read, breadth first, until the page budget is spent.
+ */
+
+export interface CrawlOptions {
+  startUrl: string;
+  maxPages: number;
+  /** Between requests to the site. Tests set 0. */
+  delayMs?: number;
+  timeoutMs?: number;
+  maxBytes?: number;
+  userAgent?: string;
+  /** Injected in tests. Production uses undici with the private-range-refusing lookup. */
+  fetchImpl?: (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<CrawlResponse>;
+  /** Stop early - the job was cancelled, the property is gone. */
+  shouldStop?: () => boolean;
+  /**
+   * Development only: let the crawler reach private addresses (a test site on localhost). The
+   * production compose file never sets it, and the config schema defaults it to false.
+   */
+  allowPrivateAddresses?: boolean;
+}
+
+export interface CrawlResponse {
+  status: number;
+  headers: { get(name: string): string | null };
+  /** Read the body as text, honouring the byte cap. */
+  text(): Promise<string>;
+  body?: unknown;
+}
+
+export interface CrawledPage extends ExtractedPage {
+  url: string;
+}
+
+export interface CrawlSummary {
+  /** Distinct URLs discovered (sitemap + links), whether or not fetched. */
+  found: number;
+  fetched: number;
+  /** Fetched but not usable: not HTML, empty, too big. */
+  skipped: number;
+  failed: number;
+  /** Why the crawl stopped: budget, exhausted, stopped, or the reason nothing could be read. */
+  stoppedBecause: 'budget' | 'exhausted' | 'stopped' | 'start_unreachable' | 'bot_challenge';
+  errors: Array<{ url: string; reason: string }>;
+}
+
+/**
+ * Some hosts answer every non-browser request with a challenge page (LiteSpeed's "Bot
+ * Verification", Cloudflare's "Just a moment…"). The crawler does not try to get past those - it
+ * is a bot, and the host has asked bots to leave - but it must recognise them, because indexing a
+ * page that says "verifying that you are not a robot" as the business's home page would be worse
+ * than indexing nothing. The owner is told, and can ask their host to allow the crawler's agent.
+ */
+export function looksLikeBotChallenge(html: string): boolean {
+  const head = html.slice(0, 6_000).toLowerCase();
+  return (
+    head.includes('lsrecaptcha') ||
+    head.includes('altcha-widget') ||
+    head.includes('<title>bot verification') ||
+    head.includes('<title>just a moment...') ||
+    head.includes('cf-chl-') ||
+    head.includes('challenge-platform') ||
+    head.includes('verifying that you are not a robot') ||
+    head.includes('checking your browser before accessing')
+  );
+}
+
+export const CRAWLER_USER_AGENT = 'GetChatBot/1.0 (+https://getchat.site/bot)';
+const DEFAULT_TIMEOUT_MS = 20_000;
+const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+const MAX_REDIRECTS = 3;
+const MAX_SITEMAP_URLS = 2_000;
+const MAX_SITEMAPS = 10;
+const MAX_QUEUE = 5_000;
+const SKIP_EXTENSIONS = /\.(?:jpe?g|png|gif|webp|svg|ico|bmp|tiff?|mp4|mp3|wav|avi|mov|mkv|webm|zip|gz|tar|rar|7z|pdf|docx?|xlsx?|pptx?|css|js|json|xml|rss|atom|woff2?|ttf|eot|exe|dmg|apk)$/i;
+const TRACKING_PARAMS = /^(?:utm_|fbclid|gclid|mc_|ref$|_ga)/i;
+
+export async function crawlSite(
+  options: CrawlOptions,
+  onPage: (page: CrawledPage) => Promise<void>,
+): Promise<CrawlSummary> {
+  const start = normaliseUrl(options.startUrl, null);
+  if (!start) throw new Error(`Not a crawlable URL: ${options.startUrl}`);
+  const hosts = siteHosts(new URL(start).hostname);
+  const fetchImpl = options.fetchImpl ?? (options.allowPrivateAddresses ? unsafeFetchForDevelopment : safeFetch);
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
+  const delayMs = options.delayMs ?? 1_000;
+  const userAgent = options.userAgent ?? CRAWLER_USER_AGENT;
+  const summary: CrawlSummary = { found: 0, fetched: 0, skipped: 0, failed: 0, stoppedBecause: 'exhausted', errors: [] };
+
+  const get = async (url: string): Promise<{ status: number; contentType: string; text: string; finalUrl: string } | { error: string }> => {
+    let current = url;
+    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(current, {
+          headers: { 'user-agent': userAgent, accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.5', 'accept-language': '*' },
+          signal: controller.signal,
+        });
+        if (response.status >= 300 && response.status < 400) {
+          const location = response.headers.get('location');
+          if (!location) return { error: `redirect without location (${response.status})` };
+          const next = normaliseUrl(location, current);
+          if (!next || !hosts.has(new URL(next).hostname)) return { error: 'redirect leaves the site' };
+          current = next;
+          continue;
+        }
+        const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
+        const length = Number(response.headers.get('content-length') ?? '0');
+        if (length > maxBytes) return { error: 'too large' };
+        const text = await response.text();
+        if (text.length > maxBytes) return { error: 'too large' };
+        return { status: response.status, contentType, text, finalUrl: current };
+      } catch (error) {
+        const reason = controller.signal.aborted ? 'timed out' : error instanceof Error ? error.message : String(error);
+        return { error: reason };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+    return { error: 'too many redirects' };
+  };
+
+  // --- robots.txt ---------------------------------------------------------------------------
+  const origin = new URL(start).origin;
+  const robots = await get(`${origin}/robots.txt`);
+  const rules = 'error' in robots || robots.status !== 200 ? parseRobots('', userAgent) : parseRobots(robots.text, userAgent);
+  await sleep(delayMs);
+
+  // --- the queue -------------------------------------------------------------------------------
+  const queued = new Set<string>();
+  const queue: string[] = [];
+  const enqueue = (candidate: string, base: string | null): void => {
+    const url = normaliseUrl(candidate, base);
+    if (!url || queued.has(url) || queued.size >= MAX_QUEUE) return;
+    const parsed = new URL(url);
+    if (!hosts.has(parsed.hostname)) return;
+    if (SKIP_EXTENSIONS.test(parsed.pathname)) return;
+    if (!rules.allows(parsed.pathname + parsed.search)) return;
+    queued.add(url);
+    queue.push(url);
+  };
+
+  enqueue(start, null);
+  const sitemaps = rules.sitemaps.length > 0 ? rules.sitemaps : [`${origin}/sitemap.xml`];
+  let sitemapUrls = 0;
+  const seenSitemaps = new Set<string>();
+  const sitemapQueue = [...sitemaps];
+  while (sitemapQueue.length > 0 && seenSitemaps.size < MAX_SITEMAPS && sitemapUrls < MAX_SITEMAP_URLS) {
+    const sitemapUrl = normaliseUrl(sitemapQueue.shift()!, origin);
+    if (!sitemapUrl || seenSitemaps.has(sitemapUrl) || !hosts.has(new URL(sitemapUrl).hostname)) continue;
+    seenSitemaps.add(sitemapUrl);
+    const result = await get(sitemapUrl);
+    await sleep(delayMs);
+    if ('error' in result || result.status !== 200) continue;
+    const { pages, nested } = parseSitemap(result.text);
+    for (const nestedUrl of nested) sitemapQueue.push(nestedUrl);
+    for (const page of pages) {
+      if (sitemapUrls >= MAX_SITEMAP_URLS) break;
+      sitemapUrls += 1;
+      enqueue(page, null);
+    }
+  }
+
+  // --- the crawl -------------------------------------------------------------------------------
+  let startReachable = false;
+  // Final URLs already delivered: two queued URLs that redirect to the same page count once.
+  const delivered = new Set<string>();
+  while (queue.length > 0) {
+    if (options.shouldStop?.()) {
+      summary.stoppedBecause = 'stopped';
+      break;
+    }
+    if (summary.fetched >= options.maxPages) {
+      summary.stoppedBecause = 'budget';
+      break;
+    }
+    const url = queue.shift()!;
+    const result = await get(url);
+    await sleep(delayMs);
+    if ('error' in result) {
+      summary.failed += 1;
+      if (summary.errors.length < 50) summary.errors.push({ url, reason: result.error });
+      continue;
+    }
+    if (result.status !== 200) {
+      summary.failed += 1;
+      if (summary.errors.length < 50) summary.errors.push({ url, reason: `HTTP ${result.status}` });
+      continue;
+    }
+    if (url === start) startReachable = true;
+    if (!result.contentType.includes('text/html') && !result.contentType.includes('application/xhtml')) {
+      summary.skipped += 1;
+      continue;
+    }
+    if (looksLikeBotChallenge(result.text)) {
+      summary.failed += 1;
+      if (summary.errors.length < 50) summary.errors.push({ url, reason: 'bot verification page' });
+      if (url === start) {
+        summary.stoppedBecause = 'bot_challenge';
+        break;
+      }
+      continue;
+    }
+    const finalUrl = result.finalUrl;
+    if (delivered.has(finalUrl)) continue;
+    delivered.add(finalUrl);
+    summary.fetched += 1;
+    if (finalUrl !== url) queued.add(finalUrl);
+    for (const link of extractLinks(result.text)) enqueue(link, finalUrl);
+    const extracted = extractPage(result.text, finalUrl);
+    if (!extracted || extracted.text.length < 40) {
+      summary.skipped += 1;
+      continue;
+    }
+    await onPage({ ...extracted, url: finalUrl });
+  }
+  summary.found = queued.size;
+  if (summary.fetched === 0 && !startReachable && summary.stoppedBecause !== 'bot_challenge') {
+    summary.stoppedBecause = 'start_unreachable';
+  }
+  return summary;
+}
+
+// --- URL handling ----------------------------------------------------------------------------------
+
+/** Absolute, http(s), default port, no fragment, no tracking parameters, trailing slash on bare paths. */
+export function normaliseUrl(candidate: string, base: string | null): string | null {
+  let url: URL;
+  try {
+    url = base ? new URL(candidate, base) : new URL(candidate);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (url.username || url.password) return null;
+  if (url.port && url.port !== '80' && url.port !== '443') return null;
+  url.hash = '';
+  url.hostname = url.hostname.toLowerCase();
+  for (const key of [...url.searchParams.keys()]) {
+    if (TRACKING_PARAMS.test(key)) url.searchParams.delete(key);
+  }
+  url.searchParams.sort();
+  if (url.search.length > 200) return null;
+  if (url.pathname === '') url.pathname = '/';
+  return url.toString();
+}
+
+export function siteHosts(hostname: string): Set<string> {
+  const host = hostname.toLowerCase();
+  const bare = host.replace(/^www\./, '');
+  return new Set([host, bare, `www.${bare}`]);
+}
+
+const HREF = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+
+export function extractLinks(html: string): string[] {
+  const out: string[] = [];
+  for (const match of html.matchAll(HREF)) {
+    const href = (match[1] ?? match[2] ?? match[3] ?? '').trim();
+    if (!href || href.startsWith('#') || /^(?:mailto|tel|javascript|data):/i.test(href)) continue;
+    out.push(href.replace(/&amp;/g, '&'));
+  }
+  return out;
+}
+
+// --- sitemaps --------------------------------------------------------------------------------------
+
+export function parseSitemap(xml: string): { pages: string[]; nested: string[] } {
+  const pages: string[] = [];
+  const nested: string[] = [];
+  const isIndex = /<sitemapindex/i.test(xml);
+  for (const match of xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/gi)) {
+    const loc = match[1]!.replace(/&amp;/g, '&');
+    (isIndex ? nested : pages).push(loc);
+  }
+  return { pages, nested };
+}
+
+// --- robots.txt ------------------------------------------------------------------------------------
+
+export interface RobotsRules {
+  allows(path: string): boolean;
+  sitemaps: string[];
+}
+
+/**
+ * The subset of robots.txt that matters: the `Disallow` lines for `*` and for our own agent (the
+ * more specific group wins, as the standard says), `Allow` overriding a longer match, and
+ * `Sitemap:` lines. Wildcards `*` and `$` are honoured.
+ */
+export function parseRobots(text: string, userAgent: string): RobotsRules {
+  const agentToken = userAgent.split('/')[0]!.toLowerCase();
+  const groups: Array<{ agents: string[]; allow: string[]; disallow: string[] }> = [];
+  const sitemaps: string[] = [];
+  let current: (typeof groups)[number] | null = null;
+  let lastWasAgent = false;
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/#.*$/, '').trim();
+    if (!line) continue;
+    const colon = line.indexOf(':');
+    if (colon < 0) continue;
+    const field = line.slice(0, colon).trim().toLowerCase();
+    const value = line.slice(colon + 1).trim();
+    if (field === 'sitemap') {
+      sitemaps.push(value);
+      continue;
+    }
+    if (field === 'user-agent') {
+      if (!current || !lastWasAgent) {
+        current = { agents: [], allow: [], disallow: [] };
+        groups.push(current);
+      }
+      current.agents.push(value.toLowerCase());
+      lastWasAgent = true;
+      continue;
+    }
+    lastWasAgent = false;
+    if (!current) continue;
+    if (field === 'disallow' && value) current.disallow.push(value);
+    if (field === 'allow' && value) current.allow.push(value);
+  }
+  const specific = groups.find((g) => g.agents.some((a) => a === agentToken || agentToken.startsWith(a)));
+  const group = specific ?? groups.find((g) => g.agents.includes('*')) ?? { allow: [], disallow: [] };
+  const toRegex = (pattern: string): RegExp => {
+    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+    return new RegExp(`^${escaped.endsWith('\\$') ? escaped.slice(0, -2) + '$' : escaped}`);
+  };
+  const disallow = group.disallow.map((p) => ({ length: p.length, re: toRegex(p) }));
+  const allow = group.allow.map((p) => ({ length: p.length, re: toRegex(p) }));
+  return {
+    sitemaps,
+    allows(path: string): boolean {
+      const blocked = disallow.filter((r) => r.re.test(path)).sort((a, b) => b.length - a.length)[0];
+      if (!blocked) return true;
+      const allowed = allow.filter((r) => r.re.test(path)).sort((a, b) => b.length - a.length)[0];
+      return allowed !== undefined && allowed.length >= blocked.length;
+    },
+  };
+}
+
+// --- the safe fetch --------------------------------------------------------------------------------
+
+/** Is this address one the crawler must never connect to? */
+export function isPrivateAddress(address: string): boolean {
+  const family = isIP(address);
+  if (family === 4) {
+    const [a = 0, b = 0] = address.split('.').map(Number);
+    return (
+      a === 0 || a === 10 || a === 127 ||
+      (a === 100 && b >= 64 && b <= 127) ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 192 && b === 0) ||
+      (a === 198 && (b === 18 || b === 19)) ||
+      a >= 224
+    );
+  }
+  if (family === 6) {
+    const lower = address.toLowerCase();
+    if (lower === '::1' || lower === '::') return true;
+    if (lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true;
+    if (lower.startsWith('::ffff:')) return isPrivateAddress(lower.slice(7));
+    if (lower.startsWith('64:ff9b:')) return true;
+    return false;
+  }
+  return true;
+}
+
+/** A DNS lookup that refuses private answers, wired into undici's connector. */
+function safeLookup(
+  hostname: string,
+  options: unknown,
+  callback: (err: NodeJS.ErrnoException | null, address: string | LookupAddress[], family?: number) => void,
+): void {
+  if (isIP(hostname)) {
+    if (isPrivateAddress(hostname)) {
+      callback(Object.assign(new Error(`refusing private address ${hostname}`), { code: 'EPRIVATE' }), '');
+      return;
+    }
+    callback(null, hostname, isIP(hostname));
+    return;
+  }
+  dnsLookup(hostname, { all: true })
+    .then((addresses) => {
+      const usable = addresses.filter((entry) => !isPrivateAddress(entry.address));
+      if (usable.length === 0) {
+        callback(Object.assign(new Error(`${hostname} resolves only to private addresses`), { code: 'EPRIVATE' }), '');
+        return;
+      }
+      const all = (options as { all?: boolean } | undefined)?.all;
+      if (all) callback(null, usable);
+      else callback(null, usable[0]!.address, usable[0]!.family);
+    })
+    .catch((error: NodeJS.ErrnoException) => callback(error, ''));
+}
+
+let agent: Dispatcher | null = null;
+function crawlerAgent(): Dispatcher {
+  if (!agent) {
+    agent = new Agent({
+      connect: { lookup: safeLookup as never, timeout: 10_000 },
+    });
+  }
+  return agent;
+}
+
+async function safeFetch(
+  url: string,
+  init: { headers: Record<string, string>; signal: AbortSignal },
+): Promise<CrawlResponse> {
+  const response = await undiciFetch(url, {
+    method: 'GET',
+    headers: init.headers,
+    signal: init.signal,
+    redirect: 'manual',
+    dispatcher: crawlerAgent(),
+  });
+  return {
+    status: response.status,
+    headers: response.headers,
+    text: () => readCapped(response, DEFAULT_MAX_BYTES),
+  };
+}
+
+/** The same request without the private-range refusal. Development only; see CrawlOptions. */
+async function unsafeFetchForDevelopment(
+  url: string,
+  init: { headers: Record<string, string>; signal: AbortSignal },
+): Promise<CrawlResponse> {
+  const response = await undiciFetch(url, { method: 'GET', headers: init.headers, signal: init.signal, redirect: 'manual' });
+  return { status: response.status, headers: response.headers, text: () => readCapped(response, DEFAULT_MAX_BYTES) };
+}
+
+async function readCapped(response: Awaited<ReturnType<typeof undiciFetch>>, maxBytes: number): Promise<string> {
+  if (!response.body) return '';
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel().catch(() => undefined);
+      return 'x'.repeat(maxBytes + 1);
+    }
+    chunks.push(value);
+  }
+  return new TextDecoder('utf-8', { fatal: false }).decode(Buffer.concat(chunks));
+}
+
+function sleep(ms: number): Promise<void> {
+  return ms > 0 ? new Promise((resolve) => setTimeout(resolve, ms)) : Promise.resolve();
+}

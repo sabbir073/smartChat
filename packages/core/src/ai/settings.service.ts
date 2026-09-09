@@ -36,10 +36,21 @@ export interface AiSettingsView {
   ticketOfferText: string;
   handoffText: string;
   maxRepliesPerConversation: number;
+  crawlMaxPages: number;
   enabledAt: string | null;
+  /** The website sync: what the crawler found and when, and why it could not, in a sentence. */
+  website: {
+    url: string;
+    syncing: boolean;
+    lastSyncedAt: string | null;
+    pagesFound: number;
+    pagesIndexed: number;
+    error: string | null;
+  };
   plan: { includesAi: boolean; planName: string; repliesUsed: number; repliesLimit: number | null };
   knowledge: {
     documents: number;
+    pages: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;
@@ -47,7 +58,7 @@ export interface AiSettingsView {
     failures: KnowledgeStatus['failures'];
   };
   /** How the AI did this month, for the settings page's small summary. */
-  usage: { replies: number; answers: number; tickets: number; handoffs: number; failed: number };
+  usage: { replies: number; answers: number; chats: number; tickets: number; handoffs: number; failed: number };
 }
 
 export const DEFAULT_AI_SETTINGS = {
@@ -59,6 +70,7 @@ export const DEFAULT_AI_SETTINGS = {
     "I can't help with that from here, but our team can. Would you like me to open a support ticket so they can follow up by email?",
   handoffText: "I'm passing this to a member of our team - they'll pick it up right here in a moment.",
   maxRepliesPerConversation: 50,
+  crawlMaxPages: 200,
 } as const;
 
 export class AiSettingsService {
@@ -106,6 +118,7 @@ export class AiSettingsService {
       ...(input.maxRepliesPerConversation !== undefined
         ? { maxRepliesPerConversation: input.maxRepliesPerConversation }
         : {}),
+      ...(input.crawlMaxPages !== undefined ? { crawlMaxPages: input.crawlMaxPages } : {}),
       ...(input.mode && input.mode !== 'team' && (!existing || existing.mode === 'team')
         ? { enabledAt: now }
         : {}),
@@ -116,6 +129,12 @@ export class AiSettingsService {
       : await this.options.db.aiSetting.create({
           data: { accountId: context.accountId, propertyId, ...data },
         });
+
+    // Switching the AI on for the first time reads the website without being asked: "turn it on"
+    // and "it knows my site" should be the same click.
+    if (input.mode && input.mode !== 'team' && !saved.lastCrawledAt && !saved.crawlStartedAt) {
+      await this.options.queue.enqueueOnce(AiJob.CRAWL_PROPERTY, { accountId: context.accountId, propertyId }, `crawl-${propertyId}`);
+    }
 
     // The key facts are a document in the index. Changing them re-indexes just that document.
     if (input.keyFacts !== undefined && input.keyFacts !== (existing?.keyFacts ?? '')) {
@@ -143,14 +162,20 @@ export class AiSettingsService {
   }
 
   /**
-   * "Re-index": every published article and the key facts, from scratch. For when the index
-   * looks wrong, and after the embedding model changes.
+   * "Sync website": crawl the site, re-read every article and the key facts, re-index the lot.
+   * The crawl is one queued job per website, de-duplicated, so a second click while it runs
+   * changes nothing.
    */
-  async reindex(context: TenantContext, propertyId: string): Promise<{ queued: number }> {
+  async reindex(context: TenantContext, propertyId: string): Promise<{ queued: number; crawling: boolean }> {
     requirePermission(context, Permission.AI_MANAGE);
     await assertPropertyInAccount(this.options.db, context, propertyId);
 
     const queued = await this.syncProperty(context.accountId, propertyId);
+    await this.options.queue.enqueueOnce(
+      AiJob.CRAWL_PROPERTY,
+      { accountId: context.accountId, propertyId },
+      `crawl-${propertyId}`,
+    );
     await this.audit.record({
       accountId: context.accountId,
       actorType: DbActorType.user,
@@ -161,7 +186,7 @@ export class AiSettingsService {
       ip: context.ip ?? null,
       metadata: { queued },
     });
-    return { queued };
+    return { queued, crawling: true };
   }
 
   /**
@@ -193,12 +218,13 @@ export class AiSettingsService {
     });
     await this.options.knowledge.syncNotes(accountId, propertyId, settings?.keyFacts ?? '');
 
-    // Mark everything un-indexed so the status page shows the rebuild, then queue each one.
+    // Mark the articles and notes un-indexed so the status page shows the rebuild, then queue
+    // each one. Pages belong to the crawl, which re-reads them itself.
     await this.options.db.knowledgeDocument.updateMany({
-      where: { accountId, propertyId },
+      where: { accountId, propertyId, kind: { in: ['article', 'notes'] } },
       data: { indexedAt: null, error: null },
     });
-    const documentIds = await this.options.knowledge.listDocumentIds(accountId, propertyId);
+    const documentIds = await this.options.knowledge.listDocumentIds(accountId, propertyId, ['article', 'notes']);
     for (const documentId of documentIds) {
       await this.options.queue.enqueue(AiJob.INDEX_DOCUMENT, { accountId, documentId });
     }
@@ -243,27 +269,29 @@ export class AiSettingsService {
 
   private async view(accountId: string, propertyId: string, settings: AiSetting | null): Promise<AiSettingsView> {
     const monthStart = startOfMonthUtc(this.clock.now());
-    const [entitlements, allowance, knowledge, articles, turns] = await Promise.all([
+    const [entitlements, allowance, knowledge, articles, property, turns] = await Promise.all([
       this.options.entitlements.forAccount(accountId),
       this.options.entitlements.aiReplyAllowance(accountId),
       this.options.knowledge.status(accountId, propertyId),
       this.options.db.knowledgeDocument.count({ where: { accountId, propertyId, kind: 'article' } }),
+      this.options.db.property.findFirst({ where: { accountId, id: propertyId }, select: { websiteUrl: true } }),
       this.options.db.aiTurn.groupBy({
         by: ['decision'],
         where: { accountId, propertyId, createdAt: { gte: monthStart } },
         _count: { _all: true },
       }),
     ]);
-    const count = (decision: 'answer' | 'ticket' | 'human' | 'failed'): number =>
+    const count = (decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed'): number =>
       turns.find((row) => row.decision === decision)?._count._all ?? 0;
     const usage = {
       answers: count('answer'),
+      chats: count('chat'),
       tickets: count('ticket'),
       handoffs: count('human'),
       failed: count('failed'),
       replies: 0,
     };
-    usage.replies = usage.answers + usage.tickets + usage.handoffs + usage.failed;
+    usage.replies = usage.answers + usage.chats + usage.tickets + usage.handoffs + usage.failed;
 
     return {
       mode: settings?.mode ?? DEFAULT_AI_SETTINGS.mode,
@@ -274,7 +302,16 @@ export class AiSettingsService {
       handoffText: settings?.handoffText ?? DEFAULT_AI_SETTINGS.handoffText,
       maxRepliesPerConversation:
         settings?.maxRepliesPerConversation ?? DEFAULT_AI_SETTINGS.maxRepliesPerConversation,
+      crawlMaxPages: settings?.crawlMaxPages ?? DEFAULT_AI_SETTINGS.crawlMaxPages,
       enabledAt: settings?.enabledAt?.toISOString() ?? null,
+      website: {
+        url: property?.websiteUrl ?? '',
+        syncing: settings?.crawlStartedAt !== null && settings?.crawlStartedAt !== undefined,
+        lastSyncedAt: settings?.lastCrawledAt?.toISOString() ?? null,
+        pagesFound: settings?.crawlPagesFound ?? 0,
+        pagesIndexed: settings?.crawlPagesIndexed ?? 0,
+        error: settings?.crawlError ?? null,
+      },
       plan: {
         includesAi: entitlements.plan.aiAgent,
         planName: entitlements.plan.name,
@@ -283,6 +320,7 @@ export class AiSettingsService {
       },
       knowledge: {
         documents: knowledge.documents,
+        pages: knowledge.pages,
         chunks: knowledge.chunks,
         articles,
         lastIndexedAt: knowledge.lastIndexedAt?.toISOString() ?? null,

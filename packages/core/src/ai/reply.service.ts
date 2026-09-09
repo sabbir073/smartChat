@@ -34,7 +34,7 @@ export interface AiReplyServiceOptions {
 }
 
 export type AiReplyOutcome =
-  | { posted: true; decision: 'answer' | 'ticket' | 'human' | 'failed'; provider: string | null; fellBack: boolean; latencyMs: number }
+  | { posted: true; decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed'; provider: string | null; fellBack: boolean; latencyMs: number }
   | { posted: false; reason: AiSkipReason | 'duplicate' | 'missing' | 'allowance' | 'offer_pending' };
 
 const MAX_HISTORY_MESSAGES = 10;
@@ -209,6 +209,15 @@ export class AiReplyService {
           error: note,
         });
         return { posted: true, decision: 'answer', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
+      }
+
+      if (reply.decision === 'chat') {
+        await this.post(conversation, settings, message.id, reply.text, { sources: [] }, chunksInPrompt, [], {
+          ...turnBase,
+          decision: 'chat',
+          error: note,
+        }, true);
+        return { posted: true, decision: 'chat', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
       }
 
       if (reply.decision === 'human' && agentsOnline) {
@@ -501,7 +510,7 @@ interface ConversationRow {
 }
 
 interface TurnRecord {
-  decision: 'answer' | 'ticket' | 'human' | 'failed';
+  decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed';
   provider: 'local' | 'openai' | 'deepseek' | null;
   model: string | null;
   fellBack: boolean;

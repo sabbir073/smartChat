@@ -11,3 +11,6 @@ export * from './reply.service.js';
 export * from './settings.service.js';
 export * from './platform-ai.service.js';
 export * from './factory.js';
+export * from './crawler.js';
+export * from './extract.js';
+export * from './crawl.service.js';

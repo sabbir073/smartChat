@@ -38,7 +38,7 @@ export interface AiPlatformHealthView {
 }
 
 export interface AiPlatformUsageView {
-  month: { turns: number; answers: number; tickets: number; handoffs: number; failed: number; fellBack: number; local: number; hosted: number };
+  month: { turns: number; answers: number; chats: number; tickets: number; handoffs: number; failed: number; fellBack: number; local: number; hosted: number };
   /** The accounts that used it most this month. */
   accounts: Array<{ accountId: string; accountName: string; turns: number; fellBack: number; failed: number }>;
   /** The ten most recent failures, so an outage has a face. */
@@ -201,7 +201,7 @@ export class PlatformAiService {
       }),
     ]);
 
-    const count = (decision: 'answer' | 'ticket' | 'human' | 'failed'): number =>
+    const count = (decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed'): number =>
       byDecision.find((row) => row.decision === decision)?._count._all ?? 0;
     const turns = byDecision.reduce((sum, row) => sum + row._count._all, 0);
     const local = byProvider.find((row) => row.provider === 'local')?._count._all ?? 0;
@@ -231,6 +231,7 @@ export class PlatformAiService {
       month: {
         turns,
         answers: count('answer'),
+        chats: count('chat'),
         tickets: count('ticket'),
         handoffs: count('human'),
         failed: count('failed'),

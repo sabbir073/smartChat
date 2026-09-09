@@ -54,6 +54,10 @@ export const AiJob = {
   REMOVE_DOCUMENT: 'ai.remove_document',
   /** Rebuild every document of one property - after the notes change, or on "re-index". */
   REINDEX_PROPERTY: 'ai.reindex_property',
+  /** Crawl one property's website and index it. Minutes long; one at a time per property. */
+  CRAWL_PROPERTY: 'ai.crawl_property',
+  /** Daily: queue a crawl for every AI-enabled website not read in the last week. */
+  RECRAWL_DUE: 'ai.recrawl_due',
 } as const;
 
 export interface AiReplyPayload {
@@ -124,6 +128,8 @@ export type JobPayloadMap = {
   [AiJob.INDEX_DOCUMENT]: AiIndexDocumentPayload;
   [AiJob.REMOVE_DOCUMENT]: AiIndexDocumentPayload;
   [AiJob.REINDEX_PROPERTY]: AiReindexPropertyPayload;
+  [AiJob.CRAWL_PROPERTY]: AiReindexPropertyPayload;
+  [AiJob.RECRAWL_DUE]: Record<string, never>;
 };
 
 export type JobName = keyof JobPayloadMap;

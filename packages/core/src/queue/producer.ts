@@ -26,6 +26,8 @@ const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'ai.index_document': QueueName.AI,
   'ai.remove_document': QueueName.AI,
   'ai.reindex_property': QueueName.AI,
+  'ai.crawl_property': QueueName.AI,
+  'ai.recrawl_due': QueueName.AI,
 };
 
 /**

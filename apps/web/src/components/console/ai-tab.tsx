@@ -23,7 +23,7 @@ interface HealthView {
 }
 
 interface UsageView {
-  month: { turns: number; answers: number; tickets: number; handoffs: number; failed: number; fellBack: number; local: number; hosted: number };
+  month: { turns: number; answers: number; chats: number; tickets: number; handoffs: number; failed: number; fellBack: number; local: number; hosted: number };
   accounts: Array<{ accountId: string; accountName: string; turns: number; fellBack: number; failed: number }>;
   recentFailures: Array<{ at: string; accountName: string; error: string | null; provider: string | null }>;
 }
@@ -130,9 +130,10 @@ export function AiTab({ onError }: { onError: (message: string | null) => void }
 
       <section className={PANEL}>
         <h2 className="text-sm font-semibold">This month</h2>
-        <dl className="mt-4 grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4 lg:grid-cols-8">
+        <dl className="mt-4 grid grid-cols-2 gap-3 text-[13px] sm:grid-cols-4 lg:grid-cols-9">
           <Stat label="Turns" value={usage.month.turns} />
           <Stat label="Answered" value={usage.month.answers} />
+          <Stat label="Chatted" value={usage.month.chats} />
           <Stat label="Ticket offers" value={usage.month.tickets} />
           <Stat label="Handoffs" value={usage.month.handoffs} />
           <Stat label="Failed" value={usage.month.failed} tone={usage.month.failed > 0 ? 'bad' : undefined} />

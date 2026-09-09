@@ -10,11 +10,13 @@ to a hosted model the operator configures in the console.
    callback. Its inputs are text — the system prompt, the passages retrieved for this website, the
    last few messages, the visitor's question — and its output is text that the worker validates
    before anything is written. A hijacked prompt has nothing to reach.
-2. **Public content only.** It answers from the website's published help-centre articles and the
-   "key facts" its owner typed in. Nothing from the inbox, contacts, tickets or other
-   conversations is ever in the prompt.
-3. **Anything that needs the backend, or that it does not know, becomes a ticket.** It says so in
-   one sentence and shows *Create a ticket* / *Ask something else*. Never a guess.
+2. **Public content only.** It answers from the website itself (crawled and indexed), the
+   published help-centre articles and the "key facts" its owner typed in. Nothing from the inbox,
+   contacts, tickets or other conversations is ever in the prompt.
+3. **Anything about the business that needs the backend, or that it does not know, becomes a
+   ticket.** It says so in one sentence and shows *Create a ticket* / *Ask something else*. Never
+   a guess. Greetings, thanks, small talk and general questions that are not about the business
+   are answered in the model's own words (`chat`) - "Hello" gets "Hello", not a ticket form.
 4. **The owner chooses the mode** per website: *Team* (today's behaviour), *AI when the team is
    offline*, or *AI answers first*. A person replying or being assigned always takes a
    conversation over; the AI never speaks in it again.
@@ -94,12 +96,40 @@ turns are not decoration: measured on the production model with rules alone, it 
 country it ships to; with the practice turns it got seven of eight right. Budget: ~3,000
 estimated tokens, of which passages take at most 1,600 and history 500.
 
+## The website crawler (`crawler.ts`, `extract.ts`, `crawl.service.ts`)
+
+"Sync website" (and the first switch to an AI mode, and a weekly job) crawls the property's
+`websiteUrl`: `robots.txt` first (honoured, and its `Sitemap:` lines), then the sitemap(s), then
+links found on pages already read, breadth first, until `crawlMaxPages` (default 200, ceiling
+1,000). Each page is reduced to markdown-ish text (Readability for the main content, a
+chrome-stripped body for short pages; `<h1>`…`<h6>` become `#` headings so passages keep their
+section) and stored as a `page` document keyed by URL; unchanged content (same hash) is only
+stamped as seen, so a weekly re-read of an unchanged site embeds nothing. Pages a completed crawl
+did not see are removed. A crawl that reads nothing removes nothing and leaves a sentence in
+`ai_settings.crawl_error` that the settings page shows.
+
+It is an SSRF target and is built as one: only the property's own host and its `www.` twin, over
+http(s) on default ports; every connection resolves the name itself and refuses private,
+loopback, link-local, CGNAT and metadata ranges *at connect time* (undici `connect.lookup`), so a
+rebinding name gets nothing; redirects followed by hand, three at most, each re-checked; only
+`text/html`, 2 MB and 20 s per page, one request a second; the agent names itself
+(`GetChatBot/1.0`). `AI_CRAWL_ALLOW_PRIVATE=true` (development only) lifts the private-range
+refusal for a test site on localhost.
+
+Hosts that answer every non-browser request with a challenge (LiteSpeed "Bot Verification",
+Cloudflare "Just a moment…") are recognised and the crawl stops with an explanation rather than
+indexing the challenge page. The crawler does not attempt to pass such challenges; the owner asks
+the host to allow the agent, or types the content into Key facts.
+
 ## The contract (`contract.ts`)
 
-The model must answer `{"decision": "answer"|"ticket"|"human", "text": string, "sources": number[]}`.
+The model must answer `{"decision": "answer"|"chat"|"ticket"|"human", "text": string, "sources": number[]}`.
 
 - `answer` must cite at least one passage that was in the prompt; an answer with no valid source
   becomes `ticket` ("what it does not know, it does not guess").
+- `chat` is the model's own words, uncited: greetings, thanks, small talk, general questions that
+  are not about the business. The prompt forbids stating a fact about the business in a chat
+  reply. An empty chat becomes `ticket`.
 - For `ticket` and `human` the model's words are dropped; the owner's configured sentences are
   used.
 - Text is stripped of markup and control characters, capped at 1,200 characters at a sentence
@@ -115,8 +145,9 @@ A query runs both — top 20 by vector distance, top 20 by `ts_rank_cd` — and 
 reciprocal rank; key-facts chunks get a small boost. **Every query starts with
 `account_id = … AND property_id = …`**: isolation is the SQL, not the model.
 
-Documents: `article` (one per published article, removed on unpublish/delete, re-indexed when its
-content hash changes) and `notes` (the key facts, one per website). Indexing replaces a document's
+Documents: `page` (one per crawled URL), `article` (one per published article, removed on
+unpublish/delete, re-indexed when its content hash changes) and `notes` (the key facts, one per
+website). Indexing replaces a document's
 chunks in one transaction, so a failure leaves the previous passages answering.
 
 ## Modes and takeover (`dispatch.ts`)
@@ -146,8 +177,8 @@ posts "ticket #N is open…" into the chat. The offline-form switch does not gat
 
 | table | purpose |
 | --- | --- |
-| `ai_settings` | per website: `mode`, assistant name, instructions, key facts, offer/handoff texts, loop guard |
-| `knowledge_documents` | article / notes mirrors: title, url, text, content hash, `indexed_at`, `error` |
+| `ai_settings` | per website: `mode`, assistant name, instructions, key facts, offer/handoff texts, loop guard, `crawl_max_pages`, crawl state (`crawl_started_at`, `last_crawled_at`, pages found/indexed, `crawl_error`) |
+| `knowledge_documents` | page / article / notes: title, url (unique per website), text, content hash, `indexed_at`, `last_seen_at`, `error` |
 | `knowledge_chunks` | passages: `embedding vector(768)`, generated `search tsvector` |
 | `ai_turns` | every turn: decision, provider, model, `fell_back`, tokens, latency, retrieved and cited chunk ids, error |
 | `conversations` | `ai_reply_count`, `ai_last_reply_at`, `ai_paused_at`, `ai_handoff_at` |
@@ -172,7 +203,8 @@ Tenant (`authenticateTenant`):
 - `GET /properties/:id/ai` — settings, plan, knowledge status, this month's usage.
 - `PATCH /properties/:id/ai` — any of `mode`, `assistantName`, `instructions`, `keyFacts`,
   `ticketOfferText`, `handoffText`, `maxRepliesPerConversation`. Changing `keyFacts` re-indexes them.
-- `POST /properties/:id/ai/reindex` — every article and the key facts, from scratch (3/hour).
+- `POST /properties/:id/ai/reindex` — "Sync website": crawl the site (one queued job per
+  website, de-duplicated) and re-index every article and the key facts (3/hour).
 
 Widget: `POST /widget/offline-message` accepts an optional `conversationId` (see the ticket flow).
 
@@ -193,6 +225,7 @@ Environment (every Node service; the `ai` container reads the model names too):
 | `AI_EMBED_DIMENSIONS` | `768` | |
 | `AI_LOCAL_PARALLEL` | `2` | `OLLAMA_NUM_PARALLEL`, and the gateway's overflow threshold |
 | `AI_FALLBACK_BASE_URL` | empty | route the fallback through an OpenAI-compatible gateway of your own |
+| `AI_CRAWL_ALLOW_PRIVATE` | `false` | development only: let the crawler read private addresses |
 
 Console → AI: fallback provider and key, model (`gpt-4o-mini` / `deepseek-chat` by default), local
 timeout, routing. Picked up by the worker within thirty seconds; no restart.

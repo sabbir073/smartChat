@@ -96,6 +96,11 @@ export const aiEnvSchema = z.object({
   /** Must match the `vector(n)` column in knowledge_chunks. Changing it is a migration and a re-index. */
   AI_EMBED_DIMENSIONS: z.coerce.number().int().min(64).max(4096).default(768),
   AI_LOCAL_PARALLEL: z.coerce.number().int().min(1).max(16).default(2),
+  /** Development only: let the website crawler read private addresses (a test site on localhost). */
+  AI_CRAWL_ALLOW_PRIVATE: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((value) => value === 'true'),
   /**
    * Where the fallback provider is reached. Empty means the provider's own endpoint
    * (api.openai.com or api.deepseek.com). Set it to route through an OpenAI-compatible gateway

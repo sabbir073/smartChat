@@ -31,6 +31,8 @@ export const updateAiSettingsSchema = z
     ticketOfferText: z.string().trim().min(10).max(500).optional(),
     handoffText: z.string().trim().min(10).max(500).optional(),
     maxRepliesPerConversation: z.number().int().min(1).max(500).optional(),
+    /** How many pages one website sync reads. */
+    crawlMaxPages: z.number().int().min(1).max(1_000).optional(),
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to change');
 export type UpdateAiSettingsInput = z.infer<typeof updateAiSettingsSchema>;

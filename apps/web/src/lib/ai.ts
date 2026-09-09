@@ -12,17 +12,27 @@ export interface AiSettingsView {
   ticketOfferText: string;
   handoffText: string;
   maxRepliesPerConversation: number;
+  crawlMaxPages: number;
   enabledAt: string | null;
+  website: {
+    url: string;
+    syncing: boolean;
+    lastSyncedAt: string | null;
+    pagesFound: number;
+    pagesIndexed: number;
+    error: string | null;
+  };
   plan: { includesAi: boolean; planName: string; repliesUsed: number; repliesLimit: number | null };
   knowledge: {
     documents: number;
+    pages: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;
     pending: number;
     failures: Array<{ documentId: string; title: string; error: string }>;
   };
-  usage: { replies: number; answers: number; tickets: number; handoffs: number; failed: number };
+  usage: { replies: number; answers: number; chats: number; tickets: number; handoffs: number; failed: number };
 }
 
 export const AI_MODES: ReadonlyArray<{ value: AiMode; label: string; short: string; description: string }> = [

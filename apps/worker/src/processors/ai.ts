@@ -6,7 +6,9 @@ import {
   type AiReplyPayload,
   type AiReplyService,
   type AiSettingsService,
+  type CrawlService,
   type KnowledgeService,
+  type QueueProducer,
 } from '@smartchat/core';
 import type { Logger } from '@smartchat/logger';
 
@@ -23,7 +25,12 @@ export interface AiDeps {
   replies: AiReplyService;
   knowledge: KnowledgeService;
   settings: AiSettingsService;
+  crawler: CrawlService;
+  queue: QueueProducer;
 }
+
+/** A website is re-read this often unless the owner asks sooner. */
+const RECRAWL_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 export async function processAiJob(job: Job, logger: Logger, deps: AiDeps): Promise<void> {
   switch (job.name) {
@@ -57,6 +64,21 @@ export async function processAiJob(job: Job, logger: Logger, deps: AiDeps): Prom
       const payload = job.data as AiReindexPropertyPayload;
       const queued = await deps.settings.syncProperty(payload.accountId, payload.propertyId);
       logger.info({ propertyId: payload.propertyId, queued }, 'knowledge re-index queued');
+      return;
+    }
+    case AiJob.CRAWL_PROPERTY: {
+      const payload = job.data as AiReindexPropertyPayload;
+      const started = Date.now();
+      const outcome = await deps.crawler.crawlProperty(payload.accountId, payload.propertyId);
+      logger.info({ propertyId: payload.propertyId, ...outcome, ms: Date.now() - started }, outcome.error ? 'website sync failed' : 'website synced');
+      return;
+    }
+    case AiJob.RECRAWL_DUE: {
+      const due = await deps.crawler.dueForRecrawl(RECRAWL_AFTER_MS);
+      for (const entry of due) {
+        await deps.queue.enqueueOnce(AiJob.CRAWL_PROPERTY, entry, `crawl-${entry.propertyId}`);
+      }
+      logger.info({ queued: due.length }, 'weekly website re-sync queued');
       return;
     }
     default:

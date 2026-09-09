@@ -42,6 +42,7 @@ type Draft = Pick<
   | 'ticketOfferText'
   | 'handoffText'
   | 'maxRepliesPerConversation'
+  | 'crawlMaxPages'
 >;
 
 export default function AiAgentPage() {
@@ -72,13 +73,16 @@ export default function AiAgentPage() {
       ticketOfferText: settings.data.ticketOfferText,
       handoffText: settings.data.handoffText,
       maxRepliesPerConversation: settings.data.maxRepliesPerConversation,
+      crawlMaxPages: settings.data.crawlMaxPages,
     });
   }, [settings.data]);
 
-  // While the index is catching up, poll: the owner has just saved facts and wants to see them land.
+  // While the index is catching up or the site is being read, poll: the owner has just pressed
+  // the button and wants to see the count climb.
   useEffect(() => {
-    if (!settings.data || settings.data.knowledge.pending === 0) return;
-    const timer = window.setTimeout(() => settings.reload(), 2000);
+    if (!settings.data) return;
+    if (settings.data.knowledge.pending === 0 && !settings.data.website.syncing) return;
+    const timer = window.setTimeout(() => settings.reload(), 2500);
     return () => window.clearTimeout(timer);
   }, [settings, settings.data]);
 
@@ -133,11 +137,11 @@ export default function AiAgentPage() {
   async function reindex() {
     setReindexing(true);
     try {
-      const result = await api.post<{ queued: number }>(`/properties/${id}/ai/reindex`);
-      toast.success(`Re-indexing ${result.data.queued} document${result.data.queued === 1 ? '' : 's'}.`);
+      await api.post<{ queued: number; crawling: boolean }>(`/properties/${id}/ai/reindex`);
+      toast.success('Reading your website now. Pages appear below as they are indexed.');
       settings.reload();
     } catch (error) {
-      toast.error(error instanceof ApiError ? error.message : 'Could not start the re-index.');
+      toast.error(error instanceof ApiError ? error.message : 'Could not start the sync.');
     } finally {
       setReindexing(false);
     }
@@ -161,7 +165,7 @@ export default function AiAgentPage() {
     <>
       <PageHeader
         title="AI agent"
-        description={`${property.data.name} · answers visitors from your key facts and help centre, and hands anything else to your team.`}
+        description={`${property.data.name} · answers visitors from your website, key facts and help centre, and hands anything else to your team.`}
         action={
           view.mode === 'team' ? (
             <Badge tone="neutral">Team answers</Badge>
@@ -221,18 +225,59 @@ export default function AiAgentPage() {
 
         <Card>
           <CardHeader
-            title="What the assistant knows"
-            description="It answers only from what is here. Anything it cannot find becomes a ticket for your team."
+            title="Your website"
+            description="The assistant reads the public pages of your site and answers from them. It is re-read every week, or whenever you press Sync."
             action={
-              <Button size="sm" variant="secondary" loading={reindexing} onClick={() => void reindex()}>
-                Re-index
+              <Button size="sm" loading={reindexing || view.website.syncing} disabled={view.website.syncing} onClick={() => void reindex()}>
+                {view.website.syncing ? 'Syncing…' : 'Sync website'}
               </Button>
             }
           />
           <CardBody className="space-y-5">
             <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+              <Stat label="Website" value={view.website.url.replace(/^https?:\/\//, '')} hint="Change it on the website's settings page." />
+              <Stat label="Pages found" value={String(view.website.pagesFound)} />
+              <Stat label="Pages indexed" value={String(view.website.syncing ? view.website.pagesIndexed : view.knowledge.pages)} />
+              <Stat
+                label="Last synced"
+                value={view.website.syncing ? 'Reading now…' : view.website.lastSyncedAt ? new Date(view.website.lastSyncedAt).toLocaleString() : 'Never'}
+              />
+            </dl>
+            {view.website.error && (
+              <Alert tone="warning" title="The website could not be read">
+                {view.website.error}
+              </Alert>
+            )}
+            <Field
+              label="Pages per sync"
+              hint="The most pages one sync reads, starting from the sitemap and the home page. Raise it for a large site."
+              error={errors['crawlMaxPages']}
+            >
+              {({ id: fieldId, invalid }) => (
+                <TextInput
+                  id={fieldId}
+                  type="number"
+                  min={1}
+                  max={1000}
+                  invalid={invalid}
+                  value={draft.crawlMaxPages}
+                  onChange={(event) => setDraft({ ...draft, crawlMaxPages: Number(event.target.value) || 1 })}
+                  className="max-w-[10rem]"
+                />
+              )}
+            </Field>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="What else the assistant knows"
+            description="Facts you type, and your help centre. Anything it cannot find in any of this becomes a ticket for your team."
+          />
+          <CardBody className="space-y-5">
+            <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
               <Stat label="Help-centre articles" value={String(view.knowledge.articles)} hint="Published ones are indexed automatically." />
-              <Stat label="Passages indexed" value={String(view.knowledge.chunks)} />
+              <Stat label="Passages indexed" value={String(view.knowledge.chunks)} hint="Across the website, articles and key facts." />
               <Stat
                 label="Last indexed"
                 value={view.knowledge.lastIndexedAt ? new Date(view.knowledge.lastIndexedAt).toLocaleString() : 'Never'}
@@ -373,9 +418,10 @@ export default function AiAgentPage() {
         <Card>
           <CardHeader title="This month" description="What the assistant did on this website." />
           <CardBody>
-            <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-5">
+            <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-6">
               <Stat label="Replies" value={String(view.usage.replies)} />
-              <Stat label="Answered" value={String(view.usage.answers)} />
+              <Stat label="Answered from content" value={String(view.usage.answers)} />
+              <Stat label="Chatted" value={String(view.usage.chats)} hint="Greetings and general questions." />
               <Stat label="Offered a ticket" value={String(view.usage.tickets)} />
               <Stat label="Handed to a person" value={String(view.usage.handoffs)} />
               <Stat label="Could not answer" value={String(view.usage.failed)} hint="The model failed; the visitor still got the ticket offer." />

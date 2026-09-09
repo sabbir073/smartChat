@@ -2035,11 +2035,16 @@ enum KnowledgeDocumentKind {
   article
   /// The "key facts and notes" text the owner types into the AI settings. One per property.
   notes
+  /// A page of the website, found by the crawler. Removed when a later crawl no longer finds it.
+  page
 }
 
 enum AiDecision {
   /// The passages answered the question; the model's text was posted.
   answer
+  /// A greeting, small talk or a general question that needed no fact about the business; the
+  /// model's own words were posted, uncited.
+  chat
   /// Not in the content, or needs a person or the backend: the ticket offer was posted.
   ticket
   /// The visitor asked for a person: handed off to the team, or the ticket offer when nobody is online.
@@ -2075,7 +2080,17 @@ model AiSetting {
   /// Said when the AI hands a conversation to a person who is online.
   handoffText               String @default("I'm passing this to a member of our team - they'll pick it up right here in a moment.") @map("handoff_text")
   /// After this many AI replies in one conversation the AI stops and offers a ticket. A loop guard.
-  maxRepliesPerConversation Int    @default(15) @map("max_replies_per_conversation")
+  maxRepliesPerConversation Int    @default(50) @map("max_replies_per_conversation")
+
+  // --- the website crawl -----------------------------------------------------
+  /// The most pages one crawl reads. The owner can raise it; the operator's ceiling is in code.
+  crawlMaxPages     Int       @default(200) @map("crawl_max_pages")
+  crawlStartedAt    DateTime? @map("crawl_started_at") @db.Timestamptz(6)
+  lastCrawledAt     DateTime? @map("last_crawled_at") @db.Timestamptz(6)
+  crawlPagesFound   Int       @default(0) @map("crawl_pages_found")
+  crawlPagesIndexed Int       @default(0) @map("crawl_pages_indexed")
+  /// Why the last crawl could not read the site, in a sentence the owner can act on. Null after a good one.
+  crawlError        String?   @map("crawl_error")
 
   /// When the mode was last set to something other than `team`. Reporting only.
   enabledAt DateTime? @map("enabled_at") @db.Timestamptz(6)
@@ -2109,11 +2124,13 @@ model KnowledgeDocument {
   tokenCount  Int     @default(0) @map("token_count")
   chunkCount  Int     @default(0) @map("chunk_count")
 
-  indexedAt DateTime? @map("indexed_at") @db.Timestamptz(6)
+  indexedAt  DateTime? @map("indexed_at") @db.Timestamptz(6)
   /// The last indexing failure, kept until the next success, so the settings page can say why.
-  error     String?
-  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  error      String?
+  /// For pages: when the crawler last found this URL. A crawl that no longer finds it removes it.
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   account  Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
   property Property         @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
@@ -2122,6 +2139,8 @@ model KnowledgeDocument {
 
   @@unique([accountId, id])
   @@unique([accountId, articleId])
+  /// One document per page URL per website.
+  @@unique([accountId, propertyId, url])
   @@index([accountId, propertyId, kind])
   @@map("knowledge_documents")
 }

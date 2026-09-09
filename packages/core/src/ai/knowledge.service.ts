@@ -29,7 +29,7 @@ export interface KnowledgeServiceOptions {
 export interface RetrievedChunk {
   chunkId: string;
   documentId: string;
-  kind: 'article' | 'notes';
+  kind: 'article' | 'notes' | 'page';
   title: string;
   url: string | null;
   heading: string | null;
@@ -39,6 +39,8 @@ export interface RetrievedChunk {
 
 export interface KnowledgeStatus {
   documents: number;
+  /** How many of the documents are crawled pages. */
+  pages: number;
   chunks: number;
   lastIndexedAt: Date | null;
   /** Documents whose last indexing failed, with the reason. */
@@ -158,6 +160,56 @@ export class KnowledgeService {
     return { documentId: created.id, changed: true };
   }
 
+  /**
+   * One crawled page. Upserted by URL; unchanged content is only stamped as seen, so a weekly
+   * re-crawl of a site that has not changed embeds nothing.
+   */
+  async syncPage(
+    accountId: string,
+    propertyId: string,
+    page: { url: string; title: string; text: string; description: string | null },
+    seenAt: Date,
+  ): Promise<{ documentId: string; changed: boolean }> {
+    const text = (page.description ? `${page.description}\n\n${page.text}` : page.text).slice(0, 200_000);
+    const hash = contentHash(page.title, text);
+    const existing = await this.options.db.knowledgeDocument.findUnique({
+      where: { accountId_propertyId_url: { accountId, propertyId, url: page.url } },
+    });
+    if (existing) {
+      if (existing.kind === 'page' && existing.contentHash === hash && existing.indexedAt && !existing.error) {
+        await this.options.db.knowledgeDocument.update({ where: { id: existing.id }, data: { lastSeenAt: seenAt } });
+        return { documentId: existing.id, changed: false };
+      }
+      await this.options.db.knowledgeDocument.update({
+        where: { id: existing.id },
+        data: { kind: 'page', title: page.title, text, contentHash: hash, tokenCount: estimateTokens(text), error: null, lastSeenAt: seenAt },
+      });
+      return { documentId: existing.id, changed: true };
+    }
+    const created = await this.options.db.knowledgeDocument.create({
+      data: {
+        accountId,
+        propertyId,
+        kind: 'page',
+        title: page.title,
+        url: page.url,
+        text,
+        contentHash: hash,
+        tokenCount: estimateTokens(text),
+        lastSeenAt: seenAt,
+      },
+    });
+    return { documentId: created.id, changed: true };
+  }
+
+  /** Pages a completed crawl did not find any more are gone from the site; they go from the index. */
+  async prunePages(accountId: string, propertyId: string, seenBefore: Date): Promise<number> {
+    const result = await this.options.db.knowledgeDocument.deleteMany({
+      where: { accountId, propertyId, kind: 'page', OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: seenBefore } }] },
+    });
+    return result.count;
+  }
+
   async deleteDocument(accountId: string, documentId: string): Promise<void> {
     // Chunks go with the document (ON DELETE CASCADE).
     await this.options.db.knowledgeDocument.deleteMany({ where: { accountId, id: documentId } });
@@ -222,9 +274,13 @@ export class KnowledgeService {
   }
 
   /** Every document of a property, in turn. Used by "re-index" and after the embedding model changes. */
-  async listDocumentIds(accountId: string, propertyId: string): Promise<string[]> {
+  async listDocumentIds(
+    accountId: string,
+    propertyId: string,
+    kinds?: Array<'article' | 'notes' | 'page'>,
+  ): Promise<string[]> {
     const rows = await this.options.db.knowledgeDocument.findMany({
-      where: { accountId, propertyId },
+      where: { accountId, propertyId, ...(kinds ? { kind: { in: kinds } } : {}) },
       select: { id: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -234,21 +290,23 @@ export class KnowledgeService {
   async status(accountId: string, propertyId: string): Promise<KnowledgeStatus> {
     const documents = await this.options.db.knowledgeDocument.findMany({
       where: { accountId, propertyId },
-      select: { id: true, title: true, chunkCount: true, indexedAt: true, error: true },
+      select: { id: true, title: true, kind: true, chunkCount: true, indexedAt: true, error: true },
     });
     let chunks = 0;
+    let pages = 0;
     let lastIndexedAt: Date | null = null;
     let pending = 0;
     const failures: KnowledgeStatus['failures'] = [];
     for (const document of documents) {
       chunks += document.chunkCount;
+      if (document.kind === 'page') pages += 1;
       if (document.indexedAt && (!lastIndexedAt || document.indexedAt > lastIndexedAt)) {
         lastIndexedAt = document.indexedAt;
       }
       if (document.error) failures.push({ documentId: document.id, title: document.title, error: document.error });
       else if (!document.indexedAt) pending += 1;
     }
-    return { documents: documents.length, chunks, lastIndexedAt, failures, pending };
+    return { documents: documents.length, pages, chunks, lastIndexedAt, failures: failures.slice(0, 20), pending };
   }
 
   async document(accountId: string, documentId: string): Promise<KnowledgeDocument | null> {
@@ -325,7 +383,7 @@ export class KnowledgeService {
       chunks: rows.map((row) => ({
         chunkId: row.chunk_id,
         documentId: row.document_id,
-        kind: row.kind === 'notes' ? 'notes' : 'article',
+        kind: row.kind === 'notes' ? 'notes' : row.kind === 'page' ? 'page' : 'article',
         title: row.title,
         url: row.url,
         heading: row.heading,

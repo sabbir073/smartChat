@@ -11,13 +11,15 @@ import { z } from 'zod';
  *
  * An `answer` must cite at least one passage that was actually in the prompt. An answer with no
  * source is an answer the model made up, and it becomes the ticket offer - the operator's rule
- * that what the AI does not know, it does not guess.
+ * that what the AI does not know, it does not guess. `chat` is the exception, on purpose: a
+ * greeting, thanks, small talk or a general question that is not about the business is answered
+ * in the model's own words, because "Hello" deserves "Hello", not a ticket form.
  */
 
 export const REPLY_SCHEMA: Record<string, unknown> = {
   type: 'object',
   properties: {
-    decision: { type: 'string', enum: ['answer', 'ticket', 'human'] },
+    decision: { type: 'string', enum: ['answer', 'chat', 'ticket', 'human'] },
     text: { type: 'string' },
     sources: { type: 'array', items: { type: 'integer' } },
   },
@@ -25,13 +27,13 @@ export const REPLY_SCHEMA: Record<string, unknown> = {
 };
 
 const replySchema = z.object({
-  decision: z.enum(['answer', 'ticket', 'human']),
+  decision: z.enum(['answer', 'chat', 'ticket', 'human']),
   text: z.string(),
   sources: z.array(z.number().int()).default([]),
 });
 
 export interface ModelReply {
-  decision: 'answer' | 'ticket' | 'human';
+  decision: 'answer' | 'chat' | 'ticket' | 'human';
   text: string;
   /** Passage numbers as the prompt numbered them (1-based), validated against what was shown. */
   sources: number[];
@@ -76,7 +78,14 @@ export function parseReply(raw: string, options: NormaliseOptions): ParseSuccess
       downgraded = 'answer cited no passage';
     }
   }
-  if (decision !== 'answer') {
+  // A chat reply is the model's own words - a greeting, a general fact - and needs no passage,
+  // but it does need words. It is the one decision where the model speaks without a citation, so
+  // the prompt is strict about what it may be used for.
+  if (decision === 'chat' && text.length === 0) {
+    decision = 'ticket';
+    downgraded = 'chat had no text';
+  }
+  if (decision !== 'answer' && decision !== 'chat') {
     // The offer and the handoff are said in the operator's own words; the model's are dropped.
     text = '';
   }
