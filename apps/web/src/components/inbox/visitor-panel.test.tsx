@@ -45,6 +45,7 @@ function conversation(
     session,
     id: 'c1',
     propertyId: 'p1',
+    ai: { replyCount: 0, pausedAt: null, handoffAt: null, lastReplyAt: null },
     status: 'open',
     priority: 'normal',
     channel: 'chat',

@@ -1,4 +1,5 @@
 import {
+  aiEnvSchema,
   baseEnvSchema,
   databaseEnvSchema,
   httpEnvSchema,
@@ -19,6 +20,7 @@ const apiEnvSchema = baseEnvSchema
   .merge(mailEnvSchema)
   .merge(httpEnvSchema)
   .merge(storageEnvSchema)
+  .merge(aiEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('api'),

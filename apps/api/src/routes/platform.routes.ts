@@ -6,6 +6,7 @@ import {
   createPlanSchema,
   enquiryIdParamSchema,
   setAccountPlanSchema,
+  updateAiPlatformSettingsSchema,
   updateBillingSettingsSchema,
   updatePlanSchema,
 } from '@smartchat/validation';
@@ -258,6 +259,30 @@ export async function platformRoutes(app: FastifyInstance, container: Container)
 
     guarded.post('/platform/billing/settings/test', async (request, reply) => {
       return ok(reply, await container.platformBilling.testStripe(requirePlatform(request)));
+    });
+
+    // --- the AI layer ------------------------------------------------------------------------
+
+    guarded.get('/platform/ai/settings', async (request, reply) => {
+      return ok(reply, await container.platformAi.settings(requirePlatform(request)));
+    });
+
+    guarded.patch('/platform/ai/settings', async (request, reply) => {
+      const principal = requirePlatform(request);
+      const input = parseBody(updateAiPlatformSettingsSchema, request.body);
+      return ok(reply, await container.platformAi.updateSettings(principal, input, request.clientIp));
+    });
+
+    guarded.post('/platform/ai/settings/test', async (request, reply) => {
+      return ok(reply, await container.platformAi.testFallback(requirePlatform(request)));
+    });
+
+    guarded.get('/platform/ai/health', async (request, reply) => {
+      return ok(reply, await container.platformAi.health(requirePlatform(request)));
+    });
+
+    guarded.get('/platform/ai/usage', async (request, reply) => {
+      return ok(reply, await container.platformAi.usage(requirePlatform(request)));
     });
 
     guarded.get('/platform/billing/enquiries', async (request, reply) => {

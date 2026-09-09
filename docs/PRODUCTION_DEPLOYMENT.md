@@ -11,7 +11,11 @@ This is the file `DEPLOYMENT.md` refers to. `DEPLOYMENT.md` is the short version
 
 **A server.** 2 vCPU and 4 GB of RAM runs the whole stack comfortably: Postgres, Redis, MinIO,
 four Node services, the widget's static files and nginx. 2 GB works but leaves nothing for the
-database's cache, and the compose file asks Postgres for 512 MB of shared buffers. Any current
+database's cache, and the compose file asks Postgres for 512 MB of shared buffers. **The AI agent
+changes this**: its local models want ~5 GB of RAM and every CPU core you can give them (a reply
+takes ~4 s on 8 cores of a current AMD EPYC, and scales down with fewer or older cores). 12 vCPU
+and 16 GB is what it was measured on. Without that, set `AI_LOCAL_URL=` (empty), skip the `ai`
+service, and let the console's fallback provider answer everything. Any current
 Debian or Ubuntu LTS is fine. 20 GB of disk to begin with — transcripts and uploaded files are
 what grow, so watch the volumes rather than the root filesystem.
 
@@ -350,6 +354,21 @@ Save, **Test connection**. In Stripe, add a webhook endpoint for the URL the con
 so each priced plan gets its Stripe product and prices, and enable Stripe's customer portal so
 "Manage payment method" has somewhere to go. `docs/BILLING.md` has the whole model, the lock
 rules and what each webhook does.
+
+### The AI agent
+
+The `ai` service (Ollama) comes up with the rest of the stack and, on its first boot, downloads
+the two models named in `.env` (`AI_CHAT_MODEL`, `AI_EMBED_MODEL`; ~3.5 GB) onto the
+`ollama_models` volume before it reports healthy — `docker compose logs -f ai` shows the pull.
+Nothing else is needed for local answering. Postgres is built from
+`infrastructure/docker/postgres.Dockerfile` (the Alpine image plus pgvector), so the first deploy
+with the AI agent rebuilds and recreates the database container: `docker compose build postgres
+&& docker compose up -d postgres`, then `migrate` as usual. The data volume is untouched.
+
+The fallback provider is optional and entered in the console → **AI**: choose OpenAI or DeepSeek,
+paste the key (sealed with `SETTINGS_ENCRYPTION_KEY`, like Stripe's), **Test fallback**. The
+worker starts using it within thirty seconds. `docs/AI_AGENT.md` has the routing rules, the
+contract the model is held to, and what the privacy page needs to say.
 
 ---
 

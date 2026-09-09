@@ -60,6 +60,8 @@ export const createPlanSchema = z.object({
   maxProperties: limitSchema.default(1),
   maxMembers: limitSchema.default(1),
   aiAgent: z.boolean().default(false),
+  /** AI replies per calendar month per account; null is unlimited. Ignored when `aiAgent` is off. */
+  aiRepliesPerMonth: limitSchema.default(null),
   integrations: z.boolean().default(false),
   removeBranding: z.boolean().default(false),
   isContactSales: z.boolean().default(false),

@@ -262,13 +262,34 @@ export class ConversationService {
   async submitOfflineMessage(
     identity: VisitorIdentity,
     submitted: Record<string, unknown>,
+    options: { conversationId?: string } = {},
   ): Promise<{ conversationId: string; message: MessageDto; ticketNumber?: number }> {
     const config = await this.widgets.liveConfigForProperty(
       identity.accountId,
       identity.propertyId,
     );
     if (!config) throw new AppError(ErrorCode.PROPERTY_NOT_FOUND);
-    if (!config.behaviour.offlineFormEnabled) {
+
+    /**
+     * Continuing a chat rather than starting one: the AI assistant offered a ticket inside a
+     * conversation, and the visitor took it. The message and the ticket attach to that
+     * conversation, and the AI stops there - a person owns it from here. The offline-form switch
+     * does not apply on this path; the offer is the AI's, and it needs the form's fields, not
+     * its schedule.
+     */
+    const continued = options.conversationId
+      ? await this.options.db.conversation.findFirst({
+          where: {
+            id: options.conversationId,
+            accountId: identity.accountId,
+            propertyId: identity.propertyId,
+            visitorId: identity.visitorId,
+            deletedAt: null,
+          },
+        })
+      : null;
+    if (options.conversationId && !continued) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+    if (!continued && !config.behaviour.offlineFormEnabled) {
       throw new AppError(
         ErrorCode.FEATURE_NOT_AVAILABLE,
         'This site does not take offline messages',
@@ -296,19 +317,27 @@ export class ConversationService {
       await this.visitors.identify(identity.accountId, identity.visitorId, traits);
     }
 
-    const conversation = await this.repo.create(
-      {
-        accountId: identity.accountId,
-        propertyId: identity.propertyId,
-        visitorId: identity.visitorId,
-        channel: 'offline_form',
-        preChat: collected.values,
-      },
-      now,
-    );
+    const conversation =
+      continued ??
+      (await this.repo.create(
+        {
+          accountId: identity.accountId,
+          propertyId: identity.propertyId,
+          visitorId: identity.visitorId,
+          channel: 'offline_form',
+          preChat: collected.values,
+        },
+        now,
+      ));
 
-    const persisted = await this.options.db.$transaction((tx) =>
-      new ConversationRepository(tx).insertMessage({
+    const persisted = await this.options.db.$transaction(async (tx) => {
+      if (continued) {
+        await tx.conversation.updateMany({
+          where: { id: continued.id, aiPausedAt: null },
+          data: { aiPausedAt: now },
+        });
+      }
+      return new ConversationRepository(tx).insertMessage({
         accountId: identity.accountId,
         propertyId: identity.propertyId,
         conversationId: conversation.id,
@@ -318,22 +347,24 @@ export class ConversationService {
         body,
         metadata: { channel: 'offline_form' },
         now,
-      }),
-    );
+      });
+    });
 
     const dto = toMessageDto(
       persisted.message,
       collected.values['name'] ?? identity.visitorName ?? null,
     );
 
-    await this.options.events.publish({
-      type: ServerEvent.CONVERSATION_CREATED,
-      accountId: identity.accountId,
-      propertyId: identity.propertyId,
-      conversationId: conversation.id,
-      visitorId: identity.visitorId,
-      payload: { conversationId: conversation.id },
-    });
+    if (!continued) {
+      await this.options.events.publish({
+        type: ServerEvent.CONVERSATION_CREATED,
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        conversationId: conversation.id,
+        visitorId: identity.visitorId,
+        payload: { conversationId: conversation.id },
+      });
+    }
     await this.options.events.publish({
       type: ServerEvent.MESSAGE_NEW,
       accountId: identity.accountId,
@@ -367,6 +398,12 @@ export class ConversationService {
       } catch {
         // Deliberately not fatal. See the note above.
       }
+    }
+
+    // In a continued chat the assistant closes the loop in the transcript, so the visitor sees
+    // the ticket number where they asked for it and the inbox sees what happened.
+    if (continued) {
+      await this.confirmTicketInChat(identity, conversation.id, ticketNumber, traits.email ?? null, now);
     }
 
     return {
@@ -477,6 +514,77 @@ export class ConversationService {
     }
 
     return { message: dto, conversation: persisted.conversation, created: persisted.created };
+  }
+
+  // ---------------------------------------------------------------------------
+  // The AI agent
+  // ---------------------------------------------------------------------------
+
+  /**
+   * A person has taken this conversation: the AI does not speak in it again.
+   *
+   * Set once, by the first agent reply or assignment, and never cleared by the system. Cheap when
+   * it is already set (one indexed update that matches nothing), and told to the inbox so the
+   * "AI is answering" mark comes off without a reload.
+   */
+  private async pauseAi(
+    conversationId: string,
+    now: Date,
+    conversation: Pick<Conversation, 'accountId' | 'propertyId' | 'visitorId' | 'aiPausedAt'>,
+  ): Promise<void> {
+    if (conversation.aiPausedAt) return;
+    const result = await this.options.db.conversation.updateMany({
+      where: { id: conversationId, aiPausedAt: null },
+      data: { aiPausedAt: now },
+    });
+    if (result.count === 0) return;
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_UPDATED,
+      accountId: conversation.accountId,
+      propertyId: conversation.propertyId,
+      conversationId,
+      visitorId: conversation.visitorId,
+      agentsOnly: true,
+      payload: { conversationId, aiPausedAt: now.toISOString() },
+    });
+  }
+
+  private async confirmTicketInChat(
+    identity: VisitorIdentity,
+    conversationId: string,
+    ticketNumber: number | null,
+    email: string | null,
+    now: Date,
+  ): Promise<void> {
+    const settings = await this.options.db.aiSetting.findUnique({
+      where: { accountId_propertyId: { accountId: identity.accountId, propertyId: identity.propertyId } },
+      select: { assistantName: true },
+    });
+    const senderName = settings?.assistantName ?? 'AI assistant';
+    const body =
+      ticketNumber === null
+        ? `Thanks - your message has reached the team, and they'll follow up${email ? ` at ${email}` : ''}.`
+        : `Thanks - ticket #${ticketNumber} is open, and the team will reply${email ? ` to ${email}` : ' by email'}.`;
+    const persisted = await this.options.db.$transaction((tx) =>
+      new ConversationRepository(tx).insertMessage({
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        conversationId,
+        senderType: 'bot',
+        type: 'text',
+        body,
+        metadata: { source: 'ai', senderName, sources: [] },
+        now,
+      }),
+    );
+    await this.options.events.publish({
+      type: ServerEvent.MESSAGE_NEW,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId,
+      visitorId: identity.visitorId,
+      payload: { message: toMessageDto(persisted.message, senderName), room: room.conversation(conversationId) },
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -829,6 +937,7 @@ export class ConversationService {
 
     if (persisted.created && !isNote) {
       await this.repo.recordFirstResponse(conversationId, now);
+      await this.pauseAi(conversationId, now, conversation);
     }
 
     const dto = toMessageDto(persisted.message, context.actorName ?? null, input.attachment);
@@ -1066,6 +1175,7 @@ export class ConversationService {
       assignedMemberId: assigneeMemberId,
     });
     if (!updated) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+    if (assigneeMemberId) await this.pauseAi(conversationId, this.clock.now(), conversation);
 
     await this.audit.record({
       accountId: context.accountId,

@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, api } from '@/lib/api-client';
 import { AccountBillingPanel, BillingTab } from '@/components/console/billing-tab';
+import { AiTab } from '@/components/console/ai-tab';
 
 interface AccountRow {
   id: string;
@@ -54,7 +55,7 @@ interface AuditRow {
   createdAt: string;
 }
 
-const TABS = ['accounts', 'billing', 'flags', 'health', 'audit'] as const;
+const TABS = ['accounts', 'billing', 'ai', 'flags', 'health', 'audit'] as const;
 
 /**
  * The platform console.
@@ -92,7 +93,7 @@ export default function ConsolePage() {
           query: { ...(search.trim() ? { search: search.trim() } : {}), limit: 100 },
         });
         setAccounts(result.data);
-      } else if (tab === 'billing') {
+      } else if (tab === 'billing' || tab === 'ai') {
         // The tab loads its own data and reports its own errors.
       } else if (tab === 'flags') {
         setFlags((await api.get<FlagRow[]>('/platform/flags')).data);
@@ -191,7 +192,7 @@ export default function ConsolePage() {
                 : 'text-ink-inverted/60 hover:bg-ink-inverted/10'
             }`}
           >
-            {entry}
+            {entry === 'ai' ? 'AI' : entry}
           </button>
         ))}
       </nav>
@@ -270,6 +271,7 @@ export default function ConsolePage() {
       )}
 
       {!busy && tab === 'billing' && <BillingTab onError={setError} />}
+      {!busy && tab === 'ai' && <AiTab onError={setError} />}
 
       {billingFor && (
         <AccountBillingPanel

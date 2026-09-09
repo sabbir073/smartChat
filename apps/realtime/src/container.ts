@@ -1,6 +1,8 @@
 import {
+  AiDispatchService,
   EntitlementService,
   PlatformSettingsService,
+  QueueProducer,
   AutomationRunner,
   ConversationService,
   FeatureFlagService,
@@ -33,6 +35,8 @@ export interface RealtimeContainer {
   connectionTickets: ConnectionTicketService;
   conversations: ConversationService;
   automation: AutomationRunner;
+  /** Decides, after each visitor message, whether the AI answers; queues the reply if so. */
+  ai: AiDispatchService;
   shutdown(): Promise<void>;
 }
 
@@ -116,6 +120,22 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
     onError: (error, meta) => logger.error({ err: error, ...meta }, 'trigger failed'),
   });
 
+  /**
+   * The AI agent's dispatcher.
+   *
+   * This process does not talk to a model; it decides whether the worker should, and queues the
+   * job. The queue producer gets the command client - BullMQ's `add` is an ordinary command, and
+   * only its blocking consumers need a dedicated connection.
+   */
+  const queue = new QueueProducer(redis);
+  const ai = new AiDispatchService({
+    db,
+    entitlements,
+    queue,
+    clock,
+    onError: (error, meta) => logger.error({ err: error, ...meta }, 'ai dispatch failed'),
+  });
+
   return {
     config,
     logger,
@@ -129,7 +149,9 @@ export function createRealtimeContainer(config: RealtimeConfig, logger: Logger):
     connectionTickets,
     conversations,
     automation,
+    ai,
     async shutdown() {
+      await queue.close().catch(() => undefined);
       await db.$disconnect().catch(() => undefined);
       for (const client of [redis, pubClient, subClient, eventSubscriber]) {
         client.disconnect();

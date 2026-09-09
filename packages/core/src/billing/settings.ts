@@ -17,12 +17,24 @@ export const PlatformSettingKey = {
   BILLING_GRACE_DAYS: 'billing.grace_days',
   /** Where custom-plan enquiries go. Falls back to MAIL_FROM_ADDRESS when unset. */
   BILLING_CONTACT_EMAIL: 'billing.contact_email',
+
+  // --- the AI agent -----------------------------------------------------------
+  /** `openai` | `deepseek` | `none`. The hosted model used when the local one cannot answer. */
+  AI_FALLBACK_PROVIDER: 'ai.fallback_provider',
+  AI_FALLBACK_API_KEY: 'ai.fallback_api_key',
+  /** The fallback's model name, e.g. `gpt-4o-mini` or `deepseek-chat`. */
+  AI_FALLBACK_MODEL: 'ai.fallback_model',
+  /** How long one local reply may take before the worker gives up on it and falls back. */
+  AI_LOCAL_TIMEOUT_MS: 'ai.local_timeout_ms',
+  /** `local_first` (default) or `fallback_only` - for an operator whose local box is down for a while. */
+  AI_ROUTING: 'ai.routing',
 } as const;
 export type PlatformSettingKey = (typeof PlatformSettingKey)[keyof typeof PlatformSettingKey];
 
 const SECRET_KEYS: ReadonlySet<PlatformSettingKey> = new Set([
   PlatformSettingKey.STRIPE_SECRET_KEY,
   PlatformSettingKey.STRIPE_WEBHOOK_SECRET,
+  PlatformSettingKey.AI_FALLBACK_API_KEY,
 ]);
 
 export interface StripeConfiguration {
@@ -93,6 +105,40 @@ export class PlatformSettingsService {
   graceDays(): Promise<number> {
     return readGraceDays(this.db);
   }
+
+  /** The AI routing configuration, secrets opened. Absent or malformed values fall to defaults. */
+  async ai(): Promise<AiProviderConfiguration> {
+    const [provider, apiKey, model, timeout, routing] = await Promise.all([
+      this.get(PlatformSettingKey.AI_FALLBACK_PROVIDER),
+      this.get(PlatformSettingKey.AI_FALLBACK_API_KEY),
+      this.get(PlatformSettingKey.AI_FALLBACK_MODEL),
+      this.get(PlatformSettingKey.AI_LOCAL_TIMEOUT_MS),
+      this.get(PlatformSettingKey.AI_ROUTING),
+    ]);
+    const fallbackProvider =
+      provider === 'openai' || provider === 'deepseek' ? provider : ('none' as const);
+    const timeoutMs = Number(timeout);
+    return {
+      fallbackProvider,
+      fallbackApiKey: apiKey,
+      fallbackModel: model,
+      localTimeoutMs:
+        Number.isInteger(timeoutMs) && timeoutMs >= 5_000 && timeoutMs <= 120_000
+          ? timeoutMs
+          : DEFAULT_AI_LOCAL_TIMEOUT_MS,
+      routing: routing === 'fallback_only' ? 'fallback_only' : 'local_first',
+    };
+  }
+}
+
+export const DEFAULT_AI_LOCAL_TIMEOUT_MS = 30_000;
+
+export interface AiProviderConfiguration {
+  fallbackProvider: 'openai' | 'deepseek' | 'none';
+  fallbackApiKey: string | null;
+  fallbackModel: string | null;
+  localTimeoutMs: number;
+  routing: 'local_first' | 'fallback_only';
 }
 
 /**

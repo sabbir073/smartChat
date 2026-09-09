@@ -31,6 +31,7 @@ export type PlanCard = Pick<
   | 'maxProperties'
   | 'maxMembers'
   | 'aiAgent'
+  | 'aiRepliesPerMonth'
   | 'integrations'
   | 'removeBranding'
   | 'isContactSales'
@@ -316,6 +317,7 @@ export function pickPlan(plan: Plan): Omit<PlanCard, 'purchasable'> {
     maxProperties: plan.maxProperties,
     maxMembers: plan.maxMembers,
     aiAgent: plan.aiAgent,
+    aiRepliesPerMonth: plan.aiRepliesPerMonth,
     integrations: plan.integrations,
     removeBranding: plan.removeBranding,
     isContactSales: plan.isContactSales,

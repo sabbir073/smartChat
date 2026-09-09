@@ -41,6 +41,7 @@ Full instructions: [`docs/LOCAL_SETUP.md`](docs/LOCAL_SETUP.md)
 [Realtime](docs/REALTIME.md) ·
 [Widget](docs/WIDGET.md) ·
 [Billing](docs/BILLING.md) ·
+[AI agent](docs/AI_AGENT.md) ·
 [Security](docs/SECURITY.md) ·
 [Testing](docs/TESTING.md) ·
 [Deployment](docs/DEPLOYMENT.md) ·

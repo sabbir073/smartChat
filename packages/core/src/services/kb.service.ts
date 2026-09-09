@@ -52,6 +52,12 @@ export class KbService {
   private readonly clock: Clock;
   private readonly audit: AuditRepository;
   private readonly widgets: WidgetRepository;
+  /**
+   * Told after every article write, with the article's id. The AI agent's knowledge index
+   * listens; nothing here waits for it or fails because of it. Assigned by the composition root
+   * rather than passed in, so tests and the realtime process can leave it unset.
+   */
+  onArticleChanged: ((accountId: string, articleId: string) => Promise<void>) | null = null;
 
   constructor(private readonly options: KbServiceOptions) {
     this.clock = options.clock ?? systemClock;
@@ -234,6 +240,7 @@ export class KbService {
       metadata: { title: article.title, status: article.status },
     });
 
+    this.notifyArticleChanged(context.accountId, article.id);
     return article;
   }
 
@@ -263,11 +270,13 @@ export class KbService {
       data['publishedAt'] = existing.publishedAt ?? now;
     }
 
-    return this.options.db.kbArticle.update({
+    const updated = await this.options.db.kbArticle.update({
       where: { id },
       data,
       include: { category: true },
     });
+    this.notifyArticleChanged(context.accountId, id);
+    return updated;
   }
 
   async deleteArticle(context: TenantContext, id: string): Promise<void> {
@@ -277,6 +286,14 @@ export class KbService {
       where: { id },
       data: { deletedAt: this.clock.now(), status: 'draft' },
     });
+    this.notifyArticleChanged(context.accountId, id);
+  }
+
+  private notifyArticleChanged(accountId: string, articleId: string): void {
+    const hook = this.onArticleChanged;
+    if (!hook) return;
+    // The hook owns its own error handling; a rejection here must not become an unhandled one.
+    void hook(accountId, articleId).catch(() => undefined);
   }
 
   private async assertArticleSlugFree(

@@ -132,6 +132,13 @@ GET  /api/v1/platform/flags
 PATCH /api/v1/platform/flags/:key            { enabled?, disabledAccountIds? }
 GET  /api/v1/platform/audit?limit=
 
+# the AI layer (platform:ai:manage) - see AI_AGENT.md
+GET   /api/v1/platform/ai/settings            local model, fallback provider (key never returned), routing
+PATCH /api/v1/platform/ai/settings            { fallbackProvider?, fallbackApiKey?, fallbackModel?, localTimeoutMs?, routing? }
+POST  /api/v1/platform/ai/settings/test       one tiny completion against the fallback
+GET   /api/v1/platform/ai/health              local reachability, models present, this process's breaker
+GET   /api/v1/platform/ai/usage               this month by decision and provider, top accounts, recent failures
+
 # billing (platform:billing:manage) - see BILLING.md
 GET   /api/v1/platform/billing/plans
 POST  /api/v1/platform/billing/plans          { key, name, prices, limits, features, flags }

@@ -46,6 +46,10 @@ export type {
   StripeEvent,
   BillingEnquiry,
   PlatformSetting,
+  AiSetting,
+  KnowledgeDocument,
+  KnowledgeChunk,
+  AiTurn,
 } from '@prisma/client';
 export {
   AccountStatus,
@@ -77,4 +81,8 @@ export {
   SubscriptionStatus,
   BillingProvider,
   InvoiceStatus,
+  AiMode,
+  KnowledgeDocumentKind,
+  AiDecision,
+  AiProviderKind,
 } from '@prisma/client';

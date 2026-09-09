@@ -83,6 +83,8 @@ export const ErrorCode = {
   PLAN_NOT_FOUND: 'PLAN_NOT_FOUND',
   /** Stripe refused or could not be reached. The detail is in the log, never in the response. */
   PAYMENT_PROVIDER_ERROR: 'PAYMENT_PROVIDER_ERROR',
+  /** No AI provider answered: the local model is down and no fallback is configured or working. */
+  AI_UNAVAILABLE: 'AI_UNAVAILABLE',
 } as const;
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -144,6 +146,7 @@ export const ERROR_STATUS: Readonly<Record<ErrorCode, number>> = {
   BILLING_NOT_CONFIGURED: 503,
   PLAN_NOT_FOUND: 404,
   PAYMENT_PROVIDER_ERROR: 502,
+  AI_UNAVAILABLE: 503,
 };
 
 export interface ErrorDetail {
@@ -188,6 +191,7 @@ export type ApiResponse<T> = ApiSuccessResponse<T> | ApiErrorResponse;
 const EXPOSED_UPSTREAM_CODES: ReadonlySet<ErrorCode> = new Set([
   ErrorCode.BILLING_NOT_CONFIGURED,
   ErrorCode.PAYMENT_PROVIDER_ERROR,
+  ErrorCode.AI_UNAVAILABLE,
 ]);
 
 export class AppError extends Error {
@@ -293,4 +297,5 @@ const DEFAULT_MESSAGES: Record<ErrorCode, string> = {
   BILLING_NOT_CONFIGURED: 'Payments are not set up on this installation yet.',
   PLAN_NOT_FOUND: 'That plan is not available',
   PAYMENT_PROVIDER_ERROR: 'The payment provider could not complete that. Please try again shortly.',
+  AI_UNAVAILABLE: 'The AI service is not reachable right now.',
 };

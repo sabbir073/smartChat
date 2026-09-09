@@ -13,15 +13,21 @@ export function PreChatForm({
   submitLabel,
   busy,
   onSubmit,
+  initialValues,
+  onCancel,
 }: {
   intro: string;
   fields: FormField[];
   submitLabel: string;
   busy: boolean;
   onSubmit: (values: Record<string, string>) => void;
+  /** Pre-filled answers - the visitor's question, a name the panel already knows. */
+  initialValues?: Record<string, string>;
+  /** When set, a "Cancel" button sits beside the submit. */
+  onCancel?: () => void;
 }) {
   const visible = fields.filter((field) => field.requirement !== 'disabled');
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Record<string, string>>(() => initialValues ?? {});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   function validate(): Record<string, string> {
@@ -126,9 +132,16 @@ export function PreChatForm({
         );
       })}
 
-      <button className="primary-button" type="submit" disabled={busy}>
-        {busy ? 'Please wait…' : submitLabel}
-      </button>
+      <div className="form-actions">
+        <button className="primary-button" type="submit" disabled={busy}>
+          {busy ? 'Please wait…' : submitLabel}
+        </button>
+        {onCancel && (
+          <button className="secondary-button" type="button" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+        )}
+      </div>
     </form>
   );
 }

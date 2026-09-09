@@ -102,6 +102,12 @@ export interface ConversationDto {
   closedAt: string | null;
   agentUnreadCount: number;
   messageSeq: number;
+  /**
+   * The AI agent's part: replies given, when a person took over, when it asked for a person.
+   * Optional on the type only so a dashboard deployed a minute ahead of its API renders rather
+   * than crashes; the API always sends it.
+   */
+  ai?: { replyCount: number; pausedAt: string | null; handoffAt: string | null; lastReplyAt: string | null };
   /** Answers from the pre-chat or offline form, in the order the customer configured them. */
   preChat: { key: string; value: string }[];
   visitor: {

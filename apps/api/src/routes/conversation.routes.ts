@@ -33,6 +33,11 @@ export interface ConversationDto {
   agentUnreadCount: number;
   messageSeq: number;
   /**
+   * The AI agent's part in this conversation: how many replies it gave, when a person took over
+   * (null while the AI may still answer), and when it asked for a person while the team was online.
+   */
+  ai: { replyCount: number; pausedAt: string | null; handoffAt: string | null; lastReplyAt: string | null };
+  /**
    * What the pre-chat or offline form collected, as a list so the order the customer configured
    * is the order the agent reads. Values are whatever the visitor typed - claims, never
    * authorisation - and the keys were filtered against the property's own field list on write.
@@ -95,6 +100,12 @@ export function toConversationDto(row: ConversationWithVisitor): ConversationDto
     closedAt: row.closedAt?.toISOString() ?? null,
     agentUnreadCount: row.agentUnreadCount,
     messageSeq: Number(row.messageSeq),
+    ai: {
+      replyCount: row.aiReplyCount,
+      pausedAt: row.aiPausedAt?.toISOString() ?? null,
+      handoffAt: row.aiHandoffAt?.toISOString() ?? null,
+      lastReplyAt: row.aiLastReplyAt?.toISOString() ?? null,
+    },
     preChat: toPreChatEntries(row.preChatData),
     visitor: {
       id: row.visitor.id,

@@ -304,13 +304,31 @@ export default function InboxPage() {
         const conversationId = payload?.['conversationId'];
         const status = payload?.['status'];
         if (typeof conversationId !== 'string') return;
-        if (status !== 'open' && status !== 'pending' && status !== 'closed') return;
+
+        // The AI's flags travel on the same event: a person taking over, or the assistant
+        // handing off. Merged here so the header's "AI answering" mark changes without a reload.
+        const aiPatch = (row: ConversationDto): NonNullable<ConversationDto['ai']> => ({
+          replyCount: 0,
+          pausedAt: null,
+          handoffAt: null,
+          lastReplyAt: null,
+          ...row.ai,
+          ...(typeof payload?.['aiPausedAt'] === 'string' ? { pausedAt: payload['aiPausedAt'] } : {}),
+          ...(typeof payload?.['aiHandoffAt'] === 'string' ? { handoffAt: payload['aiHandoffAt'] } : {}),
+        });
+        const assigned = payload?.['assignedMemberId'];
+        const patch = (row: ConversationDto): ConversationDto => ({
+          ...row,
+          ai: aiPatch(row),
+          ...(assigned === null || typeof assigned === 'string' ? { assignedMemberId: assigned } : {}),
+          ...(status === 'open' || status === 'pending' || status === 'closed' ? { status } : {}),
+        });
 
         setConversations((current) =>
-          current.map((row) => (row.id === conversationId ? { ...row, status } : row)),
+          current.map((row) => (row.id === conversationId ? patch(row) : row)),
         );
         setSelectedConversation((current) =>
-          current && current.id === conversationId ? { ...current, status } : current,
+          current && current.id === conversationId ? patch(current) : current,
         );
       },
     });

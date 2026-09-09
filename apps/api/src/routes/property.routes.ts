@@ -4,6 +4,7 @@ import {
   addDomainSchema,
   createPropertySchema,
   listPropertiesSchema,
+  updateAiSettingsSchema,
   updatePropertySchema,
   updateWidgetConfigSchema,
 } from '@smartchat/validation';
@@ -123,5 +124,29 @@ export async function propertyRoutes(app: FastifyInstance, container: Container)
     const tenant = requireTenant(request);
     const { id } = parseParams(idParam, request.params);
     return ok(reply, await container.widgets.discardDraft(tenant, id));
+  });
+
+  // --- the AI agent ------------------------------------------------------------------
+
+  app.get('/properties/:id/ai', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    return ok(reply, await container.aiSettings.get(tenant, id));
+  });
+
+  app.patch('/properties/:id/ai', async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'mutation', `account:${tenant.accountId}`);
+    const { id } = parseParams(idParam, request.params);
+    const input = parseBody(updateAiSettingsSchema, request.body);
+    return ok(reply, await container.aiSettings.update(tenant, id, input));
+  });
+
+  /** Rebuild the knowledge index from every published article and the key facts. */
+  app.post('/properties/:id/ai/reindex', async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'aiReindex', `account:${tenant.accountId}`);
+    const { id } = parseParams(idParam, request.params);
+    return ok(reply, await container.aiSettings.reindex(tenant, id));
   });
 }

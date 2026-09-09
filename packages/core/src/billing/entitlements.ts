@@ -26,6 +26,7 @@ export interface Entitlements {
     | 'maxProperties'
     | 'maxMembers'
     | 'aiAgent'
+    | 'aiRepliesPerMonth'
     | 'integrations'
     | 'removeBranding'
     | 'isContactSales'
@@ -189,6 +190,25 @@ export class EntitlementService {
     }
   }
 
+  /**
+   * May the AI answer one more message this month?
+   *
+   * The count is live, like the others: a cap that is reached must stop the very next reply, and
+   * the reply that finds it reached posts the ticket offer instead of nothing. A `failed` turn
+   * counts too - it cost a model call - but the count is of turns, not of visitor messages.
+   */
+  async aiReplyAllowance(
+    accountId: string,
+  ): Promise<{ allowed: boolean; used: number; limit: number | null }> {
+    const { plan } = await this.forAccount(accountId);
+    if (!plan.aiAgent) return { allowed: false, used: 0, limit: 0 };
+    if (plan.aiRepliesPerMonth === null) return { allowed: true, used: 0, limit: null };
+    const used = await this.options.db.aiTurn.count({
+      where: { accountId, createdAt: { gte: startOfMonth(this.clock.now()) } },
+    });
+    return { allowed: used < plan.aiRepliesPerMonth, used, limit: plan.aiRepliesPerMonth };
+  }
+
   /** The numbers a billing page shows next to the limits. */
   async usage(accountId: string): Promise<{ properties: number; members: number }> {
     const [properties, members] = await Promise.all([
@@ -199,6 +219,12 @@ export class EntitlementService {
     ]);
     return { properties, members };
   }
+}
+
+/** Calendar months in UTC. A plan month and a billing month are not the same thing, and this
+ * one is the plain one that needs no time zone to explain. */
+export function startOfMonth(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
 
 function plural(count: number, noun: string): string {

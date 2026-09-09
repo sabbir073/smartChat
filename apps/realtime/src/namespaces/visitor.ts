@@ -39,7 +39,7 @@ type VisitorSocket = Socket & { data: VisitorSocketData };
  * client cannot ask to listen to a conversation that is not theirs.
  */
 export function registerVisitorNamespace(namespace: Namespace, container: RealtimeContainer): void {
-  const { logger, presence, conversations, connectionTickets } = container;
+  const { logger, presence, conversations, connectionTickets, ai } = container;
   /**
    * The same answer the HTTP bootstrap gave, from the same function.
    *
@@ -165,6 +165,12 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
           // Only a genuinely new conversation is a "conversation started". Continuing an open one
           // must not re-run the rules that welcome somebody.
           if (result.isNew) void automation.onConversationStarted();
+          void ai.onVisitorMessage({
+            accountId: identity.accountId,
+            propertyId: identity.propertyId,
+            conversationId: result.conversation.id,
+            messageId: result.message.id,
+          });
         } catch (error) {
           void handleFailure(socket, guard, identity.visitorId, logger, error);
           respond(callback, ackError(error));
@@ -197,6 +203,16 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
           // The acknowledgement is only sent once the message is committed, which is what makes
           // "sent" on the visitor's screen mean "durable" rather than "left this machine".
           respond(callback, ackOk({ message: result.message, deduplicated: !result.created }));
+          // After the ack, never before it: the AI's reply is a second message, and it must not
+          // be what decides whether the first one was accepted.
+          if (result.created) {
+            void ai.onVisitorMessage({
+              accountId: identity.accountId,
+              propertyId: identity.propertyId,
+              conversationId: input.conversationId,
+              messageId: result.message.id,
+            });
+          }
         } catch (error) {
           void handleFailure(socket, guard, identity.visitorId, logger, error);
           respond(callback, ackError(error));

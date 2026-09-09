@@ -80,6 +80,34 @@ export const secretsEnvSchema = z.object({
     .regex(/^[0-9a-fA-F]{64}$/, 'must be 64 hex characters - generate with: openssl rand -hex 32'),
 });
 
+/**
+ * The AI layer. The local models are named here because the `ai` container pulls exactly these
+ * and the worker asks for exactly these; the console configures the fallback provider, not this.
+ * An empty `AI_LOCAL_URL` means no local model (tests, or an installation on the fallback only).
+ */
+export const aiEnvSchema = z.object({
+  AI_LOCAL_URL: z
+    .string()
+    .default('')
+    .transform((value) => value.trim())
+    .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
+  AI_CHAT_MODEL: z.string().min(1).default('qwen3.5:2b'),
+  AI_EMBED_MODEL: z.string().min(1).default('embeddinggemma'),
+  /** Must match the `vector(n)` column in knowledge_chunks. Changing it is a migration and a re-index. */
+  AI_EMBED_DIMENSIONS: z.coerce.number().int().min(64).max(4096).default(768),
+  AI_LOCAL_PARALLEL: z.coerce.number().int().min(1).max(16).default(2),
+  /**
+   * Where the fallback provider is reached. Empty means the provider's own endpoint
+   * (api.openai.com or api.deepseek.com). Set it to route through an OpenAI-compatible gateway
+   * of your own - a proxy, LiteLLM, vLLM - or a stub in tests.
+   */
+  AI_FALLBACK_BASE_URL: z
+    .string()
+    .default('')
+    .transform((value) => value.trim())
+    .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
+});
+
 export const storageEnvSchema = z.object({
   S3_ENDPOINT: z.string().url(),
   S3_PUBLIC_ENDPOINT: z.string().url(),
@@ -152,3 +180,4 @@ export type StorageEnv = z.infer<typeof storageEnvSchema>;
 export type MailEnv = z.infer<typeof mailEnvSchema>;
 export type HttpEnv = z.infer<typeof httpEnvSchema>;
 export type UrlsEnv = z.infer<typeof urlsEnvSchema>;
+export type AiEnv = z.infer<typeof aiEnvSchema>;

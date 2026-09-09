@@ -75,6 +75,17 @@ export function App() {
   const [messages, setMessages] = useState<PanelMessage[]>([]);
   const [connection, setConnection] = useState<ConnectionState>('idle');
   const [agentTyping, setAgentTyping] = useState(false);
+  /** Who is typing, when the server said - the AI assistant names itself. */
+  const [typingName, setTypingName] = useState<string | null>(null);
+  /**
+   * The AI assistant's ticket offer.
+   *
+   * `offerDismissedFor` is the id of the offer message the visitor waved away, so the buttons go
+   * and stay gone for that message. `ticketFor` is the conversation a ticket form is open for.
+   */
+  const [offerDismissedFor, setOfferDismissedFor] = useState<string | null>(null);
+  const [ticketFor, setTicketFor] = useState<string | null>(null);
+  const [ticketError, setTicketError] = useState<string | null>(null);
   /**
    * Whether anybody is there to answer.
    *
@@ -162,6 +173,7 @@ export function App() {
         },
         onTyping: (payload) => {
           setAgentTyping(payload.typing);
+          setTypingName(payload.typing ? (payload.actorName ?? null) : null);
           if (typingTimer.current) window.clearTimeout(typingTimer.current);
           if (payload.typing) {
             // A safety net: the server's typing key expires, but if its "stopped" event is lost
@@ -372,6 +384,33 @@ export function App() {
       setSubmitting(false);
     }
   }
+
+  /**
+   * The ticket the AI assistant offered.
+   *
+   * The same form as the offline one, pre-filled with what the visitor asked, and sent with the
+   * conversation id so the ticket attaches to this chat. The assistant confirms the number in the
+   * transcript itself, which is why nothing is rendered here on success beyond closing the form.
+   */
+  async function handleTicketSubmit(values: Record<string, string>) {
+    if (!session || !ticketFor) return;
+    setSubmitting(true);
+    setTicketError(null);
+    try {
+      await widgetApi.offlineMessage(session.token, values, ticketFor);
+      setTicketFor(null);
+    } catch (error) {
+      setTicketError(
+        error instanceof WidgetApiError && error.status !== 0
+          ? error.message
+          : 'We could not send that. Please try again in a moment.',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const lastVisitorQuestion = [...messages].reverse().find((m) => m.senderType === 'visitor' && m.type === 'text')?.body ?? '';
 
   /**
    * Fetch a download URL for one file.
@@ -634,10 +673,45 @@ export function App() {
             messages={messages}
             welcome={config.content.welcomeMessage}
             agentTyping={agentTyping && config.behaviour.showAgentTyping}
+            typingName={typingName}
             resolveAttachmentUrl={resolveAttachmentUrl}
+            offer={
+              !resolved.preview && !closed && client.current?.conversationId && !ticketFor
+                ? {
+                    dismissed: offerDismissedFor === messages[messages.length - 1]?.id,
+                    onCreateTicket: () => {
+                      setTicketError(null);
+                      setTicketFor(client.current?.conversationId ?? null);
+                    },
+                    onDismiss: () => setOfferDismissedFor(messages[messages.length - 1]?.id ?? null),
+                  }
+                : undefined
+            }
           />
 
-          {closed ? (
+          {ticketFor ? (
+            <div className="ticket-form">
+              {ticketError && (
+                <p className="field-error" role="alert">
+                  {ticketError}
+                </p>
+              )}
+              <PreChatForm
+                intro="Leave your details and the team will follow up by email."
+                fields={config.forms.offlineFields}
+                submitLabel="Create ticket"
+                busy={submitting}
+                initialValues={{
+                  ...(session?.visitor.name ? { name: session.visitor.name } : {}),
+                  ...(session?.visitor.email ? { email: session.visitor.email } : {}),
+                  ...(preChat ?? {}),
+                  message: lastVisitorQuestion,
+                }}
+                onSubmit={(values) => void handleTicketSubmit(values)}
+                onCancel={() => setTicketFor(null)}
+              />
+            </div>
+          ) : closed ? (
             <ChatEnded
               endedByVisitor={endedBy === 'visitor'}
               busy={connection !== 'connected'}

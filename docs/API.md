@@ -155,6 +155,11 @@ PATCH  /integrations/webhooks/:id     DELETE /integrations/webhooks/:id
 GET    /integrations/webhooks/:id/deliveries
 POST   /integrations/webhooks/:id/ping
 
+# the AI agent (see AI_AGENT.md)
+GET    /properties/:id/ai             PATCH  /properties/:id/ai        { mode?, assistantName?, keyFacts?, … }
+POST   /properties/:id/ai/reindex
+POST   /widget/offline-message        { values, conversationId? }  (conversationId: the ticket the AI offered)
+
 # billing (see BILLING.md; every route here works on a locked account)
 GET    /billing                       GET    /billing/entitlements
 POST   /billing/checkout              POST   /billing/portal

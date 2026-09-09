@@ -63,6 +63,12 @@ x-app-env: &app-env
   # Optional. Absent means /metrics returns 404 and does not exist - opt-in, because an
   # unauthenticated metrics endpoint tells a stranger how many customers you have.
   METRICS_TOKEN: ${METRICS_TOKEN:-}
+  # The AI layer. The local models run in the `ai` container and are only ever reached over the
+  # internal network; the fallback provider (OpenAI or DeepSeek) is configured in the console.
+  AI_LOCAL_URL: ${AI_LOCAL_URL:-http://ai:11434}
+  AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen3.5:2b}
+  AI_EMBED_MODEL: ${AI_EMBED_MODEL:-embeddinggemma}
+  AI_EMBED_DIMENSIONS: ${AI_EMBED_DIMENSIONS:-768}
 
 x-infra-ready: &infra-ready
   postgres:
@@ -77,7 +83,12 @@ services:
   # PostgreSQL — durable source of truth
   # ---------------------------------------------------------------------------
   postgres:
-    image: postgres:16-alpine
+    # The official Alpine image with pgvector compiled in. See the Dockerfile for why it is not
+    # the upstream pgvector image.
+    build:
+      context: .
+      dockerfile: infrastructure/docker/postgres.Dockerfile
+    image: smartchat/postgres:${IMAGE_TAG:-local}
     restart: unless-stopped
     logging: *default-logging
     environment:
@@ -169,6 +180,43 @@ services:
         mc mb --ignore-existing "local/$$S3_BUCKET-public"
         mc anonymous set download "local/$$S3_BUCKET-public"
         echo "minio-init: buckets ready"
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # AI layer — the local models, in their own container.
+  #
+  # Ollama serves the chat model and the embedding model over HTTP on the internal network; the
+  # worker is its only client and nothing publishes its port. It has no access to the database,
+  # Redis or the object store - it receives text and returns text, which is the whole point of
+  # keeping it separate. Models live on their own volume so a rebuild does not re-download them.
+  # ---------------------------------------------------------------------------
+  ai:
+    image: ollama/ollama:0.33.3
+    restart: unless-stopped
+    logging: *default-logging
+    entrypoint: ['/bin/sh', '/entrypoint.sh']
+    environment:
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen3.5:2b}
+      AI_EMBED_MODEL: ${AI_EMBED_MODEL:-embeddinggemma}
+      OLLAMA_HOST: 0.0.0.0:11434
+      # Models stay in memory; the first visitor of the morning is not the one who pays to load them.
+      OLLAMA_KEEP_ALIVE: '-1'
+      # Two replies at once, then a queue. Beyond this the worker overflows to the fallback provider
+      # when one is configured. Raising it on a CPU box slows every reply rather than adding capacity.
+      OLLAMA_NUM_PARALLEL: ${AI_LOCAL_PARALLEL:-2}
+      OLLAMA_MAX_LOADED_MODELS: '2'
+      # No Ollama telemetry, no model-library fetches beyond the pull.
+      OLLAMA_NOHISTORY: '1'
+    volumes:
+      - ollama_models:/root/.ollama
+      - ./infrastructure/ai/entrypoint.sh:/entrypoint.sh:ro
+    healthcheck:
+      test: ['CMD', 'ollama', 'list']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # A first boot pulls ~3.5 GB of models before it is healthy.
+      start_period: 600s
     networks: [smartchat]
 
   # ---------------------------------------------------------------------------
@@ -358,6 +406,7 @@ volumes:
   postgres_data:
   redis_data:
   minio_data:
+  ollama_models:
 
 networks:
   smartchat:

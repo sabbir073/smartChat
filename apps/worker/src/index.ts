@@ -1,12 +1,19 @@
 import { createServer } from 'node:http';
 import { Worker, type Job } from 'bullmq';
 import {
+  AiReplyService,
+  AiSettingsService,
+  EntitlementService,
   GeoService,
+  KnowledgeService,
   LogMailProvider,
+  PlatformSettingsService,
   QueueName,
   QueueProducer,
+  RedisEventPublisher,
   SmtpMailProvider,
   StorageService,
+  createAiGateway,
   createRedisClient,
   type MailProvider,
   type SendEmailPayload,
@@ -15,6 +22,7 @@ import { AnalyticsJob, EmailJob, MaintenanceJob, WebhookJob } from '@smartchat/c
 import { createPrismaClient } from '@smartchat/database';
 import { createLogger, withLogContext } from '@smartchat/logger';
 import { loadWorkerConfig } from './config.js';
+import { processAiJob } from './processors/ai.js';
 import { processAnalyticsJob } from './processors/analytics.js';
 import { processEmailJob } from './processors/email.js';
 import { processWebhookJob } from './processors/webhook.js';
@@ -100,7 +108,76 @@ async function main(): Promise<void> {
   // worker cannot accumulate duplicate schedules for the same task.
   const scheduler = new QueueProducer(connection);
 
+  /**
+   * The AI layer.
+   *
+   * The worker is the only process that talks to the model: the local one over the internal
+   * network, the fallback over the internet with the key the operator sealed in the console.
+   * Replies are posted through the same event bus the API and the gateway publish on, so a bot
+   * message reaches the widget and the inbox by exactly the route an agent's message does.
+   */
+  const settings = new PlatformSettingsService(db, config.SETTINGS_ENCRYPTION_KEY);
+  const entitlements = new EntitlementService({ db, graceDays: () => settings.graceDays() });
+  const aiGateway = createAiGateway(
+    {
+      url: config.AI_LOCAL_URL || undefined,
+      chatModel: config.AI_CHAT_MODEL,
+      embedModel: config.AI_EMBED_MODEL,
+      embedDimensions: config.AI_EMBED_DIMENSIONS,
+      parallel: config.AI_LOCAL_PARALLEL,
+      fallbackBaseUrl: config.AI_FALLBACK_BASE_URL || undefined,
+    },
+    settings,
+    { log: (event, detail) => logger.warn(detail, event) },
+  );
+  const knowledge = new KnowledgeService({ db, gateway: aiGateway, appUrl: config.APP_URL });
+  // A publishing client of its own: the BullMQ connection is reserved for blocking reads.
+  const eventRedis = createRedisClient({
+    url: config.REDIS_URL,
+    onError: (error) => logger.error({ err: error, connection: 'events' }, 'redis error'),
+  });
+  const aiReplies = new AiReplyService({
+    db,
+    knowledge,
+    gateway: aiGateway,
+    entitlements,
+    events: new RedisEventPublisher(eventRedis, (error) =>
+      logger.error({ err: error }, 'failed to publish domain event'),
+    ),
+    log: (event, detail) => logger.warn(detail, event),
+  });
+  const aiSettings = new AiSettingsService({ db, knowledge, queue: scheduler, entitlements });
+
+  /**
+   * Say at boot whether the local model is there, the same way mail is reported: reachable with
+   * both models, or the reason it is not. Not fatal - the fallback may be configured, and the
+   * container may simply still be pulling its models on a first boot.
+   */
+  if (aiGateway.hasLocal) {
+    try {
+      const health = await aiGateway.embeddings.health(10_000);
+      logger.info(health, 'local ai reachable');
+      // Warm the embedding model so the first indexing job does not pay to load it.
+      void aiGateway.embeddings.embedQuery('warm up', 120_000).catch(() => undefined);
+    } catch (error) {
+      logger.warn({ err: error, url: config.AI_LOCAL_URL }, 'local ai not reachable yet');
+    }
+  } else {
+    logger.info('no local ai configured - replies use the fallback provider only');
+  }
+
   const workers: Worker[] = [
+    new Worker(
+      QueueName.AI,
+      (job: Job) =>
+        withLogContext({ jobId: job.id ?? undefined, requestId: (job.data as { requestId?: string }).requestId }, () =>
+          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings }),
+        ),
+      // As many as the local model serves at once, plus a little so overflow reaches the
+      // fallback rather than queueing here first. Indexing shares the queue and is rare.
+      { connection, concurrency: config.AI_LOCAL_PARALLEL + 2 },
+    ),
+
     new Worker(
       QueueName.EMAIL,
       (job: Job<SendEmailPayload>) =>
@@ -242,6 +319,7 @@ async function main(): Promise<void> {
     await scheduler.close();
     await db.$disconnect();
     connection.disconnect();
+    eventRedis.disconnect();
     process.exit(0);
   };
 

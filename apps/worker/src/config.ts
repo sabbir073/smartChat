@@ -1,9 +1,11 @@
 import {
+  aiEnvSchema,
   baseEnvSchema,
   databaseEnvSchema,
   loadConfigOrExit,
   mailEnvSchema,
   redisEnvSchema,
+  secretsEnvSchema,
   storageEnvSchema,
   urlsEnvSchema,
 } from '@smartchat/config';
@@ -18,6 +20,10 @@ const workerEnvSchema = baseEnvSchema
   // object store. Without it the rows would go and the files would stay - a storage bill nobody
   // can explain and a pile of personal data nobody can find.
   .merge(storageEnvSchema)
+  // The AI reply job runs here: it needs the local model's address and, to open the fallback
+  // provider's key from the console settings, the same encryption key as the API.
+  .merge(aiEnvSchema)
+  .merge(secretsEnvSchema)
   .merge(
     z.object({
       SERVICE_NAME: z.string().default('worker'),

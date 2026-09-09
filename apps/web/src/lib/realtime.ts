@@ -38,6 +38,8 @@ export interface AgentMessage {
   attachment?: MessageAttachment;
   /** Present only on `type: 'system'`. */
   event?: SystemMessageEvent;
+  /** Present on bot messages the AI assistant wrote. */
+  ai?: { sources: Array<{ title: string; url: string | null }>; offer?: 'ticket' };
 }
 
 /** What the thread needs to render a file. Download URLs are minted per request, never stored. */

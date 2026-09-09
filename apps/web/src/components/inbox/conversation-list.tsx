@@ -121,6 +121,14 @@ export function ConversationList({
                   <span className="truncate text-[13px] text-ink-muted">
                     {conversation.subject ?? conversation.visitor.email ?? 'No subject'}
                   </span>
+                  {(conversation.ai?.replyCount ?? 0) > 0 && !conversation.ai?.pausedAt && conversation.status !== 'closed' && (
+                    <span
+                      className="shrink-0 rounded-full bg-success-soft px-1.5 text-[10px] font-semibold uppercase tracking-wide text-success"
+                      title="The AI assistant is answering this conversation"
+                    >
+                      AI
+                    </span>
+                  )}
                   {conversation.agentUnreadCount > 0 && (
                     <span className="ml-auto flex size-5 shrink-0 items-center justify-center rounded-full bg-brand text-[11px] font-semibold text-ink-inverted">
                       {conversation.agentUnreadCount > 9 ? '9+' : conversation.agentUnreadCount}

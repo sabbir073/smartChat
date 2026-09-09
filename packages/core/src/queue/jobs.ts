@@ -6,6 +6,8 @@ export const QueueName = {
   WEBHOOK: 'webhook',
   ANALYTICS: 'analytics',
   MAINTENANCE: 'maintenance',
+  /** AI replies and knowledge indexing. Its own queue: a slow model must not delay an email. */
+  AI: 'ai',
 } as const;
 export type QueueName = (typeof QueueName)[keyof typeof QueueName];
 
@@ -38,6 +40,40 @@ export const MaintenanceJob = {
    */
   BILLING_RECONCILE: 'maintenance.billing_reconcile',
 } as const;
+
+export const AiJob = {
+  /**
+   * Answer one visitor message. Enqueued by the realtime server once the message is stored and
+   * the dispatch rules say the AI should speak; the worker re-checks those rules before it does,
+   * because a person may have taken over in the meantime.
+   */
+  REPLY: 'ai.reply',
+  /** (Re)index one knowledge document: chunk, embed, replace. */
+  INDEX_DOCUMENT: 'ai.index_document',
+  /** Remove one document and its chunks from the index. */
+  REMOVE_DOCUMENT: 'ai.remove_document',
+  /** Rebuild every document of one property - after the notes change, or on "re-index". */
+  REINDEX_PROPERTY: 'ai.reindex_property',
+} as const;
+
+export interface AiReplyPayload {
+  accountId: string;
+  propertyId: string;
+  conversationId: string;
+  /** The visitor message being answered. The reply is idempotent on it. */
+  messageId: string;
+  requestId?: string;
+}
+
+export interface AiIndexDocumentPayload {
+  accountId: string;
+  documentId: string;
+}
+
+export interface AiReindexPropertyPayload {
+  accountId: string;
+  propertyId: string;
+}
 
 export interface SendEmailPayload {
   message: MailMessage;
@@ -84,6 +120,10 @@ export type JobPayloadMap = {
   [MaintenanceJob.APPLY_RETENTION]: Record<string, never>;
   [MaintenanceJob.REFRESH_GEO]: Record<string, never>;
   [MaintenanceJob.BILLING_RECONCILE]: Record<string, never>;
+  [AiJob.REPLY]: AiReplyPayload;
+  [AiJob.INDEX_DOCUMENT]: AiIndexDocumentPayload;
+  [AiJob.REMOVE_DOCUMENT]: AiIndexDocumentPayload;
+  [AiJob.REINDEX_PROPERTY]: AiReindexPropertyPayload;
 };
 
 export type JobName = keyof JobPayloadMap;

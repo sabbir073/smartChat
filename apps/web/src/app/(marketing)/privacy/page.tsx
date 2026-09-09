@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <LegalPage title="Privacy" updated="31 August 2026">
+    <LegalPage title="Privacy" updated="9 September 2026">
       <Clause title="Two different relationships">
         <p>
           SmartChat sits between two of them, and conflating the two is how privacy pages become
@@ -42,6 +42,25 @@ export default function PrivacyPage() {
         <p>
           A visitor is identified by a token stored in the widget's own origin, not by a cookie on
           your domain, and not by any cross-site identifier.
+        </p>
+      </Clause>
+
+      <Clause title="The AI assistant">
+        <p>
+          A website owner can switch on an AI assistant that answers visitors from that site's own
+          published content — its help-centre articles and the facts the owner typed in. Every reply
+          it writes is labelled as written by an AI assistant in the chat. It has no access to
+          accounts, orders, tickets or any other conversation; what it cannot answer, it offers to
+          pass to a person as a ticket.
+        </p>
+        <p>
+          Replies are generated on our own servers by default. If our local model is unavailable or
+          overloaded, the visitor's recent messages in that chat and the passages of the site's
+          public content being answered from are sent to a third-party model provider (OpenAI or
+          DeepSeek, as configured by the operator) to generate the reply. Nothing else about the
+          visitor — no email address, IP address or contact record — is sent, and these providers
+          do not use API traffic to train their models. A record of each AI reply, including which
+          provider answered, is kept with the conversation for as long as the conversation is.
         </p>
       </Clause>
 

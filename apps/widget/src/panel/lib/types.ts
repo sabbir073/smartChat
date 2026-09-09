@@ -32,6 +32,14 @@ export interface MessageDto {
   attachment?: MessageAttachment;
   /** Present only on `type: 'system'`. */
   event?: SystemMessageEvent;
+  /** Present on bot messages the AI assistant wrote. */
+  ai?: AiMessageInfo;
+}
+
+/** Where an AI reply came from, and whether it carries the ticket offer. */
+export interface AiMessageInfo {
+  sources: Array<{ title: string; url: string | null }>;
+  offer?: 'ticket';
 }
 
 /**

@@ -99,6 +99,17 @@ services:
         limits:
           memory: 1g
 
+  ai:
+    <<: *hardening
+    # The models take ~5 GB resident (chat + embeddings + context); the rest is headroom for the
+    # prompt cache. Eight of the twelve cores: a reply then takes ~4 s, and Postgres, Redis and the
+    # Node services keep four for themselves under load.
+    deploy:
+      resources:
+        limits:
+          memory: 7g
+          cpus: '8'
+
   worker:
     <<: *hardening
     # The worker is what actually sends every queued message, so it needs the same

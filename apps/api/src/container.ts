@@ -46,6 +46,10 @@ import {
   type MailDeliver,
   type MailProvider,
   type RedisClient,
+  AiSettingsService,
+  KnowledgeService,
+  PlatformAiService,
+  createAiGateway,
 } from '@smartchat/core';
 import type { Logger } from '@smartchat/logger';
 import { DAY, MINUTE } from '@smartchat/core';
@@ -84,6 +88,9 @@ export interface Container {
   entitlements: EntitlementService;
   billing: BillingService;
   platformBilling: PlatformBillingService;
+  /** The AI agent: per-website settings and the knowledge index. */
+  aiSettings: AiSettingsService;
+  platformAi: PlatformAiService;
   /** The Stripe client for the currently stored secret, or null when none is stored. */
   stripeGateway: () => Promise<StripeGateway | null>;
   /** Built per request from the current gateway; null when Stripe is not configured. */
@@ -407,6 +414,46 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     apiUrl: config.API_URL,
     clock,
   });
+  /**
+   * The AI agent's configuration side.
+   *
+   * The API never asks a model for a reply - that is the worker's job - but it does index the
+   * key facts an owner types (through the same knowledge service, which reaches the local
+   * embedding model), and the console asks it whether the local model is up.
+   */
+  const aiGateway = createAiGateway(
+    {
+      url: config.AI_LOCAL_URL || undefined,
+      chatModel: config.AI_CHAT_MODEL,
+      embedModel: config.AI_EMBED_MODEL,
+      embedDimensions: config.AI_EMBED_DIMENSIONS,
+      parallel: config.AI_LOCAL_PARALLEL,
+      fallbackBaseUrl: config.AI_FALLBACK_BASE_URL || undefined,
+    },
+    settings,
+    { clock, log: (event, detail) => logger.warn(detail, event) },
+  );
+  const knowledge = new KnowledgeService({ db, gateway: aiGateway, appUrl: config.APP_URL, clock });
+  const aiSettings = new AiSettingsService({ db, knowledge, queue, entitlements, clock });
+  const platformAi = new PlatformAiService({
+    db,
+    settings,
+    gateway: aiGateway,
+    local: {
+      url: config.AI_LOCAL_URL,
+      chatModel: config.AI_CHAT_MODEL,
+      embedModel: config.AI_EMBED_MODEL,
+      embedDimensions: config.AI_EMBED_DIMENSIONS,
+    },
+    fallbackBaseUrl: config.AI_FALLBACK_BASE_URL || undefined,
+    clock,
+  });
+  // Articles feed the index. The hook is told after the write and never fails the write.
+  kb.onArticleChanged = (accountId, articleId) =>
+    aiSettings
+      .onArticleChanged(accountId, articleId)
+      .catch((error: unknown) => logger.error({ err: error, articleId }, 'knowledge sync failed'));
+
   const stripeWebhooks = async () => {
     const [gateway, stripe] = await Promise.all([stripeGateway(), settings.stripe()]);
     if (!gateway || !stripe?.webhookSecret) return null;
@@ -458,6 +505,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     entitlements,
     billing,
     platformBilling,
+    aiSettings,
+    platformAi,
     stripeGateway,
     stripeWebhooks,
     conversations,

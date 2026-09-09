@@ -72,6 +72,10 @@ export const Permission = {
   BILLING_VIEW: 'billing:view',
   /** Change plan, update the card, cancel. Owners and admins by default. */
   BILLING_MANAGE: 'billing:manage',
+
+  // the AI agent
+  /** Mode, persona, key facts, re-indexing. Managers as well as owners and admins by default. */
+  AI_MANAGE: 'ai:manage',
 } as const;
 export type Permission = (typeof Permission)[keyof typeof Permission];
 
@@ -111,6 +115,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Readonly<Record<string, readonly Permissi
     Permission.TICKET_VIEW,
     Permission.TICKET_MANAGE,
     Permission.REPORT_VIEW,
+    Permission.AI_MANAGE,
   ],
 
   agent: [
@@ -139,6 +144,8 @@ export const PlatformPermission = {
   SETTINGS_MANAGE: 'platform:settings:manage',
   /** Plans, prices, Stripe keys, and assigning a plan to an account by hand. */
   BILLING_MANAGE: 'platform:billing:manage',
+  /** The AI providers: the fallback key, the local model's health, usage across accounts. */
+  AI_MANAGE: 'platform:ai:manage',
 } as const;
 export type PlatformPermission = (typeof PlatformPermission)[keyof typeof PlatformPermission];
 

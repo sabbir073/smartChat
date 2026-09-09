@@ -120,6 +120,7 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
         visitorName: identity.visitor.name,
       },
       input.values,
+      input.conversationId ? { conversationId: input.conversationId } : {},
     );
 
     reply.header('cache-control', 'no-store');

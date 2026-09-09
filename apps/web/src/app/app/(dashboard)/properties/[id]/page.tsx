@@ -201,6 +201,11 @@ export default function PropertyDetailPage() {
                 Awaiting installation
               </Badge>
             )}
+            <Link href={`/app/properties/${id}/ai`}>
+              <Button size="sm" variant="secondary">
+                AI agent
+              </Button>
+            </Link>
             <Link href={`/app/properties/${id}/widget`}>
               <Button size="sm">Customise widget</Button>
             </Link>

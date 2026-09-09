@@ -22,6 +22,10 @@ const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'maintenance.apply_retention': QueueName.MAINTENANCE,
   'maintenance.refresh_geo': QueueName.MAINTENANCE,
   'maintenance.billing_reconcile': QueueName.MAINTENANCE,
+  'ai.reply': QueueName.AI,
+  'ai.index_document': QueueName.AI,
+  'ai.remove_document': QueueName.AI,
+  'ai.reindex_property': QueueName.AI,
 };
 
 /**

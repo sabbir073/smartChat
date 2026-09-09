@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { cn } from '@/components/ui';
 import type { ConversationDto, MemberDto } from '@/lib/types';
+import { AiModeSelect } from './ai-mode-select';
 
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 type Priority = (typeof PRIORITIES)[number];
@@ -52,6 +53,7 @@ export function ConversationHeader({
 }) {
   const [tagDraft, setTagDraft] = useState('');
   const [tagOpen, setTagOpen] = useState(false);
+  const ai = conversation.ai;
   const tagInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -116,6 +118,21 @@ export function ConversationHeader({
           <span className="shrink-0 whitespace-nowrap text-[12px] text-ink-subtle">
             {online ? 'Online now' : 'Offline'}
           </span>
+          {ai && ai.replyCount > 0 && (
+            <span
+              className={cn(
+                'shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-medium',
+                ai.pausedAt ? 'bg-surface-raised text-ink-subtle' : 'bg-success-soft text-success',
+              )}
+              title={
+                ai.pausedAt
+                  ? 'The AI assistant answered here until a person took over.'
+                  : 'The AI assistant is answering. Reply to take over.'
+              }
+            >
+              {ai.pausedAt ? 'AI · taken over' : 'AI answering'}
+            </span>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">
@@ -182,6 +199,8 @@ export function ConversationHeader({
         row scrolls sideways rather than stealing another line from the transcript.
       */}
       <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
+        <AiModeSelect propertyId={conversation.propertyId} />
+
         <label className="sr-only" htmlFor="conversation-assignee">
           Assign this conversation
         </label>

@@ -163,6 +163,11 @@ export const RATE_LIMITS = {
    * somebody else's traffic, and the signature check behind this limit costs CPU.
    */
   stripeWebhook: { limit: 300, windowMs: 60_000 },
+  /**
+   * Re-indexing walks every article and embeds every chunk on a CPU. Three an hour is plenty for
+   * "I edited it, index it again"; the automatic hooks do the rest for free.
+   */
+  aiReindex: { limit: 3, windowMs: 60 * 60_000 },
 } as const satisfies Record<string, RateLimitRule>;
 
 export type RateLimitName = keyof typeof RATE_LIMITS;

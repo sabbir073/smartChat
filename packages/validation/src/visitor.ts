@@ -66,6 +66,12 @@ export const widgetOfflineMessageSchema = z.object({
   values: z
     .record(z.string().trim().min(1).max(60), z.string().max(2000))
     .refine((values) => Object.keys(values).length <= 24, 'Too many fields'),
+  /**
+   * The chat this message continues, when the AI assistant offered a ticket in one. The ticket
+   * is then attached to that conversation instead of opening a fresh one. Must belong to the
+   * visitor sending it; the service checks.
+   */
+  conversationId: z.string().uuid().optional(),
 });
 
 /**

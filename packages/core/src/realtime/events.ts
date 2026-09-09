@@ -39,6 +39,36 @@ export interface MessageDto {
    * metadata is an internal bag and must not leak by default.
    */
   event?: SystemMessageEvent;
+  /**
+   * Present on bot messages the AI agent wrote: where the answer came from, and whether the
+   * message carries the ticket offer. Whitelisted out of the metadata bag like `event`.
+   */
+  ai?: AiMessageInfo;
+}
+
+export interface AiMessageInfo {
+  /** The documents the reply was answered from, in rank order. Empty for an offer or a handoff. */
+  sources: Array<{ title: string; url: string | null }>;
+  /** The widget shows "Create a ticket" / "Ask something else" under a message that offers one. */
+  offer?: 'ticket';
+}
+
+/** Narrow a stored metadata bag to the AI-message shape, or nothing if it is not one. */
+function readAiInfo(message: MessageMaybeWithSender): AiMessageInfo | undefined {
+  if (message.senderType !== 'bot') return undefined;
+  const raw = message.metadata as Record<string, unknown> | null;
+  if (raw?.['source'] !== 'ai') return undefined;
+  const sources: AiMessageInfo['sources'] = [];
+  if (Array.isArray(raw['sources'])) {
+    for (const entry of raw['sources']) {
+      if (!entry || typeof entry !== 'object') continue;
+      const title = (entry as Record<string, unknown>)['title'];
+      const url = (entry as Record<string, unknown>)['url'];
+      if (typeof title !== 'string') continue;
+      sources.push({ title, url: typeof url === 'string' ? url : null });
+    }
+  }
+  return { sources, ...(raw['offer'] === 'ticket' ? { offer: 'ticket' as const } : {}) };
 }
 
 /**
@@ -94,9 +124,17 @@ export function toMessageDto(
   attachment?: MessageAttachment | undefined,
 ): MessageDto {
   // The caller's name wins (it is the live sender's own context); otherwise fall back to the
-  // relation, which is what makes a reloaded transcript read the same as the live one.
+  // relation, which is what makes a reloaded transcript read the same as the live one. A bot has
+  // no relation, so its name travels in the metadata it was written with.
+  const botName =
+    message.senderType === 'bot'
+      ? (message.metadata as Record<string, unknown> | null)?.['senderName']
+      : undefined;
   const resolvedName =
-    senderName ?? message.sender?.displayName ?? message.sender?.user?.name ?? null;
+    senderName ??
+    message.sender?.displayName ??
+    message.sender?.user?.name ??
+    (typeof botName === 'string' && botName.length > 0 ? botName : null);
 
   return {
     id: message.id,
@@ -116,6 +154,10 @@ export function toMessageDto(
     ...(() => {
       const event = readSystemEvent(message);
       return event ? { event } : {};
+    })(),
+    ...(() => {
+      const ai = readAiInfo(message);
+      return ai ? { ai } : {};
     })(),
   };
 }

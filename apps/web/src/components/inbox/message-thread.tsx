@@ -88,7 +88,12 @@ export function MessageThread({
         }
 
         const isNote = message.type === 'note';
-        const fromAgent = message.senderType === 'agent';
+        // Bots sit on the team's side of the transcript: they spoke for the business, and an
+        // agent reading back must see at a glance which side each line came from.
+        const fromBot = message.senderType === 'bot';
+        const fromAgent = message.senderType === 'agent' || fromBot;
+        const fromAi = fromBot && message.ai !== undefined;
+        const aiSources = fromAi ? (message.ai?.sources ?? []) : [];
 
         if (isNote) {
           return (
@@ -114,9 +119,11 @@ export function MessageThread({
               className={cn(
                 'max-w-[78%] whitespace-pre-wrap break-words rounded-2xl text-sm',
                 message.attachment || message.uploading ? 'p-1.5' : 'px-3.5 py-2.5',
-                fromAgent
-                  ? 'rounded-br-md bg-brand text-ink-inverted'
-                  : 'rounded-bl-md bg-surface-raised text-ink',
+                fromBot
+                  ? 'rounded-br-md border border-brand/30 bg-brand-soft text-ink'
+                  : fromAgent
+                    ? 'rounded-br-md bg-brand text-ink-inverted'
+                    : 'rounded-bl-md bg-surface-raised text-ink',
                 message.delivery === 'pending' && 'opacity-60',
                 message.delivery === 'failed' && 'opacity-60 outline outline-1 outline-danger',
               )}
@@ -137,8 +144,34 @@ export function MessageThread({
                 message.body
               )}
             </div>
-            <div className="flex gap-2 px-1 text-[11px] text-ink-subtle">
+            <div className="flex flex-wrap gap-2 px-1 text-[11px] text-ink-subtle">
               {fromAgent && message.senderName && <span>{message.senderName}</span>}
+              {fromBot && (
+                <span
+                  className="rounded border border-border px-1 text-[10px] font-semibold uppercase tracking-wide"
+                  title={fromAi ? 'Written by the AI assistant' : 'Sent by an automation'}
+                >
+                  {fromAi ? 'AI' : 'Bot'}
+                </span>
+              )}
+              {fromAi && message.ai?.offer === 'ticket' && <span>offered a ticket</span>}
+              {aiSources.length > 0 && (
+                <span>
+                  from{' '}
+                  {aiSources.map((source, i) => (
+                    <span key={`${source.title}-${i}`}>
+                      {i > 0 && ', '}
+                      {source.url ? (
+                        <a href={source.url} target="_blank" rel="noopener noreferrer" className="underline hover:text-ink">
+                          {source.title}
+                        </a>
+                      ) : (
+                        source.title
+                      )}
+                    </span>
+                  ))}
+                </span>
+              )}
               <span>{time(message.createdAt)}</span>
               {message.delivery === 'pending' && <span>Sending…</span>}
               {message.delivery === 'failed' && (

@@ -31,12 +31,21 @@ export function MessageList({
   messages,
   welcome,
   agentTyping,
+  typingName,
   resolveAttachmentUrl,
+  offer,
 }: {
   messages: PanelMessage[];
   welcome: string;
   agentTyping: boolean;
+  /** Who the typing indicator is for; the AI assistant names itself. */
+  typingName?: string | null;
   resolveAttachmentUrl: (attachmentId: string) => Promise<string>;
+  /**
+   * The ticket offer's buttons. Shown under the newest message when it carries the offer and the
+   * visitor has not answered it yet; absent in previews and once a ticket form is open.
+   */
+  offer?: { onCreateTicket: () => void; onDismiss: () => void; dismissed: boolean } | undefined;
 }) {
   const bottom = useRef<HTMLDivElement>(null);
   const container = useRef<HTMLDivElement>(null);
@@ -79,11 +88,17 @@ export function MessageList({
         }
 
         const fromVisitor = message.senderType === 'visitor';
+        const fromAi = message.senderType === 'bot' && message.ai !== undefined;
+        const sources = fromAi ? (message.ai?.sources ?? []).filter((s) => s.url) : [];
+        const isLast = message === messages[messages.length - 1];
+        const showOffer =
+          fromAi && message.ai?.offer === 'ticket' && isLast && offer !== undefined && !offer.dismissed;
         return (
           <div
             key={message.clientMessageId ?? message.id}
             className="message-row"
             data-mine={fromVisitor}
+            data-sender={message.senderType}
           >
             {/* Rendered as a text node, never as markup: message bodies are stored exactly as
                 received and are never trusted as HTML. */}
@@ -108,6 +123,11 @@ export function MessageList({
             </div>
             <div className="message-meta">
               {!fromVisitor && message.senderName && <span>{message.senderName}</span>}
+              {fromAi && (
+                <span className="ai-badge" title="Written by an AI assistant">
+                  AI
+                </span>
+              )}
               <span>{timeOf(message.createdAt)}</span>
               {fromVisitor && message.delivery === 'pending' && (
                 <span aria-label="Sending">Sending…</span>
@@ -118,12 +138,35 @@ export function MessageList({
                 </span>
               )}
             </div>
+            {sources.length > 0 && (
+              <div className="ai-sources">
+                From:{' '}
+                {sources.map((source, i) => (
+                  <span key={source.url ?? i}>
+                    {i > 0 && ', '}
+                    <a href={source.url ?? '#'} target="_blank" rel="noopener noreferrer">
+                      {source.title}
+                    </a>
+                  </span>
+                ))}
+              </div>
+            )}
+            {showOffer && (
+              <div className="ai-offer" role="group" aria-label="Open a support ticket?">
+                <button type="button" className="ai-offer-button primary" onClick={offer.onCreateTicket}>
+                  Create a ticket
+                </button>
+                <button type="button" className="ai-offer-button" onClick={offer.onDismiss}>
+                  Ask something else
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
 
       {agentTyping && (
-        <div className="bubble bubble-agent typing" aria-label="Agent is typing">
+        <div className="bubble bubble-agent typing" aria-label={`${typingName ?? 'Agent'} is typing`}>
           <span />
           <span />
           <span />

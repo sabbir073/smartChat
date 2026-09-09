@@ -127,10 +127,14 @@ export const widgetApi = {
     }),
 
   /** Leave a message when nobody is available. The server decides what the form may contain. */
-  offlineMessage: (token: string, values: Record<string, string>) =>
-    request<{ conversationId: string }>('/widget/offline-message', {
+  /**
+   * Leave a message. With a `conversationId` it continues the chat the AI assistant offered a
+   * ticket in, and the ticket attaches to that chat rather than opening a new one.
+   */
+  offlineMessage: (token: string, values: Record<string, string>, conversationId?: string) =>
+    request<{ conversationId: string; ticketNumber?: number }>('/widget/offline-message', {
       method: 'POST',
-      body: { values },
+      body: { values, ...(conversationId ? { conversationId } : {}) },
       token,
     }),
 };

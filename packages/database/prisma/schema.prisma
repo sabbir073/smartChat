@@ -397,33 +397,37 @@ model Account {
   updatedAt         DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt         DateTime?     @map("deleted_at") @db.Timestamptz(6)
 
-  owner             User?                    @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
-  members           AccountMember[]
-  roles             Role[]
-  departments       Department[]
-  properties        Property[]
-  visitors          Visitor[]
-  conversations     Conversation[]
-  auditLogs         AuditLog[]
-  tokens            VerificationToken[]
-  triggers          Trigger[]
-  shortcuts         Shortcut[]
-  attachments       Attachment[]
-  kbCategories      KbCategory[]
-  kbArticles        KbArticle[]
-  contacts          Contact[]
-  contactFields     ContactFieldDefinition[]
-  tickets           Ticket[]
-  ticketMessages    TicketMessage[]
-  emailDeliveries   EmailDelivery[]
-  dailyMetrics      DailyMetric[]
-  dailyAgentMetrics DailyAgentMetric[]
-  apiKeys           ApiKey[]
-  webhooks          Webhook[]
-  webhookDeliveries WebhookDelivery[]
-  subscription      Subscription?
-  invoices          Invoice[]
-  billingEnquiries  BillingEnquiry[]
+  owner              User?                    @relation("AccountOwner", fields: [ownerUserId], references: [id], onDelete: SetNull)
+  members            AccountMember[]
+  roles              Role[]
+  departments        Department[]
+  properties         Property[]
+  visitors           Visitor[]
+  conversations      Conversation[]
+  auditLogs          AuditLog[]
+  tokens             VerificationToken[]
+  triggers           Trigger[]
+  shortcuts          Shortcut[]
+  attachments        Attachment[]
+  kbCategories       KbCategory[]
+  kbArticles         KbArticle[]
+  contacts           Contact[]
+  contactFields      ContactFieldDefinition[]
+  tickets            Ticket[]
+  ticketMessages     TicketMessage[]
+  emailDeliveries    EmailDelivery[]
+  dailyMetrics       DailyMetric[]
+  dailyAgentMetrics  DailyAgentMetric[]
+  apiKeys            ApiKey[]
+  webhooks           Webhook[]
+  webhookDeliveries  WebhookDelivery[]
+  subscription       Subscription?
+  invoices           Invoice[]
+  billingEnquiries   BillingEnquiry[]
+  aiSettings         AiSetting[]
+  knowledgeDocuments KnowledgeDocument[]
+  knowledgeChunks    KnowledgeChunk[]
+  aiTurns            AiTurn[]
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -523,19 +527,22 @@ model Property {
   updatedAt           DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt           DateTime?      @map("deleted_at") @db.Timestamptz(6)
 
-  account       Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  domains       PropertyDomain[]
-  members       PropertyMember[]
-  widget        Widget?
-  visitors      Visitor[]
-  sessions      VisitorSession[]
-  conversations Conversation[]
-  triggers      Trigger[]
-  attachments   Attachment[]
-  kbCategories  KbCategory[]
-  kbArticles    KbArticle[]
-  tickets       Ticket[]
-  dailyMetrics  DailyMetric[]
+  account            Account             @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  domains            PropertyDomain[]
+  members            PropertyMember[]
+  widget             Widget?
+  visitors           Visitor[]
+  sessions           VisitorSession[]
+  conversations      Conversation[]
+  triggers           Trigger[]
+  attachments        Attachment[]
+  kbCategories       KbCategory[]
+  kbArticles         KbArticle[]
+  tickets            Ticket[]
+  dailyMetrics       DailyMetric[]
+  aiSetting          AiSetting?
+  knowledgeDocuments KnowledgeDocument[]
+  aiTurns            AiTurn[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -852,6 +859,17 @@ model Conversation {
   visitorUnreadCount Int @default(0) @map("visitor_unread_count")
   agentUnreadCount   Int @default(0) @map("agent_unread_count")
 
+  // --- the AI agent ----------------------------------------------------------
+  /// How many times the AI has answered here. Bounded by the property's setting so a visitor is
+  /// never kept in a loop with a machine.
+  aiReplyCount  Int       @default(0) @map("ai_reply_count")
+  aiLastReplyAt DateTime? @map("ai_last_reply_at") @db.Timestamptz(6)
+  /// Set the moment a person replies or takes the assignment. The AI never speaks in this
+  /// conversation again, whatever the mode says.
+  aiPausedAt    DateTime? @map("ai_paused_at") @db.Timestamptz(6)
+  /// The AI decided a person is needed while the team was online. The inbox shows it as waiting.
+  aiHandoffAt   DateTime? @map("ai_handoff_at") @db.Timestamptz(6)
+
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -866,6 +884,7 @@ model Conversation {
   triggerFirings TriggerFiring[]
   attachments    Attachment[]
   tickets        Ticket[]
+  aiTurns        AiTurn[]
 
   @@unique([accountId, id])
   // Drives the inbox list.
@@ -1279,9 +1298,10 @@ model KbArticle {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  account  Account     @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  property Property    @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
-  category KbCategory? @relation(fields: [accountId, categoryId], references: [accountId, id], onDelete: SetNull)
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property          Property           @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  category          KbCategory?        @relation(fields: [accountId, categoryId], references: [accountId, id], onDelete: SetNull)
+  knowledgeDocument KnowledgeDocument?
 
   @@unique([accountId, id])
   @@unique([propertyId, slug])
@@ -1840,14 +1860,16 @@ model Plan {
 
   // --- what the plan allows ------------------------------------------------
   /// null = unlimited.
-  maxProperties  Int?    @map("max_properties")
+  maxProperties     Int?    @map("max_properties")
   /// null = unlimited. Counts active members and pending invitations together.
-  maxMembers     Int?    @map("max_members")
-  aiAgent        Boolean @default(false) @map("ai_agent")
+  maxMembers        Int?    @map("max_members")
+  aiAgent           Boolean @default(false) @map("ai_agent")
+  /// AI replies per calendar month, per account. null = unlimited. Meaningless when `aiAgent` is off.
+  aiRepliesPerMonth Int?    @map("ai_replies_per_month")
   /// Public API keys and outbound webhooks.
-  integrations   Boolean @default(false)
+  integrations      Boolean @default(false)
   /// Hide "Powered by" in the widget.
-  removeBranding Boolean @default(false) @map("remove_branding")
+  removeBranding    Boolean @default(false) @map("remove_branding")
 
   /// "Talk to us" rather than a checkout button. Price fields are ignored.
   isContactSales Boolean @default(false) @map("is_contact_sales")
@@ -1987,4 +2009,192 @@ model PlatformSetting {
   updatedByAdminId String?  @map("updated_by_admin_id") @db.Uuid
 
   @@map("platform_settings")
+}
+
+// -----------------------------------------------------------------------------
+// The AI agent
+//
+// The AI never touches the rest of this schema. It is given text - the property's settings, the
+// passages retrieved from `knowledge_chunks`, the last few messages - and it returns text that the
+// worker validates before anything is written. What lives here is the configuration, the index
+// that retrieval searches, and the record of every turn so "why did it say that" and "what did
+// this cost" are queries rather than guesses. See docs/AI_AGENT.md.
+// -----------------------------------------------------------------------------
+
+enum AiMode {
+  /// People answer. The offline form takes over when nobody is online. Today's behaviour.
+  team
+  /// The AI answers while no member of the account is online; people take over the moment one is.
+  ai_when_offline
+  /// The AI answers first, always. A person can still take any conversation over.
+  ai
+}
+
+enum KnowledgeDocumentKind {
+  /// A published help-centre article. Indexed on publish, removed on unpublish.
+  article
+  /// The "key facts and notes" text the owner types into the AI settings. One per property.
+  notes
+}
+
+enum AiDecision {
+  /// The passages answered the question; the model's text was posted.
+  answer
+  /// Not in the content, or needs a person or the backend: the ticket offer was posted.
+  ticket
+  /// The visitor asked for a person: handed off to the team, or the ticket offer when nobody is online.
+  human
+  /// Every provider failed, or the model's reply did not fit the contract: the fallback sentence
+  /// and the ticket offer were posted. Counted so an outage is visible.
+  failed
+}
+
+enum AiProviderKind {
+  local
+  openai
+  deepseek
+}
+
+/// Per-website configuration of the AI agent. Created on first save; absent means `team`.
+model AiSetting {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+
+  mode                      AiMode @default(team)
+  /// What the widget calls it. Public by nature - it is the sender name on every reply.
+  assistantName             String @default("AI assistant") @map("assistant_name")
+  /// A short description of the business and how to speak, in the owner's words. Goes into the
+  /// system prompt as-is, so it is bounded and never contains anything secret.
+  instructions              String @default("")
+  /// Opening hours, phone numbers, addresses - facts the owner would rather type than have the
+  /// crawler guess. Indexed as the `notes` document and always searched first.
+  keyFacts                  String @default("") @map("key_facts")
+  /// Said when the AI cannot help, before the ticket offer.
+  ticketOfferText           String @default("I can't help with that from here, but our team can. Would you like me to open a support ticket so they can follow up by email?") @map("ticket_offer_text")
+  /// Said when the AI hands a conversation to a person who is online.
+  handoffText               String @default("I'm passing this to a member of our team - they'll pick it up right here in a moment.") @map("handoff_text")
+  /// After this many AI replies in one conversation the AI stops and offers a ticket. A loop guard.
+  maxRepliesPerConversation Int    @default(15) @map("max_replies_per_conversation")
+
+  /// When the mode was last set to something other than `team`. Reporting only.
+  enabledAt DateTime? @map("enabled_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([accountId, id])
+  @@unique([accountId, propertyId])
+  @@map("ai_settings")
+}
+
+/// One thing the AI may answer from: an article, the notes. The text is kept whole so a chunk can
+/// be shown in context and so re-chunking never needs the source again.
+model KnowledgeDocument {
+  id         String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String                @map("account_id") @db.Uuid
+  propertyId String                @map("property_id") @db.Uuid
+  kind       KnowledgeDocumentKind
+  /// The article this mirrors, for `article` documents. One document per article.
+  articleId  String?               @map("article_id") @db.Uuid
+
+  title       String
+  /// Where "answered from" points. Null for the notes.
+  url         String?
+  text        String
+  /// sha256 of `title + text`. Unchanged hash, unchanged chunks: a re-sync costs nothing.
+  contentHash String  @map("content_hash")
+  tokenCount  Int     @default(0) @map("token_count")
+  chunkCount  Int     @default(0) @map("chunk_count")
+
+  indexedAt DateTime? @map("indexed_at") @db.Timestamptz(6)
+  /// The last indexing failure, kept until the next success, so the settings page can say why.
+  error     String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account  Account          @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property         @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  article  KbArticle?       @relation(fields: [accountId, articleId], references: [accountId, id], onDelete: Cascade)
+  chunks   KnowledgeChunk[]
+
+  @@unique([accountId, id])
+  @@unique([accountId, articleId])
+  @@index([accountId, propertyId, kind])
+  @@map("knowledge_documents")
+}
+
+/// A passage of roughly 400 tokens, with its embedding and its full-text vector. Retrieval is
+/// hybrid - vector similarity for meaning, full text for exact strings such as a product code -
+/// and both indexes live here. The embedding column is `vector(768)`; Prisma cannot type it, so
+/// the AI module reads and writes it with raw SQL, always filtered by account and property first.
+model KnowledgeChunk {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+  documentId String @map("document_id") @db.Uuid
+  ordinal    Int
+
+  /// The heading path the passage sits under, so a chunk knows which section it came from.
+  heading    String?
+  text       String
+  tokenCount Int                         @default(0) @map("token_count")
+  /// NOT NULL in the database. Optional here only because Prisma removes `create`/`update` from
+  /// a model with a *required* unsupported field, and the client extension in src/client.ts is
+  /// typed over every model's `create`. Rows are written by raw SQL with the vector supplied.
+  embedding  Unsupported("vector(768)")?
+  /// Generated by the database from `text`; never written by the application.
+  search     Unsupported("tsvector")?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account  Account           @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  document KnowledgeDocument @relation(fields: [accountId, documentId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([documentId, ordinal])
+  @@index([accountId, propertyId])
+  @@map("knowledge_chunks")
+}
+
+/// Every time the AI was asked to reply: what it decided, which provider answered, what it cost.
+/// The audit trail behind the transcript, and what the usage counts read.
+model AiTurn {
+  id               String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId        String  @map("account_id") @db.Uuid
+  propertyId       String  @map("property_id") @db.Uuid
+  conversationId   String  @map("conversation_id") @db.Uuid
+  /// The visitor message that triggered the turn.
+  visitorMessageId String  @map("visitor_message_id") @db.Uuid
+  /// The bot message that was posted, when one was.
+  replyMessageId   String? @map("reply_message_id") @db.Uuid
+
+  decision AiDecision
+  provider AiProviderKind?
+  model    String?
+  /// Set when the local provider was skipped or failed and the fallback answered. Visible in the
+  /// console so an ailing local model is noticed.
+  fellBack Boolean         @default(false) @map("fell_back")
+
+  promptTokens      Int      @default(0) @map("prompt_tokens")
+  completionTokens  Int      @default(0) @map("completion_tokens")
+  latencyMs         Int      @default(0) @map("latency_ms")
+  /// The chunks that were in the prompt, in rank order.
+  retrievedChunkIds String[] @default([]) @map("retrieved_chunk_ids") @db.Uuid
+  /// The chunk ids the model said it used, after validation.
+  citedChunkIds     String[] @default([]) @map("cited_chunk_ids") @db.Uuid
+  /// What went wrong, for `failed` turns and for turns that fell back.
+  error             String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property     Property     @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [accountId, conversationId], references: [accountId, id], onDelete: Cascade)
+
+  /// The monthly usage count.
+  @@index([accountId, createdAt(sort: Desc)])
+  @@index([conversationId, createdAt])
+  @@map("ai_turns")
 }
