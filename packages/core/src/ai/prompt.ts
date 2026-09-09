@@ -49,6 +49,8 @@ export const DEFAULT_BUDGET: PromptBudget = {
   historyTokens: 500,
 };
 
+const PRACTICE_TOKENS = 400;
+
 export function buildPrompt(input: PromptInput, budget: PromptBudget = DEFAULT_BUDGET): {
   messages: ChatMessage[];
   passages: PromptPassage[];
@@ -63,14 +65,18 @@ export function buildPrompt(input: PromptInput, budget: PromptBudget = DEFAULT_B
 
   const historyBudget = Math.min(
     budget.historyTokens,
-    budget.totalTokens - systemTokens - referenceTokens - estimateTokens(input.question) - 50,
+    budget.totalTokens - systemTokens - PRACTICE_TOKENS - referenceTokens - estimateTokens(input.question) - 50,
   );
   const history = fitHistory(input.history, Math.max(0, historyBudget));
 
   const messages: ChatMessage[] = [
     { role: 'system', content: system },
-    { role: 'user', content: reference },
-    { role: 'assistant', content: JSON.stringify({ decision: 'answer', text: 'Understood.', sources: [] }) },
+    ...PRACTICE_TURNS,
+    {
+      role: 'user',
+      content: `The practice is over. These are the real reference passages; answer from these from now on.\n\n${reference}`,
+    },
+    { role: 'assistant', content: JSON.stringify({ decision: 'answer', text: 'Ready.', sources: [] }) },
   ];
   for (const turn of history) {
     messages.push(
@@ -88,13 +94,52 @@ export function buildPrompt(input: PromptInput, budget: PromptBudget = DEFAULT_B
 const NO_PASSAGES =
   'Reference passages:\n\n(none were found for this question)';
 
+/**
+ * A worked example, for a shop that does not exist, before the real passages.
+ *
+ * Measured on the production model: with rules alone, a 2B model played safe and answered
+ * "ticket" to questions the passages plainly covered (a helmet return, delivery to a city inside
+ * the country it ships to). With six practice turns showing each decision once - an answer that
+ * cites its passage, a fact applied with a little geography, two tickets, a handoff - the same
+ * model got seven of eight right. The example is a different shop in a different country so
+ * nothing in it can be mistaken for a fact about the business.
+ */
+const PRACTICE_TURNS: ChatMessage[] = [
+  {
+    role: 'user',
+    content:
+      'Example passages (a different shop, for practice only):\n\n[Passage 1 | Example › Hours]\nWe are open Monday to Friday, 9 to 5.\n\n[Passage 2 | Example › Delivery]\nWe deliver anywhere in Kenya for 300 KES; free above 5,000 KES.',
+  },
+  { role: 'assistant', content: JSON.stringify({ decision: 'answer', text: 'Ready.', sources: [] }) },
+  { role: 'user', content: 'Are you open on Tuesday?' },
+  {
+    role: 'assistant',
+    content: JSON.stringify({ decision: 'answer', text: 'Yes - we are open Monday to Friday, 9 to 5.', sources: [1] }),
+  },
+  { role: 'user', content: 'Do you deliver to Mombasa?' },
+  {
+    role: 'assistant',
+    content: JSON.stringify({
+      decision: 'answer',
+      text: 'Yes - we deliver anywhere in Kenya, including Mombasa, for 300 KES, or free on orders above 5,000 KES.',
+      sources: [2],
+    }),
+  },
+  { role: 'user', content: 'Do you sell tents?' },
+  { role: 'assistant', content: JSON.stringify({ decision: 'ticket', text: '', sources: [] }) },
+  { role: 'user', content: 'Has my order 88 shipped yet?' },
+  { role: 'assistant', content: JSON.stringify({ decision: 'ticket', text: '', sources: [] }) },
+  { role: 'user', content: 'Can I talk to a human?' },
+  { role: 'assistant', content: JSON.stringify({ decision: 'human', text: '', sources: [] }) },
+];
+
 function systemPrompt(input: PromptInput): string {
   const lines = [
     `You are ${input.assistantName}, the AI assistant on the website of ${input.businessName}. You talk to website visitors in a live chat.`,
     '',
     'Rules:',
-    '1. Answer ONLY from the reference passages. Do not use anything you know from elsewhere.',
-    '2. If the passages do not contain the answer, set decision to "ticket". Never guess.',
+    '1. Answer from the reference passages. Every fact about the business must come from them; you may use general knowledge (geography, language, arithmetic) to apply them - a city inside a country the passages mention is covered.',
+    '2. When the passages contain the information, answer. Set decision to "ticket" only when they do not cover what was asked. Never guess a fact.',
     '3. If the visitor asks about their own order, account, payment, booking, refund, or anything that needs a person to check or do something, set decision to "ticket".',
     '4. If the visitor asks to speak to a person, set decision to "human".',
     '5. For an answer, keep it under 80 words, in the same language the visitor wrote in, and list the passage numbers you used in "sources".',

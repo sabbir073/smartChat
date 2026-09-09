@@ -83,6 +83,17 @@ must be re-indexed.
 
 Routing `fallback_only` exists for an operator whose local box is down for maintenance.
 
+## The prompt (`prompt.ts`)
+
+Rules first and short (a 2B model keeps the beginning of a prompt best), then six *practice
+turns* about a shop that does not exist - an answer that cites its passage, a fact applied with a
+little geography, two tickets, a handoff - then "the practice is over" and the real passages,
+numbered so the model can cite them, then the last ten messages and the question. The practice
+turns are not decoration: measured on the production model with rules alone, it answered
+"ticket" to a helmet return the passage plainly covered and to delivery to a city inside the
+country it ships to; with the practice turns it got seven of eight right. Budget: ~3,000
+estimated tokens, of which passages take at most 1,600 and history 500.
+
 ## The contract (`contract.ts`)
 
 The model must answer `{"decision": "answer"|"ticket"|"human", "text": string, "sources": number[]}`.
