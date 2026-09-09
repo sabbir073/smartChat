@@ -220,6 +220,27 @@ services:
     networks: [smartchat]
 
   # ---------------------------------------------------------------------------
+  # The page renderer: a headless browser for websites that are empty until their JavaScript
+  # runs. Only the worker talks to it, over the internal network, with a shared secret. It
+  # refuses private addresses itself, per request, so a page's own sub-requests cannot reach
+  # anything on this network either.
+  # ---------------------------------------------------------------------------
+  renderer:
+    build:
+      context: ./infrastructure/renderer
+    image: smartchat/renderer:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      RENDERER_TOKEN: ${AI_RENDERER_TOKEN:?AI_RENDERER_TOKEN is required}
+      RENDERER_CONCURRENCY: ${AI_RENDERER_CONCURRENCY:-2}
+      # Development only: let it render a test site on a private address.
+      RENDERER_ALLOW_PRIVATE: ${AI_CRAWL_ALLOW_PRIVATE:-false}
+    # Chromium wants a bigger /dev/shm than Docker's default 64 MB, or it crashes on real pages.
+    shm_size: 512m
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
   # Database migrations. A one-shot service, run explicitly before the apps start.
   # Application containers never mutate the schema on boot: a rolling deploy would
   # otherwise have several replicas racing to migrate the same database.
@@ -312,6 +333,9 @@ services:
       SERVICE_NAME: worker
       WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-5}
       WORKER_HEALTH_PORT: 3005
+      # The page renderer, for JavaScript-only websites. Empty disables it: such pages are skipped.
+      AI_RENDERER_URL: ${AI_RENDERER_URL:-http://renderer:3000}
+      AI_RENDERER_TOKEN: ${AI_RENDERER_TOKEN:-}
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3005/ready >/dev/null 2>&1 || exit 1']
       interval: 15s

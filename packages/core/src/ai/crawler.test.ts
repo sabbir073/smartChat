@@ -4,6 +4,7 @@ import {
   crawlSite,
   extractLinks,
   excludes,
+  looksLikeAppShell,
   isPrivateAddress,
   normaliseUrl,
   parseRobots,
@@ -204,3 +205,73 @@ describe('excludes', () => {
     expect(excludes(['(unbalanced'])('/(unbalanced/page')).toBe(true);
   });
 });
+
+describe('looksLikeAppShell', () => {
+  it('recognises the frameworks\' empty shells', () => {
+    expect(looksLikeAppShell('<html><body><div id="root"></div><script src="/app.js"></script></body></html>')).toBe(true);
+    expect(looksLikeAppShell('<html><body><div id="__next"></div></body></html>')).toBe(true);
+    expect(looksLikeAppShell('<html><body><app-root></app-root><script src="main.js"></script></body></html>')).toBe(true);
+    expect(looksLikeAppShell('<html><body><noscript>You need to enable JavaScript to run this app.</noscript><div></div></body></html>')).toBe(true);
+    expect(looksLikeAppShell('<html><body><div class="x"></div><script>boot()</script></body></html>')).toBe(true);
+  });
+
+  it('leaves ordinary pages alone', () => {
+    const page = '<html><body><h1>Fees</h1><p>' + 'Monthly tuition is 3,500 taka per subject. '.repeat(4) + '</p><script>track()</script></body></html>';
+    expect(looksLikeAppShell(page)).toBe(false);
+    expect(looksLikeAppShell('<html><body></body></html>')).toBe(false);
+  });
+});
+
+describe('crawlSite with a renderer', () => {
+  const shell = '<html><head><title>Shop</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>';
+  const rendered = '<html><head><title>Shop</title></head><body><div id="root"><h1>Shop</h1><p>' + 'We sell bikes and helmets in Dhanmondi. '.repeat(5) + '</p><a href="/about">About</a></div></body></html>';
+  const about = '<html><head><title>About</title></head><body><main><p>' + 'Founded in 2012 by three teachers who ride. '.repeat(5) + '</p></main></body></html>';
+
+  const site = (pages: Record<string, string>) => async (url: string): Promise<CrawlResponse> => {
+    const path = new URL(url).pathname;
+    const body = pages[path];
+    return {
+      status: body ? 200 : 404,
+      headers: { get: (name: string) => (name === 'content-type' ? 'text/html' : null) },
+      text: async () => body ?? '',
+    };
+  };
+
+  it('renders an application shell, reads its words and follows its links', async () => {
+    const renders: string[] = [];
+    const pages: Array<{ url: string; text: string }> = [];
+    const summary = await crawlSite(
+      {
+        startUrl: 'https://shop.example',
+        maxPages: 10,
+        delayMs: 0,
+        fetchImpl: site({ '/': shell, '/about': about, '/robots.txt': '' }),
+        render: async (url) => {
+          renders.push(url);
+          return { html: rendered, finalUrl: url };
+        },
+      },
+      async (page) => {
+        pages.push({ url: page.url, text: page.text });
+      },
+    );
+    expect(renders).toEqual(['https://shop.example/']);
+    expect(summary.rendered).toBe(1);
+    expect(pages.map((p) => p.url)).toEqual(['https://shop.example/', 'https://shop.example/about']);
+    expect(pages[0]!.text).toContain('We sell bikes');
+  });
+
+  it('skips the shell when there is no renderer, or the renderer fails', async () => {
+    const pages: string[] = [];
+    const summary = await crawlSite(
+      { startUrl: 'https://shop.example', maxPages: 10, delayMs: 0, fetchImpl: site({ '/': shell, '/robots.txt': '' }), render: async () => null },
+      async (page) => {
+        pages.push(page.url);
+      },
+    );
+    expect(pages).toEqual([]);
+    expect(summary.rendered).toBe(0);
+    expect(summary.skipped).toBe(1);
+  });
+});
+

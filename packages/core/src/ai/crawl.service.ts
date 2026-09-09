@@ -29,6 +29,8 @@ export interface CrawlServiceOptions {
   crawl?: typeof crawlSite;
   /** Development only - see CrawlOptions.allowPrivateAddresses. */
   allowPrivateAddresses?: boolean;
+  /** The browser for JavaScript-only pages; see CrawlOptions.render. */
+  render?: (url: string) => Promise<{ html: string; finalUrl: string } | null>;
   log?: (event: string, detail: Record<string, unknown>) => void;
 }
 
@@ -77,6 +79,7 @@ export class CrawlService {
           startUrl: property.websiteUrl,
           maxPages: Math.min(Math.max(settings.crawlMaxPages, 1), CRAWL_MAX_PAGES_CEILING),
           exclude: settings.crawlExclude,
+          ...(this.options.render ? { render: this.options.render } : {}),
           ...(this.options.delayMs !== undefined ? { delayMs: this.options.delayMs } : {}),
           ...(this.options.allowPrivateAddresses ? { allowPrivateAddresses: true } : {}),
         },

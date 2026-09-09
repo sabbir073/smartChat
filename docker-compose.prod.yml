@@ -110,6 +110,16 @@ services:
           memory: 7g
           cpus: '8'
 
+  renderer:
+    <<: *hardening
+    # A browser is a browser: a page and a half of Chromium, capped so a heavy site cannot take
+    # the box with it. Two renders at once is the concurrency the worker sends.
+    deploy:
+      resources:
+        limits:
+          memory: 1500m
+          cpus: '2'
+
   worker:
     <<: *hardening
     # The worker is what actually sends every queued message, so it needs the same

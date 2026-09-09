@@ -8,6 +8,7 @@ import {
   CrawlService,
   EntitlementService,
   FeedService,
+  RendererClient,
   KnowledgeFileService,
   GeoService,
   KnowledgeService,
@@ -164,10 +165,18 @@ async function main(): Promise<void> {
     allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
     log: (event, detail) => logger.warn(detail, event),
   });
+  const renderer =
+    config.AI_RENDERER_URL && config.AI_RENDERER_TOKEN
+      ? new RendererClient({ url: config.AI_RENDERER_URL, token: config.AI_RENDERER_TOKEN, log: (event, detail) => logger.warn(detail, event) })
+      : null;
+  if (config.AI_RENDERER_URL && !config.AI_RENDERER_TOKEN) {
+    logger.warn('AI_RENDERER_URL is set but AI_RENDERER_TOKEN is empty; JavaScript-only pages will be skipped');
+  }
   const crawler = new CrawlService({
     db,
     knowledge,
     feed,
+    ...(renderer ? { render: (url: string) => renderer.render(url) } : {}),
     allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
     log: (event, detail) => logger.warn(detail, event),
   });

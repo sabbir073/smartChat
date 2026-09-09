@@ -41,6 +41,12 @@ export interface CrawlOptions {
    */
   exclude?: string[];
   /**
+   * A browser, for pages that are an empty shell until their JavaScript runs. Called only when
+   * the fetched HTML has next to no text and looks like an application shell; returns the HTML
+   * after rendering, or null when rendering is not available or failed. See `renderer.ts`.
+   */
+  render?: (url: string) => Promise<{ html: string; finalUrl: string } | null>;
+  /**
    * Development only: let the crawler reach private addresses (a test site on localhost). The
    * production compose file never sets it, and the config schema defaults it to false.
    */
@@ -60,6 +66,8 @@ export interface CrawledPage extends ExtractedPage {
 }
 
 export interface CrawlSummary {
+  /** Pages that were an application shell and were read through the browser. */
+  rendered: number;
   /** Distinct URLs discovered (sitemap + links), whether or not fetched. */
   found: number;
   fetched: number;
@@ -99,6 +107,9 @@ const MAX_REDIRECTS = 3;
 const MAX_SITEMAP_URLS = 2_000;
 const MAX_SITEMAPS = 10;
 const MAX_QUEUE = 5_000;
+/** Below this much extracted text, an app-shell-looking page is worth rendering. */
+const APP_SHELL_MAX_CHARS = 200;
+
 const SKIP_EXTENSIONS = /\.(?:jpe?g|png|gif|webp|svg|ico|bmp|tiff?|mp4|mp3|wav|avi|mov|mkv|webm|zip|gz|tar|rar|7z|pdf|docx?|xlsx?|pptx?|css|js|json|xml|rss|atom|woff2?|ttf|eot|exe|dmg|apk)$/i;
 const TRACKING_PARAMS = /^(?:utm_|fbclid|gclid|mc_|ref$|_ga)/i;
 
@@ -114,7 +125,7 @@ export async function crawlSite(
   const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
   const delayMs = options.delayMs ?? 1_000;
   const userAgent = options.userAgent ?? CRAWLER_USER_AGENT;
-  const summary: CrawlSummary = { found: 0, fetched: 0, skipped: 0, failed: 0, stoppedBecause: 'exhausted', errors: [] };
+  const summary: CrawlSummary = { found: 0, fetched: 0, skipped: 0, failed: 0, rendered: 0, stoppedBecause: 'exhausted', errors: [] };
 
   const get = async (url: string): Promise<{ status: number; contentType: string; text: string; finalUrl: string } | { error: string }> => {
     let current = url;
@@ -241,8 +252,20 @@ export async function crawlSite(
     delivered.add(finalUrl);
     summary.fetched += 1;
     if (finalUrl !== url) queued.add(finalUrl);
-    for (const link of extractLinks(result.text)) enqueue(link, finalUrl);
-    const extracted = extractPage(result.text, finalUrl);
+    let html = result.text;
+    let extracted = extractPage(html, finalUrl);
+    // An application shell: the HTML is a <div id="root"> and a script tag, and the words arrive
+    // when the script runs. When a browser is available it runs the script; otherwise the page is
+    // skipped like any other with nothing to read.
+    if (options.render && (!extracted || extracted.text.length < APP_SHELL_MAX_CHARS) && looksLikeAppShell(html)) {
+      const rendered = await options.render(finalUrl);
+      if (rendered) {
+        html = rendered.html;
+        extracted = extractPage(html, finalUrl);
+        summary.rendered += 1;
+      }
+    }
+    for (const link of extractLinks(html)) enqueue(link, finalUrl);
     if (!extracted || extracted.text.length < 40) {
       summary.skipped += 1;
       continue;
@@ -310,6 +333,22 @@ export function siteHosts(hostname: string): Set<string> {
   const host = hostname.toLowerCase();
   const bare = host.replace(/^www\./, '');
   return new Set([host, bare, `www.${bare}`]);
+}
+
+/**
+ * Does this HTML look like it needs JavaScript to say anything? The signs the frameworks leave:
+ * a root element for the app, a "you need to enable JavaScript" notice, or a body that is all
+ * script and no words. Cheap, and only consulted when the extracted text is already near empty.
+ */
+export function looksLikeAppShell(html: string): boolean {
+  const head = html.slice(0, 200_000);
+  if (/id=["'](?:root|app|__next|__nuxt|___gatsby|svelte|q-app)["']/i.test(head)) return true;
+  if (/<app-root|<div[^>]+data-reactroot|ng-version=|data-server-rendered/i.test(head)) return true;
+  if (/<noscript>[\s\S]{0,300}?(?:enable|need|requires?)\s+javascript/i.test(head)) return true;
+  const body = /<body[^>]*>([\s\S]*)<\/body>/i.exec(head)?.[1] ?? '';
+  const withoutScripts = body.replace(/<script[\s\S]*?<\/script>/gi, '').replace(/<style[\s\S]*?<\/style>/gi, '');
+  const words = withoutScripts.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return body.length > 0 && words.length < 80 && /<script/i.test(body);
 }
 
 const HREF = /<a\b[^>]*?\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;

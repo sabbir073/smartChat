@@ -365,7 +365,14 @@ Nothing else is needed for local answering. Postgres is built from
 with the AI agent rebuilds and recreates the database container: `docker compose build postgres
 && docker compose up -d postgres`, then `migrate` as usual. The data volume is untouched.
 
-The fallback provider is optional and entered in the console → **AI**: choose OpenAI or DeepSeek,
+The `renderer` service (Chromium behind one endpoint, from `infrastructure/renderer`) reads
+websites that are empty until their JavaScript runs. It needs `AI_RENDERER_TOKEN` in `.env` - a
+shared secret between the worker and the renderer, any long random string
+(`openssl rand -hex 32`) - and its image is built with the rest (`docker compose build renderer`;
+the base image is ~2 GB on first pull). Set `AI_RENDERER_URL=` (empty) to run without it; such
+pages are then skipped.
+
+The fallback provider is optional and entered in the console → **AI**: choose OpenAI, DeepSeek or Anthropic,
 paste the key (sealed with `SETTINGS_ENCRYPTION_KEY`, like Stripe's), **Test fallback**. The
 worker starts using it within thirty seconds. `docs/AI_AGENT.md` has the routing rules, the
 contract the model is held to, and what the privacy page needs to say.

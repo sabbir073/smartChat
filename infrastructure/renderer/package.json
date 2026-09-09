@@ -1,0 +1,9 @@
+{
+  "name": "smartchat-renderer",
+  "private": true,
+  "type": "module",
+  "description": "A headless browser behind one endpoint, for pages that are empty until their JavaScript runs.",
+  "dependencies": {
+    "playwright": "1.50.1"
+  }
+}

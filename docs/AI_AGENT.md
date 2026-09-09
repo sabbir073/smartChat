@@ -160,6 +160,16 @@ Cloudflare "Just a moment…") are recognised and the crawl stops with an explan
 indexing the challenge page. The crawler does not attempt to pass such challenges; the owner asks
 the host to allow the agent, or types the content into Key facts.
 
+**JavaScript-only pages** (`renderer.ts`, `infrastructure/renderer`). A page whose HTML is an
+application shell - a `<div id="root">` and a script, a "you need to enable JavaScript" notice,
+a body with no words - is sent to the `renderer` container: Chromium behind one endpoint
+(`POST /render {url}`), reached only by the worker with a shared secret (`AI_RENDERER_TOKEN`).
+The browser fetches no images, media or fonts, waits for the network to go quiet, and returns
+the HTML as rendered, which then goes through the same extraction as any page. It applies the
+crawler's address rules on its own side, per request, sub-requests included, so a page cannot
+make the browser reach anything on the private network. Two renders at once, capped at 1.5 GB
+and two cores in production. With `AI_RENDERER_URL` empty such pages are skipped, as before.
+
 **Pages to skip** (`ai_settings.crawl_exclude`, the "Pages to skip" box): path patterns with `*`
 wildcards. `/blog` is anchored and covers everything beneath it; `/docs/*/draft` is anchored with
 a wildcard; `*.pdf` and `?add-to-cart` match anywhere in the path. The start page is always read.
@@ -340,6 +350,7 @@ Environment (every Node service; the `ai` container reads the model names too):
 | --- | --- | --- |
 | `AI_LOCAL_URL` | `http://ai:11434` | the local Ollama; empty disables local (fallback only) |
 | `AI_CHAT_MODEL` | `qwen3:1.7b` | pulled and warmed by the `ai` container |
+| `AI_RENDERER_URL` / `AI_RENDERER_TOKEN` | `http://renderer:3000` / — | the page renderer; the token is a shared secret, any long random string |
 | `AI_EMBED_MODEL` | `embeddinggemma` | must match `AI_EMBED_DIMENSIONS` and the column |
 | `AI_EMBED_DIMENSIONS` | `768` | |
 | `AI_LOCAL_PARALLEL` | `2` | `OLLAMA_NUM_PARALLEL`, and the gateway's overflow threshold |
