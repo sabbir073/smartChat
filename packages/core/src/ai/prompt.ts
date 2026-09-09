@@ -78,14 +78,25 @@ export function buildPrompt(input: PromptInput, budget: PromptBudget = DEFAULT_B
     },
     { role: 'assistant', content: JSON.stringify({ decision: 'answer', text: 'Ready.', sources: [] }) },
   ];
-  for (const turn of history) {
-    messages.push(
-      turn.role === 'visitor'
-        ? { role: 'user', content: turn.text }
-        : { role: 'assistant', content: JSON.stringify({ decision: 'answer', text: turn.text, sources: [] }) },
-    );
-  }
-  messages.push({ role: 'user', content: input.question });
+  /**
+   * Earlier turns go into the final message as a transcript, not as assistant turns.
+   *
+   * Rendering the assistant's earlier replies as JSON turns needs a `sources` value for each, and
+   * the true one is unknowable - the passages are renumbered every turn. The first version wrote
+   * `[]`, and the model learned from its own history that answers cite nothing: measured live,
+   * the second question in every conversation came back as an answer with no source and was
+   * downgraded to a ticket. As a transcript, the only JSON the model has seen is the practice,
+   * where every answer cites.
+   */
+  const transcript = history
+    .map((turn) => `${turn.role === 'visitor' ? 'Visitor' : input.assistantName}: ${turn.text}`)
+    .join('\n');
+  messages.push({
+    role: 'user',
+    content: transcript
+      ? `Conversation so far:\n${transcript}\n\nVisitor's new message: ${input.question}`
+      : input.question,
+  });
 
   const estimatedTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0);
   return { messages, passages, estimatedTokens };

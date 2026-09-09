@@ -92,7 +92,10 @@ describe('buildPrompt', () => {
     expect(reference.content).toContain('[Passage 2 | Returns › Helmets]');
     // The practice turns come first and are about a shop that does not exist.
     expect(messages[1]!.content).toContain('for practice only');
-    expect(messages.at(-1)).toEqual({ role: 'user', content: 'Can I return a helmet?' });
+    const last = messages.at(-1)!;
+    expect(last.role).toBe('user');
+    expect(last.content).toContain('Conversation so far:\nVisitor: hi\nAcme helper: Hello!');
+    expect(last.content).toContain("Visitor's new message: Can I return a helmet?");
     expect(passages).toHaveLength(2);
   });
 
@@ -113,8 +116,8 @@ describe('buildPrompt', () => {
       { role: 'assistant' as const, text: 'second' },
     ];
     const { messages } = buildPrompt({ ...base, history }, { totalTokens: 3_000, passageTokens: 500, historyTokens: 30 });
-    const turns = messages.slice(messages.findIndex((m) => m.content === '{"decision":"answer","text":"Ready.","sources":[]}' && messages.indexOf(m) > 2) + 1, -1);
-    expect(turns[0]!.role).toBe('user');
-    expect(turns.map((t) => t.content)).not.toContain('old bot line');
+    const last = messages.at(-1)!.content;
+    expect(last).not.toContain('old bot line');
+    expect(last.indexOf('Visitor: first')).toBeLessThan(last.indexOf('Acme helper: second'));
   });
 });
