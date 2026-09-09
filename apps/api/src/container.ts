@@ -46,6 +46,7 @@ import {
   type MailDeliver,
   type MailProvider,
   type RedisClient,
+  AiAnalyticsService,
   AiFeedbackService,
   AiSettingsService,
   KnowledgeFileService,
@@ -96,6 +97,8 @@ export interface Container {
   aiFiles: KnowledgeFileService;
   /** The visitor's thumbs up or down on an AI reply. */
   aiFeedback: AiFeedbackService;
+  /** The AI report. */
+  aiAnalytics: AiAnalyticsService;
   platformAi: PlatformAiService;
   /** The Stripe client for the currently stored secret, or null when none is stored. */
   stripeGateway: () => Promise<StripeGateway | null>;
@@ -443,6 +446,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const aiSettings = new AiSettingsService({ db, knowledge, queue, entitlements, clock });
   const aiFiles = new KnowledgeFileService({ db, storage, knowledge, queue, clock });
   const aiFeedback = new AiFeedbackService({ db, clock });
+  const aiAnalytics = new AiAnalyticsService({ db });
   const platformAi = new PlatformAiService({
     db,
     settings,
@@ -516,6 +520,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     aiSettings,
     aiFiles,
     aiFeedback,
+    aiAnalytics,
     platformAi,
     stripeGateway,
     stripeWebhooks,

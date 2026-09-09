@@ -562,7 +562,15 @@ export default function AiAgentPage() {
         </Card>
 
         <Card>
-          <CardHeader title="This month" description="What the assistant did on this website." />
+          <CardHeader
+            title="This month"
+            description="What the assistant did on this website."
+            action={
+              <Link href="/app/reports/ai" className="text-sm font-medium text-brand hover:underline">
+                Full report
+              </Link>
+            }
+          />
           <CardBody>
             <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-6">
               <Stat label="Replies" value={String(view.usage.replies)} />

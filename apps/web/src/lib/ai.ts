@@ -72,3 +72,29 @@ export const AI_MODES: ReadonlyArray<{ value: AiMode; label: string; short: stri
 export function aiModeLabel(mode: AiMode): string {
   return AI_MODES.find((m) => m.value === mode)?.short ?? mode;
 }
+
+/** The AI report, as `/reports/ai` returns it. Mirrors `AiReport` in @smartchat/core. */
+export interface AiReport {
+  from: string;
+  to: string;
+  timezone: string;
+  totals: {
+    replies: number;
+    answers: number;
+    chats: number;
+    ticketOffers: number;
+    handoffs: number;
+    failed: number;
+    fellBack: number;
+    drafts: number;
+    conversations: number;
+    deflected: number;
+    deflectionRate: number | null;
+    averageLatencyMs: number | null;
+    ratedUp: number;
+    ratedDown: number;
+  };
+  series: Array<{ day: string; replies: number; answers: number; ticketOffers: number; handoffs: number }>;
+  unanswered: Array<{ question: string; count: number; lastAskedAt: string; outcome: 'ticket' | 'failed' }>;
+  unhelpful: Array<{ conversationId: string; question: string; reply: string; at: string }>;
+}

@@ -44,6 +44,13 @@ export default function InboxPage() {
 
   const [properties, setProperties] = useState<PropertyDto[]>([]);
   const [members, setMembers] = useState<MemberDto[]>([]);
+  // Read inside socket handlers, which are bound once.
+  const membersRef = useRef<MemberDto[]>([]);
+  membersRef.current = members;
+  const userIdRef = useRef<string | null>(null);
+  userIdRef.current = user?.id ?? null;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
   const [shortcuts, setShortcuts] = useState<ShortcutDto[]>([]);
   const [updating, setUpdating] = useState(false);
 
@@ -298,6 +305,22 @@ export default function InboxPage() {
       onConversationEvent: (_type, payload) => {
         void loadRef.current();
 
+        // The assistant handed a conversation to this person: say so, here and on the desktop,
+        // because the whole point of a handoff is that somebody notices it.
+        if (payload?.['by'] === 'ai' && typeof payload['assignedMemberId'] === 'string') {
+          const mine = membersRef.current.find((m) => m.id === payload['assignedMemberId'])?.userId === userIdRef.current;
+          if (mine) {
+            toastRef.current.success('The AI assistant handed you a conversation.');
+            if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
+              try {
+                new Notification('A visitor is waiting for you', { body: 'The AI assistant handed you a conversation.', tag: `handoff-${String(payload['conversationId'])}` });
+              } catch {
+                // Notifications are a nicety; the toast above is the message.
+              }
+            }
+          }
+        }
+
         // The list reload will not touch the open conversation once a filter has excluded it, so
         // a visitor ending the chat has to reach the thread directly - otherwise the agent keeps
         // a live-looking composer over a conversation that has already closed.
@@ -486,6 +509,34 @@ export default function InboxPage() {
       setThreadLoading(false);
     }
   }, []);
+
+  /**
+   * `/app/inbox?conversation=<id>` - the links from tickets, contacts and the AI report. Opened
+   * once, on arrival, straight from the API: the conversation may be closed or filtered out of
+   * the list, and a deep link that only works for open conversations is a broken link.
+   */
+  // Desktop notifications for handoffs need permission, which a browser grants only from a
+  // gesture: asked once, on the first click in the inbox, and never again if refused.
+  useEffect(() => {
+    if (typeof Notification === 'undefined' || Notification.permission !== 'default') return;
+    const ask = () => {
+      void Notification.requestPermission().catch(() => undefined);
+    };
+    document.addEventListener('click', ask, { once: true });
+    return () => document.removeEventListener('click', ask);
+  }, []);
+
+  const deepLinked = useRef(false);
+  useEffect(() => {
+    if (deepLinked.current) return;
+    deepLinked.current = true;
+    const id = new URLSearchParams(window.location.search).get('conversation');
+    if (!id) return;
+    void api
+      .get<ConversationDto>(`/conversations/${id}`)
+      .then((result) => openConversation(result.data))
+      .catch(() => toast.error('That conversation could not be opened.'));
+  }, [openConversation, toast]);
 
   const send = useCallback(
     (body: string, asNote: boolean) => {

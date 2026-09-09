@@ -225,6 +225,22 @@ written on the turn (`ai_turns.rating`, for analytics) and into the message's me
 widget shows it after a reload and the inbox shows it next to the reply). Only the visitor whose
 conversation it is can rate, and only a bot message the AI wrote.
 
+## The report (`analytics.service.ts`, `/reports/ai`, Reports → AI assistant)
+
+Read live from `ai_turns` for a range of days in the account's timezone, per website or all:
+replies by decision, conversations the assistant took part in, **deflected** (of those, the
+ones where no person replied, nothing was handed off and no ticket was opened - the number that
+says whether the assistant is worth having), average reply latency, how many replies the
+fallback provider made, thumbs up and down, and drafts written for agents. A by-day series
+(answers, ticket offers, handoffs) for the chart. Then the two lists that change what the owner
+does next: **what it could not answer** - the visitor questions that ended in a ticket offer or a
+failure, grouped with case, punctuation and spacing flattened, most-asked first - and **rated
+not helpful** - the replies visitors gave a thumbs down, with a link to the conversation.
+
+A handoff the assistant makes reaches the assignee as a toast in the inbox and, when the tab is
+in the background and the browser allows it, a desktop notification (`by: 'ai'` on the
+`conversation:assigned` event; permission is asked for on the first click in the inbox).
+
 ## The ticket flow
 
 The offer is a bot message with `metadata.offer = 'ticket'`; the widget renders two buttons under

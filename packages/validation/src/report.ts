@@ -36,6 +36,9 @@ export const overviewReportSchema = z.intersection(
 
 export const agentReportSchema = range;
 
+/** The AI report: a range and an optional website, like the overview. */
+export const aiReportSchema = overviewReportSchema;
+
 export const articleReportSchema = z.object({
   propertyId: uuidSchema.optional(),
   limit: z.coerce.number().int().min(1).max(50).default(10),
@@ -45,5 +48,6 @@ export const rebuildReportSchema = range;
 
 export type OverviewReportInput = z.infer<typeof overviewReportSchema>;
 export type AgentReportInput = z.infer<typeof agentReportSchema>;
+export type AiReportInput = z.infer<typeof aiReportSchema>;
 export type ArticleReportInput = z.infer<typeof articleReportSchema>;
 export type RebuildReportInput = z.infer<typeof rebuildReportSchema>;

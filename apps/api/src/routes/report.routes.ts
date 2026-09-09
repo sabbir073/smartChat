@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import {
   agentReportSchema,
+  aiReportSchema,
   articleReportSchema,
   overviewReportSchema,
   rebuildReportSchema,
@@ -31,6 +32,20 @@ export async function reportRoutes(app: FastifyInstance, container: Container): 
     return ok(
       reply,
       await container.analytics.overview(tenant, {
+        from: day(query.from),
+        to: day(query.to),
+        ...(query.propertyId ? { propertyId: query.propertyId } : {}),
+      }),
+    );
+  });
+
+  /** How the AI assistant did: live from ai_turns, with the questions it could not answer. */
+  app.get('/reports/ai', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const query = parseQuery(aiReportSchema, request.query);
+    return ok(
+      reply,
+      await container.aiAnalytics.report(tenant, {
         from: day(query.from),
         to: day(query.to),
         ...(query.propertyId ? { propertyId: query.propertyId } : {}),

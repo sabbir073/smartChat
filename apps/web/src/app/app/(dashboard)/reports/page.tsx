@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { PageHeader } from '@/components/layout/page-header';
@@ -250,6 +251,18 @@ export default function ReportsPage() {
                 </table>
               )}
             </CardBody>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="AI assistant"
+              description="Conversations handled without a person, the questions it could not answer, and what visitors thought of its replies."
+              action={
+                <Link href="/app/reports/ai" className="text-sm font-medium text-brand hover:underline">
+                  Open the AI report
+                </Link>
+              }
+            />
           </Card>
 
           <Card>
