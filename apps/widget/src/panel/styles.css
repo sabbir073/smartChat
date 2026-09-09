@@ -377,6 +377,35 @@ button:disabled {
   text-decoration: underline;
 }
 
+.ai-rate {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 2px;
+}
+
+.ai-rate-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--sc-ink-subtle);
+  cursor: pointer;
+}
+
+.ai-rate-button:hover {
+  background: var(--sc-surface-raised, rgba(0, 0, 0, 0.05));
+  color: var(--sc-ink-muted);
+}
+
+.ai-rate-button[aria-pressed='true'] {
+  color: var(--sc-primary);
+}
+
 .ai-offer {
   display: flex;
   flex-wrap: wrap;

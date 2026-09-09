@@ -2067,6 +2067,14 @@ enum AiDecision {
   /// Every provider failed, or the model's reply did not fit the contract: the fallback sentence
   /// and the ticket offer were posted. Counted so an outage is visible.
   failed
+  /// A reply drafted for an agent, who edits and sends it (or not). Never shown to a visitor by
+  /// the AI itself; not counted as a reply.
+  draft
+}
+
+enum AiRating {
+  up
+  down
 }
 
 enum AiProviderKind {
@@ -2246,15 +2254,18 @@ model AiTurn {
   /// console so an ailing local model is noticed.
   fellBack Boolean         @default(false) @map("fell_back")
 
-  promptTokens      Int      @default(0) @map("prompt_tokens")
-  completionTokens  Int      @default(0) @map("completion_tokens")
-  latencyMs         Int      @default(0) @map("latency_ms")
+  promptTokens      Int       @default(0) @map("prompt_tokens")
+  completionTokens  Int       @default(0) @map("completion_tokens")
+  latencyMs         Int       @default(0) @map("latency_ms")
   /// The chunks that were in the prompt, in rank order.
-  retrievedChunkIds String[] @default([]) @map("retrieved_chunk_ids") @db.Uuid
+  retrievedChunkIds String[]  @default([]) @map("retrieved_chunk_ids") @db.Uuid
   /// The chunk ids the model said it used, after validation.
-  citedChunkIds     String[] @default([]) @map("cited_chunk_ids") @db.Uuid
+  citedChunkIds     String[]  @default([]) @map("cited_chunk_ids") @db.Uuid
   /// What went wrong, for `failed` turns and for turns that fell back.
   error             String?
+  /// The visitor's thumbs up or down on the reply, when they gave one.
+  rating            AiRating?
+  ratedAt           DateTime? @map("rated_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -2264,6 +2275,8 @@ model AiTurn {
 
   /// The monthly usage count.
   @@index([accountId, createdAt(sort: Desc)])
+  @@index([propertyId, createdAt(sort: Desc)])
   @@index([conversationId, createdAt])
+  @@index([replyMessageId])
   @@map("ai_turns")
 }

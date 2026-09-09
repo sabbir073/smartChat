@@ -36,6 +36,8 @@ export function ConversationHeader({
   online,
   busy,
   onAssign,
+  onResumeAi,
+  onPauseAi,
   onStatus,
   onPriority,
   onTags,
@@ -46,6 +48,10 @@ export function ConversationHeader({
   online: boolean;
   busy: boolean;
   onAssign: (memberId: string | null) => void;
+  /** "Let the AI continue": the assistant takes the conversation back. */
+  onResumeAi: () => void;
+  /** "Pause AI": the assistant stops here without anyone having to reply. */
+  onPauseAi: () => void;
   onStatus: (status: 'open' | 'pending' | 'closed') => void;
   onPriority: (priority: Priority) => void;
   onTags: (tags: string[]) => void;
@@ -118,7 +124,7 @@ export function ConversationHeader({
           <span className="shrink-0 whitespace-nowrap text-[12px] text-ink-subtle">
             {online ? 'Online now' : 'Offline'}
           </span>
-          {ai && ai.replyCount > 0 && (
+          {ai && (ai.replyCount > 0 || ai.pausedAt) && (
             <span
               className={cn(
                 'shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[11px] font-medium',
@@ -126,13 +132,34 @@ export function ConversationHeader({
               )}
               title={
                 ai.pausedAt
-                  ? 'The AI assistant answered here until a person took over.'
+                  ? 'The AI assistant is paused here: a person took over, or paused it.'
                   : 'The AI assistant is answering. Reply to take over.'
               }
             >
-              {ai.pausedAt ? 'AI · taken over' : 'AI answering'}
+              {ai.pausedAt ? 'AI · paused' : 'AI answering'}
             </span>
           )}
+          {ai && !closed && (ai.pausedAt || conversation.assignedMemberId) ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onResumeAi}
+              title="Clear the assignment and let the assistant answer the next message"
+              className="shrink-0 whitespace-nowrap text-[11px] font-medium text-brand hover:underline disabled:opacity-50"
+            >
+              Let the AI continue
+            </button>
+          ) : ai && !closed && ai.replyCount > 0 ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onPauseAi}
+              title="Stop the assistant answering this conversation"
+              className="shrink-0 whitespace-nowrap text-[11px] font-medium text-ink-muted hover:underline disabled:opacity-50"
+            >
+              Pause AI
+            </button>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-1.5">

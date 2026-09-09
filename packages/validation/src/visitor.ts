@@ -90,3 +90,9 @@ export type WidgetOfflineMessageInput = z.infer<typeof widgetOfflineMessageSchem
 export type WidgetBootstrapInput = z.infer<typeof widgetBootstrapSchema>;
 export type WidgetPageViewInput = z.infer<typeof widgetPageViewSchema>;
 export type WidgetIdentifyInput = z.infer<typeof widgetIdentifySchema>;
+
+/** A thumbs up or down on an AI reply; null withdraws it. */
+export const widgetFeedbackSchema = z.object({
+  rating: z.enum(['up', 'down']).nullable(),
+});
+export type WidgetFeedbackInput = z.infer<typeof widgetFeedbackSchema>;

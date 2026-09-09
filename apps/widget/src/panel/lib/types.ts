@@ -40,6 +40,8 @@ export interface MessageDto {
 export interface AiMessageInfo {
   sources: Array<{ title: string; url: string | null }>;
   offer?: 'ticket';
+  /** The visitor's own thumbs up or down, when given. */
+  rating?: 'up' | 'down';
 }
 
 /**

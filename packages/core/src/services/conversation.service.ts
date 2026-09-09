@@ -527,6 +527,72 @@ export class ConversationService {
    * it is already set (one indexed update that matches nothing), and told to the inbox so the
    * "AI is answering" mark comes off without a reload.
    */
+  /**
+   * "Let the AI continue": a person looked, decided the assistant can have it back. The pause
+   * is cleared and so is the assignment, because an assigned conversation is a person's by the
+   * dispatch rules; the next visitor message goes to the assistant again. The reply count is
+   * kept - the loop guard is about the conversation, not about who last spoke.
+   */
+  async resumeAi(context: TenantContext, conversationId: string): Promise<Conversation> {
+    requirePermission(context, Permission.CONVERSATION_REPLY);
+    await this.assertWritable(context);
+    const conversation = await this.get(context, conversationId);
+    const updated = await this.repo.update(context, conversationId, {
+      aiPausedAt: null,
+      assignedMemberId: null,
+    });
+    if (!updated) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId ?? null,
+      action: 'conversation.ai_resumed',
+      resourceType: 'conversation',
+      resourceId: conversationId,
+      ip: context.ip ?? null,
+      metadata: { previousAssignee: conversation.assignedMemberId },
+    });
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_ASSIGNED,
+      accountId: context.accountId,
+      propertyId: conversation.propertyId,
+      conversationId,
+      agentsOnly: true,
+      payload: { conversationId, assignedMemberId: null },
+    });
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_UPDATED,
+      accountId: context.accountId,
+      propertyId: conversation.propertyId,
+      conversationId,
+      visitorId: conversation.visitorId,
+      agentsOnly: true,
+      payload: { conversationId, aiPausedAt: null },
+    });
+    return updated;
+  }
+
+  /** "Pause the AI here": the assistant stops answering this conversation without anyone replying. */
+  async pauseAiByAgent(context: TenantContext, conversationId: string): Promise<Conversation> {
+    requirePermission(context, Permission.CONVERSATION_REPLY);
+    await this.assertWritable(context);
+    const conversation = await this.get(context, conversationId);
+    await this.pauseAi(conversationId, this.clock.now(), conversation);
+    await this.audit.record({
+      accountId: context.accountId,
+      actorType: DbActorType.user,
+      actorId: context.userId ?? null,
+      action: 'conversation.ai_paused',
+      resourceType: 'conversation',
+      resourceId: conversationId,
+      ip: context.ip ?? null,
+      metadata: {},
+    });
+    const updated = await this.repo.findById(context, conversationId);
+    if (!updated) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
+    return updated;
+  }
+
   private async pauseAi(
     conversationId: string,
     now: Date,

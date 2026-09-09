@@ -419,6 +419,27 @@ export function App() {
    * picture or open a file, because a URL that outlives the conversation is a file that outlives
    * the conversation.
    */
+  /** Thumbs up or down: optimistic, and quietly put back if the server disagrees. */
+  async function rateMessage(messageId: string, rating: 'up' | 'down' | null): Promise<void> {
+    const token = session?.token ?? readToken(resolved.publicId);
+    if (!token) return;
+    const apply = (value: 'up' | 'down' | null | undefined) =>
+      setMessages((current) =>
+        current.map((m) =>
+          m.id === messageId && m.ai
+            ? { ...m, ai: { ...m.ai, ...(value ? { rating: value } : {}), ...(value ? {} : { rating: undefined }) } }
+            : m,
+        ),
+      );
+    const previous = messages.find((m) => m.id === messageId)?.ai?.rating;
+    apply(rating);
+    try {
+      await widgetApi.feedback(token, messageId, rating);
+    } catch {
+      apply(previous);
+    }
+  }
+
   async function resolveAttachmentUrl(attachmentId: string): Promise<string> {
     const token = session?.token ?? readToken(resolved.publicId);
     if (!token) throw new Error('no token');
@@ -675,6 +696,7 @@ export function App() {
             agentTyping={agentTyping && config.behaviour.showAgentTyping}
             typingName={typingName}
             resolveAttachmentUrl={resolveAttachmentUrl}
+            onRate={!resolved.preview && client.current?.conversationId ? rateMessage : undefined}
             offer={
               !resolved.preview && !closed && client.current?.conversationId && !ticketFor
                 ? {

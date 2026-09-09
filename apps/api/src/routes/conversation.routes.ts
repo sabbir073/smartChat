@@ -205,6 +205,21 @@ export async function conversationRoutes(
     return ok(reply, { id: conversation.id, assignedMemberId: conversation.assignedMemberId });
   });
 
+  /** "Let the AI continue" - the assistant takes the conversation back; "Pause AI" - it stops. */
+  app.post('/conversations/:id/ai/resume', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    const conversation = await container.conversations.resumeAi(tenant, id);
+    return ok(reply, { id: conversation.id, assignedMemberId: conversation.assignedMemberId, aiPausedAt: null });
+  });
+
+  app.post('/conversations/:id/ai/pause', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    const conversation = await container.conversations.pauseAiByAgent(tenant, id);
+    return ok(reply, { id: conversation.id, aiPausedAt: conversation.aiPausedAt?.toISOString() ?? null });
+  });
+
   app.post('/conversations/:id/read', async (request, reply) => {
     const tenant = requireTenant(request);
     const { id } = parseParams(idParam, request.params);

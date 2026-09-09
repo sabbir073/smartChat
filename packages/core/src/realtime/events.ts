@@ -51,6 +51,8 @@ export interface AiMessageInfo {
   sources: Array<{ title: string; url: string | null }>;
   /** The widget shows "Create a ticket" / "Ask something else" under a message that offers one. */
   offer?: 'ticket';
+  /** The visitor's thumbs up or down, when given. */
+  rating?: 'up' | 'down';
 }
 
 /** Narrow a stored metadata bag to the AI-message shape, or nothing if it is not one. */
@@ -68,7 +70,11 @@ function readAiInfo(message: MessageMaybeWithSender): AiMessageInfo | undefined 
       sources.push({ title, url: typeof url === 'string' ? url : null });
     }
   }
-  return { sources, ...(raw['offer'] === 'ticket' ? { offer: 'ticket' as const } : {}) };
+  return {
+    sources,
+    ...(raw['offer'] === 'ticket' ? { offer: 'ticket' as const } : {}),
+    ...(raw['rating'] === 'up' || raw['rating'] === 'down' ? { rating: raw['rating'] } : {}),
+  };
 }
 
 /**

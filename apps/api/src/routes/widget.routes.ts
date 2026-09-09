@@ -6,6 +6,7 @@ import {
   signUploadSchema,
   widgetBootstrapSchema,
   widgetConfigQuerySchema,
+  widgetFeedbackSchema,
   widgetIdentifySchema,
   widgetOfflineMessageSchema,
   widgetPageViewSchema,
@@ -21,6 +22,8 @@ import { parseBody, parseParams, parseQuery } from '../lib/validate.js';
  * of them trusts an id from the request body, and all of them are rate limited by IP or by the
  * visitor identity the token carries.
  */
+const feedbackParam = z.object({ id: z.string().uuid() });
+
 export async function widgetRoutes(app: FastifyInstance, container: Container): Promise<void> {
   /** Read the visitor token from the Authorization header. Never from a cookie or the body. */
   function bearer(request: FastifyRequest): string {
@@ -130,6 +133,22 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
       conversationId: result.conversationId,
       ...(result.ticketNumber === undefined ? {} : { ticketNumber: result.ticketNumber }),
     });
+  });
+
+  /** A thumbs up or down on one AI reply. The message must be the visitor's own conversation's. */
+  app.post('/widget/messages/:id/feedback', async (request, reply) => {
+    const token = bearer(request);
+    await app.rateLimit(request, 'widgetSession');
+    const { id } = parseParams(feedbackParam, request.params);
+    const input = parseBody(widgetFeedbackSchema, request.body);
+    const identity = await container.visitors.authenticate(token);
+    const result = await container.aiFeedback.rate(
+      { accountId: identity.accountId, propertyId: identity.propertyId, visitorId: identity.visitorId },
+      id,
+      input.rating,
+    );
+    reply.header('cache-control', 'no-store');
+    return ok(reply, result);
   });
 
   /**

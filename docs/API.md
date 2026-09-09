@@ -157,6 +157,8 @@ POST   /integrations/webhooks/:id/ping
 
 # the AI agent (see AI_AGENT.md)
 GET    /properties/:id/ai             PATCH  /properties/:id/ai        { mode?, assistantName?, keyFacts?, … }
+POST   /conversations/:id/ai/resume     POST /conversations/:id/ai/pause
+POST   /widget/messages/:id/feedback   { rating: "up" | "down" | null }   (visitor token)
 POST   /properties/:id/ai/reindex
 GET    /properties/:id/ai/files          POST /properties/:id/ai/files/sign { fileName, byteSize }
 POST   /properties/:id/ai/files/:fileId/confirm   DELETE /properties/:id/ai/files/:fileId

@@ -155,6 +155,14 @@ export function MessageThread({
                 </span>
               )}
               {fromAi && message.ai?.offer === 'ticket' && <span>offered a ticket</span>}
+              {fromAi && message.ai?.rating && (
+                <span
+                  className={cn('font-medium', message.ai.rating === 'up' ? 'text-success' : 'text-danger')}
+                  title={message.ai.rating === 'up' ? 'The visitor found this helpful' : 'The visitor found this unhelpful'}
+                >
+                  {message.ai.rating === 'up' ? '👍 helpful' : '👎 not helpful'}
+                </span>
+              )}
               {aiSources.length > 0 && (
                 <span>
                   from{' '}

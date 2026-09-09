@@ -313,7 +313,9 @@ export default function InboxPage() {
           handoffAt: null,
           lastReplyAt: null,
           ...row.ai,
-          ...(typeof payload?.['aiPausedAt'] === 'string' ? { pausedAt: payload['aiPausedAt'] } : {}),
+          ...(typeof payload?.['aiPausedAt'] === 'string' || payload?.['aiPausedAt'] === null
+            ? { pausedAt: payload['aiPausedAt'] as string | null }
+            : {}),
           ...(typeof payload?.['aiHandoffAt'] === 'string' ? { handoffAt: payload['aiHandoffAt'] } : {}),
         });
         const assigned = payload?.['assignedMemberId'];
@@ -619,7 +621,9 @@ export default function InboxPage() {
    */
   const mutate = useCallback(
     async (
-      apply: (conversationId: string) => Promise<Partial<ConversationDto>>,
+      apply: (
+        conversationId: string,
+      ) => Promise<Partial<ConversationDto> | ((row: ConversationDto) => Partial<ConversationDto>)>,
       describe: string,
     ) => {
       const conversationId = selectedRef.current;
@@ -628,11 +632,15 @@ export default function InboxPage() {
       setUpdating(true);
       try {
         const patch = await apply(conversationId);
+        const merge = (row: ConversationDto): ConversationDto => ({
+          ...row,
+          ...(typeof patch === 'function' ? patch(row) : patch),
+        });
         setConversations((current) =>
-          current.map((row) => (row.id === conversationId ? { ...row, ...patch } : row)),
+          current.map((row) => (row.id === conversationId ? merge(row) : row)),
         );
         setSelectedConversation((current) =>
-          current && current.id === conversationId ? { ...current, ...patch } : current,
+          current && current.id === conversationId ? merge(current) : current,
         );
       } catch (caught) {
         toast.error(caught instanceof ApiError ? caught.message : `${describe} failed`);
@@ -653,6 +661,31 @@ export default function InboxPage() {
         toast.success(memberId ? 'Conversation assigned' : 'Conversation unassigned');
         return { assignedMemberId: result.data.assignedMemberId };
       }, 'Assigning'),
+    [mutate, toast],
+  );
+
+  const resumeAi = useCallback(
+    () =>
+      void mutate(async (conversationId) => {
+        await api.post(`/conversations/${conversationId}/ai/resume`);
+        toast.success('The AI assistant will answer the next message here.');
+        return (row) => ({
+          assignedMemberId: null,
+          ai: { replyCount: 0, handoffAt: null, lastReplyAt: null, ...row.ai, pausedAt: null },
+        });
+      }, 'Handing back to the AI'),
+    [mutate, toast],
+  );
+
+  const pauseAi = useCallback(
+    () =>
+      void mutate(async (conversationId) => {
+        const result = await api.post<{ aiPausedAt: string | null }>(`/conversations/${conversationId}/ai/pause`);
+        toast.success('The AI assistant is paused in this conversation.');
+        return (row) => ({
+          ai: { replyCount: 0, handoffAt: null, lastReplyAt: null, ...row.ai, pausedAt: result.data.aiPausedAt },
+        });
+      }, 'Pausing the AI'),
     [mutate, toast],
   );
 
@@ -832,6 +865,8 @@ export default function InboxPage() {
                 online={onlineVisitors.has(selected.visitor.id)}
                 busy={updating}
                 onAssign={assign}
+                onResumeAi={resumeAi}
+                onPauseAi={pauseAi}
                 onStatus={setStatus}
                 onPriority={setPriority}
                 onTags={setTags}

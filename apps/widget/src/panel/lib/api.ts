@@ -131,6 +131,14 @@ export const widgetApi = {
    * Leave a message. With a `conversationId` it continues the chat the AI assistant offered a
    * ticket in, and the ticket attaches to that chat rather than opening a new one.
    */
+  /** Thumbs up or down on an AI reply; null takes it back. */
+  feedback: (token: string, messageId: string, rating: 'up' | 'down' | null) =>
+    request<{ messageId: string; rating: 'up' | 'down' | null }>(`/widget/messages/${messageId}/feedback`, {
+      method: 'POST',
+      body: { rating },
+      token,
+    }),
+
   offlineMessage: (token: string, values: Record<string, string>, conversationId?: string) =>
     request<{ conversationId: string; ticketNumber?: number }>('/widget/offline-message', {
       method: 'POST',

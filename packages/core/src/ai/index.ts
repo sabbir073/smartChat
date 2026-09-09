@@ -16,3 +16,4 @@ export * from './extract.js';
 export * from './crawl.service.js';
 export * from './files.service.js';
 export { extractFileText, readableFileType, UnreadableFileError, MAX_FILE_TEXT_CHARS } from './extract-file.js';
+export * from './feedback.service.js';

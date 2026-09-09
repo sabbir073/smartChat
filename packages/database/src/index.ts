@@ -85,6 +85,7 @@ export {
   AiMode,
   KnowledgeDocumentKind,
   KnowledgeFileStatus,
+  AiRating,
   AiDecision,
   AiProviderKind,
 } from '@prisma/client';

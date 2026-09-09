@@ -212,6 +212,19 @@ ticket opened from the chat, and by a handoff. It is never cleared by the system
 the online member with the fewest open conversations — restricted to members who can see that
 website — and `ai_handoff_at` is stamped. With nobody online, the visitor gets the ticket offer.
 
+**Hand back and pause.** A person who took over can give the conversation back: `POST
+/conversations/:id/ai/resume` clears the pause and the assignment (an assigned conversation is a
+person's, by the rules above) and the next visitor message goes to the assistant. `POST
+/conversations/:id/ai/pause` stops the assistant in one conversation without anyone replying.
+Both are in the conversation header ("Let the AI continue", "Pause AI"), audited, and travel to
+every open inbox on the usual events.
+
+**Feedback.** Under every answer the assistant wrote in its own words the widget shows a thumbs
+up and down (`POST /widget/messages/:id/feedback {rating}`; `null` withdraws). The rating is
+written on the turn (`ai_turns.rating`, for analytics) and into the message's metadata (so the
+widget shows it after a reload and the inbox shows it next to the reply). Only the visitor whose
+conversation it is can rate, and only a bot message the AI wrote.
+
 ## The ticket flow
 
 The offer is a bot message with `metadata.offer = 'ticket'`; the widget renders two buttons under
