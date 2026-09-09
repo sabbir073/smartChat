@@ -9,7 +9,7 @@ import { loadPublicPlans } from '@/lib/public-plans';
 export const metadata: Metadata = {
   title: 'Pricing — SmartChat',
   description:
-    'Start free with one website and one seat. Paid plans add websites, team members, integrations and the AI agent; a custom plan for anything bigger.',
+    'Start free with one website and one seat. Starter adds websites, team members and integrations; Growth adds the AI agent; a custom plan for anything bigger.',
   robots: { index: true, follow: true },
 };
 
@@ -51,7 +51,7 @@ export default async function PricingPage() {
       <PageHero
         eyebrow="Pricing"
         title="Start free. Pay when you grow."
-        lead="One website and one seat cost nothing, for as long as you like. Paid plans add websites, people, integrations and the AI agent. Nothing is priced per conversation."
+        lead="One website and one seat cost nothing, for as long as you like. Starter adds websites, people and integrations; Growth adds the AI agent. Nothing is priced per conversation."
       />
 
       <Section>
