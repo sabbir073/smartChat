@@ -66,7 +66,7 @@ x-app-env: &app-env
   # The AI layer. The local models run in the `ai` container and are only ever reached over the
   # internal network; the fallback provider (OpenAI or DeepSeek) is configured in the console.
   AI_LOCAL_URL: ${AI_LOCAL_URL:-http://ai:11434}
-  AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen3.5:2b}
+  AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen3:1.7b}
   AI_EMBED_MODEL: ${AI_EMBED_MODEL:-embeddinggemma}
   AI_EMBED_DIMENSIONS: ${AI_EMBED_DIMENSIONS:-768}
 
@@ -196,7 +196,7 @@ services:
     logging: *default-logging
     entrypoint: ['/bin/sh', '/entrypoint.sh']
     environment:
-      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen3.5:2b}
+      AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen3:1.7b}
       AI_EMBED_MODEL: ${AI_EMBED_MODEL:-embeddinggemma}
       OLLAMA_HOST: 0.0.0.0:11434
       # Models stay in memory; the first visitor of the morning is not the one who pays to load them.

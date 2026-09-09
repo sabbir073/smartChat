@@ -46,6 +46,19 @@ export interface NormaliseOptions {
   passageCount: number;
   /** Hosts a link may point at. Anything else is removed from the text. */
   allowedHosts: string[];
+  /**
+   * What the answer is allowed to be made of: the passages the model saw, plus the visitor's
+   * question and the owner's instructions. Every number in an answer must come from one of them
+   * - a price, a date, a phone number or an hour that appears nowhere in this text was invented,
+   * and the answer becomes the ticket offer. When omitted the check is skipped.
+   */
+  grounding?: string[];
+  /**
+   * Phrases that belong to the practice example in the prompt and to nothing else. A reply that
+   * repeats one of them without a passage that also contains it has answered from the practice
+   * shop, not from this business, and is refused.
+   */
+  practicePhrases?: string[];
 }
 
 export type ParseFailure = { ok: false; reason: string };
@@ -76,6 +89,12 @@ export function parseReply(raw: string, options: NormaliseOptions): ParseSuccess
     } else if (sources.length === 0) {
       decision = 'ticket';
       downgraded = 'answer cited no passage';
+    } else if (options.grounding && !leakedPractice(text, options.practicePhrases ?? [], options.grounding)) {
+      const invented = inventedNumbers(text, options.grounding);
+      if (invented.length > 0) {
+        decision = 'ticket';
+        downgraded = `answer contained numbers not in the passages (${invented.slice(0, 3).join(', ')})`;
+      }
     }
   }
   // A chat reply is the model's own words - a greeting, a general fact - and needs no passage,
@@ -84,6 +103,17 @@ export function parseReply(raw: string, options: NormaliseOptions): ParseSuccess
   if (decision === 'chat' && text.length === 0) {
     decision = 'ticket';
     downgraded = 'chat had no text';
+  }
+  // Measured on the production model: asked for opening hours that the passages did not have,
+  // it answered with the practice shop's hours and cited passage 1. The practice example is the
+  // only text in the prompt that is not about this business, so its facts are refused outright
+  // unless a real passage happens to say the same thing.
+  if ((decision === 'answer' || decision === 'chat') && options.practicePhrases) {
+    const leaked = leakedPractice(text, options.practicePhrases, options.grounding ?? []);
+    if (leaked) {
+      decision = 'ticket';
+      downgraded = `reply repeated the practice example ("${leaked}")`;
+    }
   }
   if (decision !== 'answer' && decision !== 'chat') {
     // The offer and the handoff are said in the operator's own words; the model's are dropped.
@@ -94,6 +124,65 @@ export function parseReply(raw: string, options: NormaliseOptions): ParseSuccess
     reply: { decision, text, sources: decision === 'answer' ? sources : [] },
     ...(downgraded ? { downgraded } : {}),
   };
+}
+
+/**
+ * Numbers in `text` that appear in none of the `sources`.
+ *
+ * Numbers are compared as runs of digits, so "5,000 BDT", "5000" and "৫,০০০" are the same
+ * number and "10:00" matches "10:00 to 20:00". Other numeral systems the model may write in
+ * (Bengali, Devanagari, Arabic-Indic) are folded to ASCII first. A run of digits is the unit: an
+ * answer saying "200" is grounded by "200 BDT" but not by "2,000".
+ */
+export function inventedNumbers(text: string, sources: string[]): string[] {
+  const allowed = new Set<string>();
+  // Phone numbers get rewritten without their spaces and dashes ("+8801711000000" for
+  // "+880 1711-000000"), so a long run is also looked for in each source with its separators
+  // removed. Only long runs: with every digit of a passage run together, "15" would be found
+  // inside "2015".
+  const squashed: string[] = [];
+  for (const source of sources) {
+    const runs = digitRuns(source);
+    for (const n of runs) allowed.add(n);
+    squashed.push(runs.join(''));
+  }
+  const invented: string[] = [];
+  // "1. Road bikes 2. Mountain bikes" - list markers are layout, not facts.
+  const prose = text.replace(/(^|\n)\s*\d+[.)]\s/g, '$1');
+  for (const n of digitRuns(prose)) {
+    if (allowed.has(n) || invented.includes(n)) continue;
+    if (n.length >= 7 && squashed.some((s) => s.includes(n))) continue;
+    invented.push(n);
+  }
+  return invented;
+}
+
+const DIGIT_BLOCKS = [0x0030, 0x0660, 0x06f0, 0x0966, 0x09e6]; // ASCII, Arabic-Indic, Persian, Devanagari, Bengali
+
+function digitRuns(text: string): string[] {
+  const folded = Array.from(text, (ch) => {
+    const code = ch.codePointAt(0)!;
+    for (const zero of DIGIT_BLOCKS) {
+      if (code >= zero && code <= zero + 9) return String(code - zero);
+    }
+    return ch;
+  }).join('');
+  // "5,000" and "5000" are the same number; a thousands separator (comma or thin space, followed
+  // by exactly three digits) is dropped before the runs are taken. "10:00" stays two runs.
+  return folded.replace(/(\d)[,\u2009\u00a0 ](?=\d{3}(?!\d))/g, '$1').match(/\d+/g) ?? [];
+}
+
+function leakedPractice(text: string, phrases: string[], grounding: string[]): string | null {
+  for (const phrase of phrases) {
+    // Whole words only: "KES" must not match inside "bikes".
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])${escapeRegExp(phrase)}(?=$|[^\\p{L}\\p{N}])`, 'iu');
+    if (pattern.test(text) && !grounding.some((g) => pattern.test(g))) return phrase;
+  }
+  return null;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /** Some models wrap JSON in a code fence or a sentence. Take the outermost object. */

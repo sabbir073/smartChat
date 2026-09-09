@@ -52,22 +52,42 @@ enqueues; the **worker** owns the `ai` queue and is the only process that calls 
 
 ## The models
 
-Chosen by measuring on the production box (12 vCPU AMD EPYC, AVX-512, no GPU), with a realistic
-~530-token RAG prompt and schema-constrained JSON output:
+Chosen by measuring on the production box (12 vCPU AMD EPYC, AVX-512, no GPU) with the real
+prompt - rules, practice turns, three or four passages, a question - and schema-constrained JSON
+output. Twelve cases: greetings, four answers (one in Bangla, one with history), tickets, a
+handoff, a general-knowledge question, an injection, and a question whose answer the passages did
+not contain.
 
-| model | per reply | verdict |
-| --- | --- | --- |
-| `qwen3.5:0.8b` | ~2 s | too weak (contradictory answers) |
-| `gemma3:1b` | ~2–3 s | decent text, rarely cites a source |
-| **`qwen3.5:2b`** | **~4 s** | correct on hours, warranty, refunds, handoff, Bangla; refused an injection |
-| **`embeddinggemma`** | 43 ms / query | 768-dim, multilingual; matched a Bangla question to the English passage |
+| model | right | per reply | notes |
+| --- | --- | --- | --- |
+| `qwen3.5:0.8b` | - | ~2 s | too weak (contradictory answers) |
+| `gemma3:1b` | - | ~2–3 s | decent text, rarely cites a source |
+| `qwen3.5:2b` (Q8) | 9/12 | ~4 s, 7–11 s live | good answers, but see below |
+| **`qwen3:1.7b`** (Q4_K_M) | **11/12** | **~2.5 s** | the one in production |
+| `qwen3:1.7b-q8_0` | 10/12 | ~5 s | slower than Q4 on this CPU, no better |
+| `qwen3:4b` | 8/9 | ~6 s | same answers, twice the wait |
+| **`embeddinggemma`** | - | 43 ms / query | 768-dim, multilingual; matched a Bangla question to the English passage |
 
-Both fit in ~5 GB resident. `think: false` is sent on every request (Qwen 3.5's reasoning pass
+Why not the newer Qwen 3.5: it is a hybrid (linear-attention) architecture, and on a CPU the
+model server cannot reuse the cached state of a prompt's shared beginning the way it can for a
+plain transformer. Every reply re-read the rules and the practice, and a reply that took 2.5 s
+in the benchmark took 7–11 s on the live site once the passages varied. With `qwen3:1.7b` the
+rules and practice are processed once per property and stay cached; a reply costs the passages
+and the question, about five milliseconds a token, which is what the prompt budget in
+`prompt.ts` is sized around.
+
+Both models fit in ~4 GB resident. `think: false` is sent on every request (the reasoning pass
 would otherwise cost ~20 s), and Ollama's `format` carries the JSON schema so decoding is
 constrained to the contract. The model names come from `AI_CHAT_MODEL` / `AI_EMBED_MODEL`; the
 `ai` container pulls exactly those on first boot. **Changing the embedding model changes the vector
 space**: it needs `AI_EMBED_DIMENSIONS` and the `vector(768)` column to agree, and every website
 must be re-indexed.
+
+Every model on the list, asked for opening hours that the passages did not contain, answered
+with the practice shop's "Monday to Friday, 9 to 5" and cited passage 1. That is why the
+contract checks the answer, not only the citation: a number that appears in no passage (nor in
+the question or the owner's instructions) turns the answer into the ticket offer, and so does any
+phrase from the practice example.
 
 ## The gateway (`packages/core/src/ai/gateway.ts`)
 
@@ -127,6 +147,14 @@ The model must answer `{"decision": "answer"|"chat"|"ticket"|"human", "text": st
 
 - `answer` must cite at least one passage that was in the prompt; an answer with no valid source
   becomes `ticket` ("what it does not know, it does not guess").
+- An answer must be **grounded**: every number in it (price, hour, date, phone number - written
+  in any numeral system, with or without thousands separators) must appear in a passage the
+  model saw, in the visitor's question or in the owner's instructions. One that does not was
+  invented, and the answer becomes `ticket`, with the numbers recorded on the turn.
+- Nothing from the **practice example** may come through: a reply, answer or chat, that repeats
+  one of the practice shop's facts (its hours, its country, its currency) without a real passage
+  saying the same becomes `ticket`. Small models do this when asked something the passages do not
+  cover - measured on every model tried.
 - `chat` is the model's own words, uncited: greetings, thanks, small talk, general questions that
   are not about the business. The prompt forbids stating a fact about the business in a chat
   reply. An empty chat becomes `ticket`.
@@ -220,7 +248,7 @@ Environment (every Node service; the `ai` container reads the model names too):
 | variable | default | meaning |
 | --- | --- | --- |
 | `AI_LOCAL_URL` | `http://ai:11434` | the local Ollama; empty disables local (fallback only) |
-| `AI_CHAT_MODEL` | `qwen3.5:2b` | pulled and warmed by the `ai` container |
+| `AI_CHAT_MODEL` | `qwen3:1.7b` | pulled and warmed by the `ai` container |
 | `AI_EMBED_MODEL` | `embeddinggemma` | must match `AI_EMBED_DIMENSIONS` and the column |
 | `AI_EMBED_DIMENSIONS` | `768` | |
 | `AI_LOCAL_PARALLEL` | `2` | `OLLAMA_NUM_PARALLEL`, and the gateway's overflow threshold |
@@ -259,4 +287,4 @@ member; mixed mode silent while online; agent takeover; local failure → fallba
 (5 s) → fallback, garbage → `failed` + offer; re-index.
 
 Live: the same sequence driven through the real widget on getchat.site against the real
-`qwen3.5:2b`.
+local model.

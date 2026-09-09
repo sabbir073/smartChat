@@ -43,10 +43,18 @@ export interface PromptBudget {
   historyTokens: number;
 }
 
+/**
+ * Sized for a CPU. The rules and the practice are the same for every turn and the model server
+ * keeps their state, so what a reply costs is the part that changes: the passages and the
+ * history. Measured live on the production box, every new token in that part costs about five
+ * milliseconds, so the passage budget is what stands between the visitor and a ten-second wait.
+ * A thousand tokens is two or three passages of the size the chunker makes, which the retrieval
+ * benchmarks put the right passage in nearly every time.
+ */
 export const DEFAULT_BUDGET: PromptBudget = {
-  totalTokens: 3_000,
-  passageTokens: 1_600,
-  historyTokens: 500,
+  totalTokens: 2_400,
+  passageTokens: 1_000,
+  historyTokens: 350,
 };
 
 const PRACTICE_TOKENS = 520;
@@ -104,6 +112,20 @@ export function buildPrompt(input: PromptInput, budget: PromptBudget = DEFAULT_B
 
 const NO_PASSAGES =
   'Reference passages:\n\n(none were found for this question)';
+
+/**
+ * The facts of the practice shop, for the contract to refuse. Anything a reply says that is on
+ * this list and in no real passage came from the example, not the business. Keep in step with
+ * PRACTICE_TURNS below.
+ */
+export const PRACTICE_PHRASES: readonly string[] = [
+  'Monday to Friday, 9 to 5',
+  'Monday to Friday 9 to 5',
+  '9 to 5',
+  'Kenya',
+  'Mombasa',
+  'KES',
+];
 
 /**
  * A worked example, for a shop that does not exist, before the real passages.

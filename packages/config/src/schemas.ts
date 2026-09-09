@@ -91,7 +91,7 @@ export const aiEnvSchema = z.object({
     .default('')
     .transform((value) => value.trim())
     .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
-  AI_CHAT_MODEL: z.string().min(1).default('qwen3.5:2b'),
+  AI_CHAT_MODEL: z.string().min(1).default('qwen3:1.7b'),
   AI_EMBED_MODEL: z.string().min(1).default('embeddinggemma'),
   /** Must match the `vector(n)` column in knowledge_chunks. Changing it is a migration and a re-index. */
   AI_EMBED_DIMENSIONS: z.coerce.number().int().min(64).max(4096).default(768),

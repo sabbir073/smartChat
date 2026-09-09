@@ -9,7 +9,7 @@ import { parseReply, REPLY_SCHEMA } from './contract.js';
 import { decideAiReply, type AiSkipReason } from './dispatch.js';
 import type { AiGateway } from './gateway.js';
 import type { KnowledgeService, RetrievedChunk } from './knowledge.service.js';
-import { buildPrompt, type PromptPassage } from './prompt.js';
+import { buildPrompt, PRACTICE_PHRASES, type PromptPassage } from './prompt.js';
 
 /**
  * One AI turn, start to finish. Runs in the worker.
@@ -177,6 +177,12 @@ export class AiReplyService {
       const parsed = parseReply(outcome.result.content, {
         passageCount: chunksInPrompt.length,
         allowedHosts: allowedHosts(conversation.property),
+        grounding: [
+          ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text]),
+          question,
+          settings.instructions,
+        ],
+        practicePhrases: [...PRACTICE_PHRASES],
       });
 
       const turnBase = {
