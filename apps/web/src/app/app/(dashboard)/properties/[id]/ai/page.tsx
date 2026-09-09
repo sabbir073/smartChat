@@ -43,7 +43,7 @@ type Draft = Pick<
   | 'handoffText'
   | 'maxRepliesPerConversation'
   | 'crawlMaxPages'
-> & { crawlExclude: string };
+> & { crawlExclude: string; productFeedUrl: string };
 
 const ACCEPTED_FILES = '.pdf,.docx,.txt,.md,.markdown,.csv';
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
@@ -86,6 +86,7 @@ export default function AiAgentPage() {
       maxRepliesPerConversation: settings.data.maxRepliesPerConversation,
       crawlMaxPages: settings.data.crawlMaxPages,
       crawlExclude: settings.data.crawlExclude.join('\n'),
+      productFeedUrl: settings.data.productFeedUrl ?? '',
     });
   }, [settings.data]);
 
@@ -129,7 +130,9 @@ export default function AiAgentPage() {
   }
 
   function currentOf(view: AiSettingsView, key: keyof Draft): Draft[keyof Draft] {
-    return key === 'crawlExclude' ? view.crawlExclude.join('\n') : view[key];
+    if (key === 'crawlExclude') return view.crawlExclude.join('\n');
+    if (key === 'productFeedUrl') return view.productFeedUrl ?? '';
+    return view[key];
   }
 
   async function save() {
@@ -140,7 +143,9 @@ export default function AiAgentPage() {
       changed[key] =
         key === 'crawlExclude'
           ? draft.crawlExclude.split('\n').map((line) => line.trim()).filter(Boolean)
-          : draft[key];
+          : key === 'productFeedUrl'
+            ? draft.productFeedUrl.trim() || null
+            : draft[key];
     }
     if (Object.keys(changed).length === 0) {
       toast.success('Nothing to save.');
@@ -356,6 +361,37 @@ export default function AiAgentPage() {
 
         <Card>
           <CardHeader
+            title="Product feed"
+            description="A Google Merchant feed (RSS or Atom XML) or a CSV with a title column. Read with every website sync; each product becomes a passage with its price and availability."
+          />
+          <CardBody className="space-y-5">
+            <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
+              <Stat label="Products" value={String(view.feed.products)} hint={view.knowledge.products ? `${view.knowledge.products} indexed` : undefined} />
+              <Stat label="Last read" value={view.feed.lastSyncedAt ? new Date(view.feed.lastSyncedAt).toLocaleString() : view.feed.url ? 'Not yet' : '—'} />
+              <Stat label="Status" value={view.feed.error ? 'Failed' : view.feed.url ? (view.feed.lastSyncedAt ? 'Up to date' : 'Waiting for sync') : 'No feed'} />
+            </dl>
+            {view.feed.error && (
+              <Alert tone="warning" title="The feed could not be read">
+                {view.feed.error}
+              </Alert>
+            )}
+            <Field label="Feed address" hint="Saving a new address reads it straight away. Leave empty to remove the products." error={errors['productFeedUrl']}>
+              {({ id: fieldId, invalid }) => (
+                <TextInput
+                  id={fieldId}
+                  type="url"
+                  invalid={invalid}
+                  value={draft.productFeedUrl}
+                  placeholder="https://www.example.com/feeds/google-merchant.xml"
+                  onChange={(event) => setDraft({ ...draft, productFeedUrl: event.target.value })}
+                />
+              )}
+            </Field>
+          </CardBody>
+        </Card>
+
+        <Card>
+          <CardHeader
             title="Files"
             description="Price lists, brochures, prospectuses, policies - PDF, Word, text or Markdown, up to 10 MB each. The assistant reads them like pages of your site."
             action={
@@ -423,7 +459,7 @@ export default function AiAgentPage() {
           <CardBody className="space-y-5">
             <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
               <Stat label="Help-centre articles" value={String(view.knowledge.articles)} hint="Published ones are indexed automatically." />
-              <Stat label="Passages indexed" value={String(view.knowledge.chunks)} hint="Across the website, files, articles and key facts." />
+              <Stat label="Passages indexed" value={String(view.knowledge.chunks)} hint="Across the website, products, files, articles and key facts." />
               <Stat
                 label="Last indexed"
                 value={view.knowledge.lastIndexedAt ? new Date(view.knowledge.lastIndexedAt).toLocaleString() : 'Never'}

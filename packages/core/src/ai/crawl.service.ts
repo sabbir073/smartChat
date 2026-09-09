@@ -1,6 +1,7 @@
 import type { Database } from '@smartchat/database';
 import { systemClock, type Clock } from '../time.js';
 import { crawlSite, type CrawlSummary } from './crawler.js';
+import type { FeedOutcome, FeedService } from './feed.service.js';
 import type { KnowledgeService } from './knowledge.service.js';
 
 /**
@@ -19,6 +20,8 @@ export const CRAWL_MAX_PAGES_CEILING = 1_000;
 export interface CrawlServiceOptions {
   db: Database;
   knowledge: KnowledgeService;
+  /** The product feed is read after the site, in the same job. Optional for tests. */
+  feed?: FeedService;
   clock?: Clock;
   /** Milliseconds between requests to the site. Tests set 0. */
   delayMs?: number;
@@ -37,6 +40,7 @@ export interface CrawlOutcome {
   removed: number;
   failed: number;
   error: string | null;
+  feed?: FeedOutcome;
 }
 
 export class CrawlService {
@@ -122,6 +126,9 @@ export class CrawlService {
       },
     });
     this.options.log?.('ai.crawl.done', { propertyId, ...outcome });
+    if (this.options.feed) {
+      outcome.feed = await this.options.feed.syncFeed(accountId, propertyId);
+    }
     return outcome;
   }
 

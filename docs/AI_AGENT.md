@@ -166,6 +166,19 @@ a wildcard; `*.pdf` and `?add-to-cart` match anywhere in the path. The start pag
 An excluded page that was indexed earlier is pruned on the next completed crawl, like any page
 the crawl no longer sees.
 
+## Product feeds (`feed.ts`, `feed.service.ts`)
+
+A Google Merchant feed (RSS 2.0 or Atom with the `g:` fields) or a CSV/TSV with a header row
+using the same names, up to 5,000 products, 20 MB. Read after every website crawl in the same
+job (so "Sync website" and the weekly re-read cover it) and straight away when the address is
+saved. Each product becomes a `product` document: a `#` title, then price (with the sale price
+and the old one), availability, brand, category, condition, model number, then the description
+as text - so the price and the stock sit in the same passage as the name. Keyed by the product
+link, and a product wins over a crawled page of the same URL (the feed knows the price; the page
+may not). Unchanged products (same hash) cost nothing; products the feed no longer lists are
+removed when a read completes; a read that fails removes nothing and leaves the reason on the
+settings row. Removing the address removes the products.
+
 ## Files (`files.service.ts`, `extract-file.ts`)
 
 A PDF price list, a DOCX prospectus, a text or Markdown file - up to 10 MB each, fifty a

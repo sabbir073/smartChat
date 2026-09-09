@@ -14,6 +14,7 @@ export interface AiSettingsView {
   maxRepliesPerConversation: number;
   crawlMaxPages: number;
   crawlExclude: string[];
+  productFeedUrl: string | null;
   enabledAt: string | null;
   website: {
     url: string;
@@ -23,11 +24,13 @@ export interface AiSettingsView {
     pagesIndexed: number;
     error: string | null;
   };
+  feed: { url: string | null; lastSyncedAt: string | null; products: number; error: string | null };
   plan: { includesAi: boolean; planName: string; repliesUsed: number; repliesLimit: number | null };
   knowledge: {
     documents: number;
     pages: number;
     files: number;
+    products: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;

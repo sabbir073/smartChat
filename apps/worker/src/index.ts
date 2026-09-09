@@ -7,6 +7,7 @@ import {
   AiSettingsService,
   CrawlService,
   EntitlementService,
+  FeedService,
   KnowledgeFileService,
   GeoService,
   KnowledgeService,
@@ -157,9 +158,16 @@ async function main(): Promise<void> {
     log: (event, detail) => logger.warn(detail, event),
   });
   const aiSettings = new AiSettingsService({ db, knowledge, queue: scheduler, entitlements });
+  const feed = new FeedService({
+    db,
+    knowledge,
+    allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
+    log: (event, detail) => logger.warn(detail, event),
+  });
   const crawler = new CrawlService({
     db,
     knowledge,
+    feed,
     allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
     log: (event, detail) => logger.warn(detail, event),
   });

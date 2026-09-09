@@ -33,6 +33,15 @@ export const updateAiSettingsSchema = z
     maxRepliesPerConversation: z.number().int().min(1).max(500).optional(),
     /** How many pages one website sync reads. */
     crawlMaxPages: z.number().int().min(1).max(1_000).optional(),
+    /** A Google Merchant (RSS/Atom) or CSV product feed, read with the website sync. Null removes it. */
+    productFeedUrl: z
+      .string()
+      .trim()
+      .url()
+      .max(500)
+      .refine((value) => /^https?:\/\//i.test(value), 'The feed address must start with http:// or https://')
+      .nullable()
+      .optional(),
     /** Paths the sync skips: `/blog/*`, `/cart`, `*.pdf`. */
     crawlExclude: z
       .array(z.string().trim().min(1).max(200).regex(/^[^\s<>"']+$/, 'One path pattern per line, no spaces'))

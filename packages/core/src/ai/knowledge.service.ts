@@ -29,7 +29,7 @@ export interface KnowledgeServiceOptions {
 export interface RetrievedChunk {
   chunkId: string;
   documentId: string;
-  kind: 'article' | 'notes' | 'page' | 'file';
+  kind: 'article' | 'notes' | 'page' | 'file' | 'product';
   title: string;
   url: string | null;
   heading: string | null;
@@ -43,6 +43,8 @@ export interface KnowledgeStatus {
   pages: number;
   /** How many are uploaded files. */
   files: number;
+  /** How many are products from the feed. */
+  products: number;
   chunks: number;
   lastIndexedAt: Date | null;
   /** Documents whose last indexing failed, with the reason. */
@@ -177,6 +179,12 @@ export class KnowledgeService {
     const existing = await this.options.db.knowledgeDocument.findUnique({
       where: { accountId_propertyId_url: { accountId, propertyId, url: page.url } },
     });
+    if (existing?.kind === 'product') {
+      // The feed already describes this URL, with the price and the stock the page may not
+      // show. The structured version wins; the crawl only notes that the page is still there.
+      await this.options.db.knowledgeDocument.update({ where: { id: existing.id }, data: { lastSeenAt: seenAt } });
+      return { documentId: existing.id, changed: false };
+    }
     if (existing) {
       if (existing.kind === 'page' && existing.contentHash === hash && existing.indexedAt && !existing.error) {
         await this.options.db.knowledgeDocument.update({ where: { id: existing.id }, data: { lastSeenAt: seenAt } });
@@ -226,6 +234,61 @@ export class KnowledgeService {
       data: { accountId, propertyId, kind: 'file', title: file.title, text, contentHash: hash, tokenCount: estimateTokens(text) },
     });
     return { documentId: created.id };
+  }
+
+  /**
+   * One product from the feed. Keyed by its link when it has one (so it takes over from a
+   * crawled page of the same URL), else by a key made of the feed id.
+   */
+  async syncProduct(
+    accountId: string,
+    propertyId: string,
+    product: { id: string; title: string; url: string | null; text: string },
+    seenAt: Date,
+  ): Promise<{ documentId: string; changed: boolean }> {
+    const url = product.url ?? `product:${propertyId}:${product.id.slice(0, 120)}`;
+    const hash = contentHash(product.title, product.text);
+    const existing = await this.options.db.knowledgeDocument.findUnique({
+      where: { accountId_propertyId_url: { accountId, propertyId, url } },
+    });
+    if (existing) {
+      if (existing.kind === 'product' && existing.contentHash === hash && existing.indexedAt && !existing.error) {
+        await this.options.db.knowledgeDocument.update({ where: { id: existing.id }, data: { lastSeenAt: seenAt } });
+        return { documentId: existing.id, changed: false };
+      }
+      await this.options.db.knowledgeDocument.update({
+        where: { id: existing.id },
+        data: { kind: 'product', title: product.title, text: product.text, contentHash: hash, tokenCount: estimateTokens(product.text), error: null, lastSeenAt: seenAt },
+      });
+      return { documentId: existing.id, changed: true };
+    }
+    const created = await this.options.db.knowledgeDocument.create({
+      data: {
+        accountId,
+        propertyId,
+        kind: 'product',
+        title: product.title,
+        url,
+        text: product.text,
+        contentHash: hash,
+        tokenCount: estimateTokens(product.text),
+        lastSeenAt: seenAt,
+      },
+    });
+    return { documentId: created.id, changed: true };
+  }
+
+  /** Products the latest feed no longer lists - or every product, when the feed was removed. */
+  async pruneProducts(accountId: string, propertyId: string, seenBefore: Date | null): Promise<number> {
+    const result = await this.options.db.knowledgeDocument.deleteMany({
+      where: {
+        accountId,
+        propertyId,
+        kind: 'product',
+        ...(seenBefore ? { OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: seenBefore } }] } : {}),
+      },
+    });
+    return result.count;
   }
 
   /** Pages a completed crawl did not find any more are gone from the site; they go from the index. */
@@ -303,7 +366,7 @@ export class KnowledgeService {
   async listDocumentIds(
     accountId: string,
     propertyId: string,
-    kinds?: Array<'article' | 'notes' | 'page' | 'file'>,
+    kinds?: Array<'article' | 'notes' | 'page' | 'file' | 'product'>,
   ): Promise<string[]> {
     const rows = await this.options.db.knowledgeDocument.findMany({
       where: { accountId, propertyId, ...(kinds ? { kind: { in: kinds } } : {}) },
@@ -321,6 +384,7 @@ export class KnowledgeService {
     let chunks = 0;
     let pages = 0;
     let files = 0;
+    let products = 0;
     let lastIndexedAt: Date | null = null;
     let pending = 0;
     const failures: KnowledgeStatus['failures'] = [];
@@ -328,13 +392,14 @@ export class KnowledgeService {
       chunks += document.chunkCount;
       if (document.kind === 'page') pages += 1;
       if (document.kind === 'file') files += 1;
+      if (document.kind === 'product') products += 1;
       if (document.indexedAt && (!lastIndexedAt || document.indexedAt > lastIndexedAt)) {
         lastIndexedAt = document.indexedAt;
       }
       if (document.error) failures.push({ documentId: document.id, title: document.title, error: document.error });
       else if (!document.indexedAt) pending += 1;
     }
-    return { documents: documents.length, pages, files, chunks, lastIndexedAt, failures: failures.slice(0, 20), pending };
+    return { documents: documents.length, pages, files, products, chunks, lastIndexedAt, failures: failures.slice(0, 20), pending };
   }
 
   async document(accountId: string, documentId: string): Promise<KnowledgeDocument | null> {
@@ -411,7 +476,7 @@ export class KnowledgeService {
       chunks: rows.map((row) => ({
         chunkId: row.chunk_id,
         documentId: row.document_id,
-        kind: row.kind === 'notes' ? 'notes' : row.kind === 'page' ? 'page' : row.kind === 'file' ? 'file' : 'article',
+        kind: row.kind === 'notes' ? 'notes' : row.kind === 'page' ? 'page' : row.kind === 'file' ? 'file' : row.kind === 'product' ? 'product' : 'article',
         title: row.title,
         url: row.url,
         heading: row.heading,

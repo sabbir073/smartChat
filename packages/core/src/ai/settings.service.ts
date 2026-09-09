@@ -38,6 +38,7 @@ export interface AiSettingsView {
   maxRepliesPerConversation: number;
   crawlMaxPages: number;
   crawlExclude: string[];
+  productFeedUrl: string | null;
   enabledAt: string | null;
   /** The website sync: what the crawler found and when, and why it could not, in a sentence. */
   website: {
@@ -48,11 +49,14 @@ export interface AiSettingsView {
     pagesIndexed: number;
     error: string | null;
   };
+  /** The product feed: how many products the last read found, and why it failed if it did. */
+  feed: { url: string | null; lastSyncedAt: string | null; products: number; error: string | null };
   plan: { includesAi: boolean; planName: string; repliesUsed: number; repliesLimit: number | null };
   knowledge: {
     documents: number;
     pages: number;
     files: number;
+    products: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;
@@ -133,6 +137,7 @@ export class AiSettingsService {
         : {}),
       ...(input.crawlMaxPages !== undefined ? { crawlMaxPages: input.crawlMaxPages } : {}),
       ...(input.crawlExclude !== undefined ? { crawlExclude: dedupe(input.crawlExclude) } : {}),
+      ...(input.productFeedUrl !== undefined ? { productFeedUrl: input.productFeedUrl } : {}),
       ...(input.mode && input.mode !== 'team' && (!existing || existing.mode === 'team')
         ? { enabledAt: now }
         : {}),
@@ -145,8 +150,9 @@ export class AiSettingsService {
         });
 
     // Switching the AI on for the first time reads the website without being asked: "turn it on"
-    // and "it knows my site" should be the same click.
-    if (input.mode && input.mode !== 'team' && !saved.lastCrawledAt && !saved.crawlStartedAt) {
+    // and "it knows my site" should be the same click. A new feed address is read the same way.
+    const feedChanged = input.productFeedUrl !== undefined && input.productFeedUrl !== (existing?.productFeedUrl ?? null);
+    if ((input.mode && input.mode !== 'team' && !saved.lastCrawledAt && !saved.crawlStartedAt) || feedChanged) {
       await this.options.queue.enqueueOnce(AiJob.CRAWL_PROPERTY, { accountId: context.accountId, propertyId }, `crawl-${propertyId}`);
     }
 
@@ -318,6 +324,7 @@ export class AiSettingsService {
         settings?.maxRepliesPerConversation ?? DEFAULT_AI_SETTINGS.maxRepliesPerConversation,
       crawlMaxPages: settings?.crawlMaxPages ?? DEFAULT_AI_SETTINGS.crawlMaxPages,
       crawlExclude: settings?.crawlExclude ?? DEFAULT_AI_SETTINGS.crawlExclude,
+      productFeedUrl: settings?.productFeedUrl ?? null,
       enabledAt: settings?.enabledAt?.toISOString() ?? null,
       website: {
         url: property?.websiteUrl ?? '',
@@ -326,6 +333,12 @@ export class AiSettingsService {
         pagesFound: settings?.crawlPagesFound ?? 0,
         pagesIndexed: settings?.crawlPagesIndexed ?? 0,
         error: settings?.crawlError ?? null,
+      },
+      feed: {
+        url: settings?.productFeedUrl ?? null,
+        lastSyncedAt: settings?.lastFeedAt?.toISOString() ?? null,
+        products: settings?.feedProducts ?? 0,
+        error: settings?.feedError ?? null,
       },
       plan: {
         includesAi: entitlements.plan.aiAgent,
@@ -337,6 +350,7 @@ export class AiSettingsService {
         documents: knowledge.documents,
         pages: knowledge.pages,
         files: knowledge.files,
+        products: knowledge.products,
         chunks: knowledge.chunks,
         articles,
         lastIndexedAt: knowledge.lastIndexedAt?.toISOString() ?? null,

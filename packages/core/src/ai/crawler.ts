@@ -50,8 +50,8 @@ export interface CrawlOptions {
 export interface CrawlResponse {
   status: number;
   headers: { get(name: string): string | null };
-  /** Read the body as text, honouring the byte cap. */
-  text(): Promise<string>;
+  /** Read the body as text, giving up past `maxBytes` (the reader's own cap when omitted). */
+  text(maxBytes?: number): Promise<string>;
   body?: unknown;
 }
 
@@ -137,7 +137,7 @@ export async function crawlSite(
         const contentType = (response.headers.get('content-type') ?? '').toLowerCase();
         const length = Number(response.headers.get('content-length') ?? '0');
         if (length > maxBytes) return { error: 'too large' };
-        const text = await response.text();
+        const text = await response.text(maxBytes);
         if (text.length > maxBytes) return { error: 'too large' };
         return { status: response.status, contentType, text, finalUrl: current };
       } catch (error) {
@@ -457,6 +457,12 @@ function safeLookup(
 }
 
 let agent: Dispatcher | null = null;
+/**
+ * The most a single response is read, whoever asked. The crawl caps pages at 2 MB itself; a
+ * product feed may legitimately be much larger, and the reader applies its own limit on top.
+ */
+const FETCH_READ_CAP = 25 * 1024 * 1024;
+
 function crawlerAgent(): Dispatcher {
   if (!agent) {
     agent = new Agent({
@@ -480,8 +486,51 @@ async function safeFetch(
   return {
     status: response.status,
     headers: response.headers,
-    text: () => readCapped(response, DEFAULT_MAX_BYTES),
+    text: (maxBytes?: number) => readCapped(response, Math.min(maxBytes ?? FETCH_READ_CAP, FETCH_READ_CAP)),
   };
+}
+
+/**
+ * One document from the site's own hosts, for readers other than the crawl (the product feed).
+ * The same SSRF rules: name resolved by us, private ranges refused at connect time, redirects
+ * followed by hand and re-checked, a byte cap, a deadline. Returns the body as text.
+ */
+export async function fetchDocument(
+  url: string,
+  options: { maxBytes: number; timeoutMs: number; allowPrivateAddresses?: boolean; userAgent?: string; accept?: string },
+): Promise<{ status: number; contentType: string; text: string; finalUrl: string }> {
+  const fetchImpl = options.allowPrivateAddresses ? unsafeFetchForDevelopment : safeFetch;
+  const start = normaliseUrl(url, null);
+  if (!start) throw new Error(`Not a fetchable URL: ${url}`);
+  let current: string = start;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+    try {
+      const response = await fetchImpl(current, {
+        headers: { 'user-agent': options.userAgent ?? CRAWLER_USER_AGENT, accept: options.accept ?? '*/*' },
+        signal: controller.signal,
+      });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get('location');
+        const next: string | null = location ? normaliseUrl(location, current) : null;
+        if (!next) throw new Error(`redirect without a usable location (${response.status})`);
+        current = next;
+        continue;
+      }
+      const length = Number(response.headers.get('content-length') ?? '0');
+      if (length > options.maxBytes) throw new Error('too large');
+      const text = await response.text(options.maxBytes);
+      if (text.length > options.maxBytes) throw new Error('too large');
+      return { status: response.status, contentType: (response.headers.get('content-type') ?? '').toLowerCase(), text, finalUrl: current };
+    } catch (error) {
+      if (controller.signal.aborted) throw new Error('timed out');
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error('too many redirects');
 }
 
 /** The same request without the private-range refusal. Development only; see CrawlOptions. */
@@ -490,7 +539,7 @@ async function unsafeFetchForDevelopment(
   init: { headers: Record<string, string>; signal: AbortSignal },
 ): Promise<CrawlResponse> {
   const response = await undiciFetch(url, { method: 'GET', headers: init.headers, signal: init.signal, redirect: 'manual' });
-  return { status: response.status, headers: response.headers, text: () => readCapped(response, DEFAULT_MAX_BYTES) };
+  return { status: response.status, headers: response.headers, text: (maxBytes?: number) => readCapped(response, Math.min(maxBytes ?? FETCH_READ_CAP, FETCH_READ_CAP)) };
 }
 
 async function readCapped(response: Awaited<ReturnType<typeof undiciFetch>>, maxBytes: number): Promise<string> {

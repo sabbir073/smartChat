@@ -21,3 +21,5 @@ export { extractFileText, readableFileType, UnreadableFileError, MAX_FILE_TEXT_C
 export * from './feedback.service.js';
 export * from './analytics.service.js';
 export * from './account-ai.service.js';
+export * from './feed.js';
+export * from './feed.service.js';
