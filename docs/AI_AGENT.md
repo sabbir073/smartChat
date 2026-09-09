@@ -89,6 +89,25 @@ contract checks the answer, not only the citation: a number that appears in no p
 the question or the owner's instructions) turns the answer into the ticket offer, and so does any
 phrase from the practice example.
 
+## Hosted providers and bring-your-own-key (`hosted.ts`, `anthropic.ts`, `account-ai.service.ts`)
+
+Three hosted providers: OpenAI and DeepSeek through the OpenAI-compatible adapter, and
+Anthropic through the Messages API (`anthropic.ts`: the system prompt is a field, the reply is a
+tool whose input schema is the contract, and the model is forced to call it - the tool never
+runs anywhere, its input is the JSON). `hostedProvider()` is the one place that maps a name to a
+class and a default model (`gpt-4o-mini`, `deepseek-chat`, `claude-haiku-4-5`). The operator's
+fallback in the console may be any of the three.
+
+An account on a plan with `aiOwnKey` (the Custom plan) can store its own key under Settings →
+"Your own AI provider": provider, model, key, and whether the local model still goes first
+(`local_first`, the default) or its provider answers everything (`own_only`). The key is checked
+against the provider before it is kept, sealed with the settings key, and shown again only by
+its last four characters. `AiGateway.complete(request, { accountId })` asks
+`AccountAiService.routeFor` (cached thirty seconds per account): with a route, the account's
+provider replaces the platform fallback for that account - its key, its bill - and with
+`own_only` it replaces the local model too. A plan that no longer includes the feature silently
+stops the key being used. Turns record the provider that answered (`anthropic`, …).
+
 ## The gateway (`packages/core/src/ai/gateway.ts`)
 
 - Local first. The request goes to the local model with the console's timeout (default 30 s).

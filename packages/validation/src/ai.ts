@@ -54,7 +54,7 @@ export type SignKnowledgeFileInput = z.infer<typeof signKnowledgeFileSchema>;
 
 // --- operator side ----------------------------------------------------------
 
-export const aiFallbackProviderSchema = z.enum(['none', 'openai', 'deepseek']);
+export const aiFallbackProviderSchema = z.enum(['none', 'openai', 'deepseek', 'anthropic']);
 
 /**
  * The operator's AI settings. As with billing, an omitted secret is kept and `null` clears it.
@@ -76,3 +76,25 @@ export const updateAiPlatformSettingsSchema = z
   })
   .refine((value) => Object.keys(value).length > 0, 'Nothing to change');
 export type UpdateAiPlatformSettingsInput = z.infer<typeof updateAiPlatformSettingsSchema>;
+
+// --- an account's own key ------------------------------------------------------
+
+export const hostedProviderSchema = z.enum(['openai', 'deepseek', 'anthropic']);
+
+/** Save or change the account's own provider. The key is checked against the provider before it is kept. */
+export const updateAccountAiSchema = z
+  .object({
+    provider: hostedProviderSchema.optional(),
+    apiKey: z.string().trim().min(8).max(500).optional(),
+    model: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[A-Za-z0-9._:/-]+$/, 'A model name, like gpt-4o-mini')
+      .nullable()
+      .optional(),
+    routing: z.enum(['local_first', 'own_only']).optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, 'Nothing to change');
+export type UpdateAccountAiInput = z.infer<typeof updateAccountAiSchema>;

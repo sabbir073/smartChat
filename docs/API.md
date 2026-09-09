@@ -158,6 +158,7 @@ POST   /integrations/webhooks/:id/ping
 # the AI agent (see AI_AGENT.md)
 GET    /properties/:id/ai             PATCH  /properties/:id/ai        { mode?, assistantName?, keyFacts?, … }
 GET    /reports/ai?from&to&propertyId   the AI assistant's report
+GET    /account/ai   PUT /account/ai { provider, apiKey?, model?, routing? }   DELETE /account/ai   POST /account/ai/test
 POST   /conversations/:id/ai/resume     POST /conversations/:id/ai/pause
 POST   /conversations/:id/ai/draft      → { draft, sources, reason? }
 POST   /widget/messages/:id/feedback   { rating: "up" | "down" | null }   (visitor token)

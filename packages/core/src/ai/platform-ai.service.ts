@@ -7,7 +7,7 @@ import type { PlatformPrincipal } from '../services/platform.service.js';
 import { systemClock, type Clock } from '../time.js';
 import type { AiGateway } from './gateway.js';
 import type { LocalHealth } from './ollama.js';
-import { OpenAiCompatibleProvider } from './openai-compatible.js';
+import { DEFAULT_FALLBACK_MODELS, hostedProvider } from './hosted.js';
 
 /**
  * The operator's view of the AI layer: where replies are going, whether the local model is up,
@@ -23,13 +23,13 @@ export interface AiPlatformSettingsView {
     timeoutMs: number;
   };
   fallback: {
-    provider: 'none' | 'openai' | 'deepseek';
+    provider: 'none' | 'openai' | 'deepseek' | 'anthropic';
     model: string | null;
     apiKeyConfigured: boolean;
   };
   routing: 'local_first' | 'fallback_only';
   /** Where a fallback provider's default model name comes from, for the console's placeholder. */
-  defaultModels: Record<'openai' | 'deepseek', string>;
+  defaultModels: Record<'openai' | 'deepseek' | 'anthropic', string>;
 }
 
 export interface AiPlatformHealthView {
@@ -45,10 +45,6 @@ export interface AiPlatformUsageView {
   recentFailures: Array<{ at: string; accountName: string; error: string | null; provider: string | null }>;
 }
 
-export const DEFAULT_FALLBACK_MODELS: Record<'openai' | 'deepseek', string> = {
-  openai: 'gpt-4o-mini',
-  deepseek: 'deepseek-chat',
-};
 
 export interface PlatformAiServiceOptions {
   db: Database;
@@ -144,11 +140,11 @@ export class PlatformAiService {
     if (config.fallbackProvider === 'none' || !config.fallbackApiKey) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, 'Choose a fallback provider and enter its API key first.');
     }
-    const provider = new OpenAiCompatibleProvider({
+    const provider = hostedProvider({
       kind: config.fallbackProvider,
       apiKey: config.fallbackApiKey,
-      model: config.fallbackModel ?? DEFAULT_FALLBACK_MODELS[config.fallbackProvider],
-      ...(this.options.fallbackBaseUrl ? { baseUrl: this.options.fallbackBaseUrl } : {}),
+      model: config.fallbackModel,
+      baseUrl: this.options.fallbackBaseUrl,
     });
     const result = await provider.test();
     return { ok: true, provider: config.fallbackProvider, model: result.model };

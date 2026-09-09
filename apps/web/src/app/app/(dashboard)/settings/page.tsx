@@ -5,6 +5,7 @@ import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { useResource } from '@/lib/use-resource';
 import { PageHeader } from '@/components/layout/page-header';
+import { OwnAiKeyCard } from '@/components/settings/own-ai-key';
 import {
   Alert,
   Badge,
@@ -192,6 +193,8 @@ export default function SettingsPage() {
             )}
           </form>
         </Card>
+
+        <OwnAiKeyCard canManage={canManageAccount} />
 
         <Card>
           <CardHeader title="Your profile" description={user?.email} />

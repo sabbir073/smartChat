@@ -39,7 +39,7 @@ export interface EmbedResult {
   promptTokens: number;
 }
 
-export type AiProviderKind = 'local' | 'openai' | 'deepseek';
+export type AiProviderKind = 'local' | 'openai' | 'deepseek' | 'anthropic';
 
 export interface ChatProvider {
   readonly kind: AiProviderKind;

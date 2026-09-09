@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { updateAccountSchema } from '@smartchat/validation';
+import { updateAccountAiSchema, updateAccountSchema } from '@smartchat/validation';
 import { AuditRepository, requirePermission } from '@smartchat/core';
 import { Permission } from '@smartchat/types';
 import type { Container } from '../container.js';
@@ -64,5 +64,30 @@ export async function accountRoutes(app: FastifyInstance, container: Container):
       })),
       page.meta as unknown as Record<string, unknown>,
     );
+  });
+
+  // --- the account's own AI key -------------------------------------------------------------
+  app.get('/account/ai', { preHandler: app.authenticateTenant }, async (request, reply) => {
+    const tenant = requireTenant(request);
+    return ok(reply, await container.accountAi.get(tenant));
+  });
+
+  app.put('/account/ai', { preHandler: app.authenticateTenant }, async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'mutation', `account:${tenant.accountId}`);
+    const input = parseBody(updateAccountAiSchema, request.body);
+    return ok(reply, await container.accountAi.update(tenant, input));
+  });
+
+  app.delete('/account/ai', { preHandler: app.authenticateTenant }, async (request, reply) => {
+    const tenant = requireTenant(request);
+    await container.accountAi.remove(tenant);
+    return ok(reply, await container.accountAi.get(tenant));
+  });
+
+  app.post('/account/ai/test', { preHandler: app.authenticateTenant }, async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'mutation', `account:${tenant.accountId}`);
+    return ok(reply, await container.accountAi.test(tenant));
   });
 }

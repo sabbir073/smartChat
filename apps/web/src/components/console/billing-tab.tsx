@@ -37,6 +37,7 @@ export interface PlanAdmin {
   aiAgent: boolean;
   integrations: boolean;
   removeBranding: boolean;
+  aiOwnKey: boolean;
   isContactSales: boolean;
   isPublic: boolean;
   isDefault: boolean;
@@ -491,6 +492,7 @@ function PlanEditor({
     aiAgent: plan?.aiAgent ?? false,
     integrations: plan?.integrations ?? false,
     removeBranding: plan?.removeBranding ?? false,
+    aiOwnKey: plan?.aiOwnKey ?? false,
     isContactSales: plan?.isContactSales ?? false,
     isPublic: plan?.isPublic ?? true,
     isDefault: plan?.isDefault ?? false,
@@ -523,6 +525,7 @@ function PlanEditor({
       aiAgent: form.aiAgent,
       integrations: form.integrations,
       removeBranding: form.removeBranding,
+      aiOwnKey: form.aiOwnKey,
       isContactSales: form.isContactSales,
       isPublic: form.isPublic,
       isDefault: form.isDefault,
@@ -631,6 +634,7 @@ function PlanEditor({
           {check('AI agent', 'aiAgent')}
           {check('API keys & webhooks', 'integrations')}
           {check('Remove widget branding', 'removeBranding')}
+          {check('Own AI provider key', 'aiOwnKey')}
           {check(
             'Contact us instead of checkout',
             'isContactSales',

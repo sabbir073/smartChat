@@ -32,6 +32,7 @@ export interface EntitlementsDto {
     aiAgent: boolean;
     integrations: boolean;
     removeBranding: boolean;
+    aiOwnKey: boolean;
     isContactSales: boolean;
   };
   subscription: {

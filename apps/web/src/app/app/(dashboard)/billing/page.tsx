@@ -43,6 +43,7 @@ interface PlanCard {
   aiAgent: boolean;
   integrations: boolean;
   removeBranding: boolean;
+  aiOwnKey: boolean;
   isContactSales: boolean;
   sortOrder: number;
   purchasable: boolean;
@@ -302,6 +303,7 @@ function BillingPageInner() {
                   <Feature on={plan.aiAgent}>AI agent</Feature>
                   <Feature on={plan.integrations}>API keys &amp; webhooks</Feature>
                   <Feature on={plan.removeBranding}>Remove widget branding</Feature>
+                  {plan.aiOwnKey && <Feature on>Your own AI provider key</Feature>}
                 </dd>
               </div>
             </dl>

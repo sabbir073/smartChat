@@ -62,7 +62,7 @@ export interface AccountBillingView {
     stripeSubscriptionId: string | null;
     note: string | null;
   };
-  plan: Pick<Plan, 'id' | 'key' | 'name' | 'maxProperties' | 'maxMembers' | 'aiAgent' | 'integrations' | 'removeBranding'>;
+  plan: Pick<Plan, 'id' | 'key' | 'name' | 'maxProperties' | 'maxMembers' | 'aiAgent' | 'integrations' | 'removeBranding' | 'aiOwnKey'>;
   usage: { properties: number; members: number };
   locked: { locked: boolean; reason: string | null };
   invoices: InvoiceView[];
@@ -303,6 +303,7 @@ export class PlatformBillingService {
         aiAgent: subscription.plan.aiAgent,
         integrations: subscription.plan.integrations,
         removeBranding: subscription.plan.removeBranding,
+        aiOwnKey: subscription.plan.aiOwnKey,
       },
       usage: entitlements.usage,
       locked: { locked: entitlements.lock.locked, reason: entitlements.lock.reason },

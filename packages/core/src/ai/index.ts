@@ -1,6 +1,8 @@
 export * from './provider.js';
 export * from './ollama.js';
 export * from './openai-compatible.js';
+export * from './anthropic.js';
+export * from './hosted.js';
 export * from './gateway.js';
 export * from './chunker.js';
 export * from './contract.js';
@@ -18,3 +20,4 @@ export * from './files.service.js';
 export { extractFileText, readableFileType, UnreadableFileError, MAX_FILE_TEXT_CHARS } from './extract-file.js';
 export * from './feedback.service.js';
 export * from './analytics.service.js';
+export * from './account-ai.service.js';

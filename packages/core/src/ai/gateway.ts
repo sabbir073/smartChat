@@ -38,6 +38,11 @@ export interface AiGatewayOptions {
   /** The fallback, or null when none is configured. Read per call so a console change applies at once. */
   fallback: () => Promise<ChatProvider | null>;
   config: () => Promise<AiRoutingConfig>;
+  /**
+   * An account's own hosted provider, when it has one. It replaces the platform fallback for
+   * that account - its key, its bill - and with `own_only` it replaces the local model too.
+   */
+  accountRoute?: (accountId: string) => Promise<{ provider: ChatProvider; routing: 'local_first' | 'own_only' } | null>;
   /** Requests the local server handles at once before the rest overflow. Matches OLLAMA_NUM_PARALLEL. */
   localParallel?: number;
   /** Consecutive local failures that open the breaker, and for how long. */
@@ -99,9 +104,21 @@ export class AiGateway {
     };
   }
 
-  async complete(request: Omit<ChatRequest, 'timeoutMs'>): Promise<CompletionOutcome> {
-    const [config, fallback] = await Promise.all([this.options.config(), this.options.fallback()]);
+  async complete(
+    request: Omit<ChatRequest, 'timeoutMs'>,
+    scope: { accountId?: string } = {},
+  ): Promise<CompletionOutcome> {
+    const [config, platformFallback, own] = await Promise.all([
+      this.options.config(),
+      this.options.fallback(),
+      scope.accountId && this.options.accountRoute ? this.options.accountRoute(scope.accountId) : null,
+    ]);
     const local = this.options.local;
+
+    if (own?.routing === 'own_only') {
+      return this.viaFallback(own.provider, request, "account's own provider (own_only)");
+    }
+    const fallback = own ? own.provider : platformFallback;
 
     if (config.routing === 'fallback_only') {
       if (fallback) return this.viaFallback(fallback, request, 'routing is fallback_only');

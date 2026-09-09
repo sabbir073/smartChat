@@ -9,6 +9,7 @@ import { systemClock, type Clock } from '../time.js';
 import { parseReply, REPLY_SCHEMA } from './contract.js';
 import { decideAiReply, type AiSkipReason } from './dispatch.js';
 import type { AiGateway } from './gateway.js';
+import type { AiProviderKind } from './provider.js';
 import type { KnowledgeService, RetrievedChunk } from './knowledge.service.js';
 import { buildPrompt, PRACTICE_PHRASES, type PromptPassage } from './prompt.js';
 
@@ -177,12 +178,10 @@ export class AiReplyService {
       // N retrieved, in order, and its citations index into that prefix.
       const chunksInPrompt = retrieved.chunks.slice(0, prompt.passages.length);
 
-      const outcome = await this.options.gateway.complete({
-        messages: prompt.messages,
-        schema: REPLY_SCHEMA,
-        maxTokens: 300,
-        temperature: 0.2,
-      });
+      const outcome = await this.options.gateway.complete(
+        { messages: prompt.messages, schema: REPLY_SCHEMA, maxTokens: 300, temperature: 0.2 },
+        { accountId: input.accountId },
+      );
       const latencyMs = this.clock.timestamp() - started;
 
       const parsed = parseReply(outcome.result.content, {
@@ -335,12 +334,10 @@ export class AiReplyService {
 
     let outcome;
     try {
-      outcome = await this.options.gateway.complete({
-        messages: prompt.messages,
-        schema: REPLY_SCHEMA,
-        maxTokens: 300,
-        temperature: 0.2,
-      });
+      outcome = await this.options.gateway.complete(
+        { messages: prompt.messages, schema: REPLY_SCHEMA, maxTokens: 300, temperature: 0.2 },
+        { accountId: context.accountId },
+      );
     } catch (error) {
       const latencyMs = this.clock.timestamp() - started;
       await this.recordDraft(context, conversation, message.id, chunksInPrompt, {
@@ -672,7 +669,7 @@ interface ConversationRow {
 
 interface TurnRecord {
   decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed';
-  provider: 'local' | 'openai' | 'deepseek' | null;
+  provider: AiProviderKind | null;
   model: string | null;
   fellBack: boolean;
   promptTokens: number;

@@ -429,6 +429,7 @@ model Account {
   knowledgeChunks    KnowledgeChunk[]
   knowledgeFiles     KnowledgeFile[]
   aiTurns            AiTurn[]
+  aiSetting          AccountAiSetting?
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -1872,6 +1873,8 @@ model Plan {
   integrations      Boolean @default(false)
   /// Hide "Powered by" in the widget.
   removeBranding    Boolean @default(false) @map("remove_branding")
+  /// The account may bring its own hosted-model key (OpenAI, DeepSeek, Anthropic).
+  aiOwnKey          Boolean @default(false) @map("ai_own_key")
 
   /// "Talk to us" rather than a checkout button. Price fields are ignored.
   isContactSales Boolean @default(false) @map("is_contact_sales")
@@ -2041,6 +2044,8 @@ enum KnowledgeDocumentKind {
   page
   /// A file the owner uploaded - a PDF price list, a DOCX prospectus. One document per file.
   file
+  /// One product from the property's product feed. Removed when a later feed no longer lists it.
+  product
 }
 
 enum KnowledgeFileStatus {
@@ -2081,6 +2086,14 @@ enum AiProviderKind {
   local
   openai
   deepseek
+  anthropic
+}
+
+enum AccountAiRouting {
+  /// The local model first; the account's own provider is its fallback.
+  local_first
+  /// The account's own provider answers everything; the local model is not used.
+  own_only
 }
 
 /// Per-website configuration of the AI agent. Created on first save; absent means `team`.
@@ -2116,6 +2129,14 @@ model AiSetting {
   crawlError        String?   @map("crawl_error")
   /// Paths the crawl skips: `/blog/*`, `/cart`, `*.pdf`. Matched against the URL path.
   crawlExclude      String[]  @default([]) @map("crawl_exclude")
+
+  // --- the product feed --------------------------------------------------------
+  /// A Google Merchant / RSS product feed (XML) or a CSV, read with the website sync.
+  productFeedUrl String?   @map("product_feed_url")
+  lastFeedAt     DateTime? @map("last_feed_at") @db.Timestamptz(6)
+  feedProducts   Int       @default(0) @map("feed_products")
+  /// Why the last feed read failed, for the owner. Null after a good one.
+  feedError      String?   @map("feed_error")
 
   /// When the mode was last set to something other than `team`. Reporting only.
   enabledAt DateTime? @map("enabled_at") @db.Timestamptz(6)
@@ -2169,6 +2190,26 @@ model KnowledgeDocument {
   @@unique([accountId, propertyId, url])
   @@index([accountId, propertyId, kind])
   @@map("knowledge_documents")
+}
+
+/// An account's own hosted-model key. Sealed with the settings key like the platform's own; the
+/// plain key never leaves this process. With a row here the account's replies use its provider
+/// instead of the platform fallback - its key, its bill - and `routing` says whether the local
+/// model still goes first.
+model AccountAiSetting {
+  accountId     String           @id @map("account_id") @db.Uuid
+  provider      AiProviderKind
+  apiKeySealed  String           @map("api_key_sealed")
+  model         String
+  routing       AccountAiRouting @default(local_first)
+  lastTestedAt  DateTime?        @map("last_tested_at") @db.Timestamptz(6)
+  lastTestError String?          @map("last_test_error")
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  @@map("account_ai_settings")
 }
 
 /// A file the owner uploaded for the assistant to read. The bytes live in object storage under a

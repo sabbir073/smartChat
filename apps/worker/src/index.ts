@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { Worker, type Job } from 'bullmq';
 import {
+  AccountAiService,
   AiJob,
   AiReplyService,
   AiSettingsService,
@@ -121,6 +122,12 @@ async function main(): Promise<void> {
    */
   const settings = new PlatformSettingsService(db, config.SETTINGS_ENCRYPTION_KEY);
   const entitlements = new EntitlementService({ db, graceDays: () => settings.graceDays() });
+  const accountAi = new AccountAiService({
+    db,
+    entitlements,
+    encryptionKeyHex: config.SETTINGS_ENCRYPTION_KEY,
+    baseUrl: config.AI_FALLBACK_BASE_URL || undefined,
+  });
   const aiGateway = createAiGateway(
     {
       url: config.AI_LOCAL_URL || undefined,
@@ -131,7 +138,7 @@ async function main(): Promise<void> {
       fallbackBaseUrl: config.AI_FALLBACK_BASE_URL || undefined,
     },
     settings,
-    { log: (event, detail) => logger.warn(detail, event) },
+    { log: (event, detail) => logger.warn(detail, event), accountRoute: (accountId) => accountAi.routeFor(accountId) },
   );
   const knowledge = new KnowledgeService({ db, gateway: aiGateway, appUrl: config.APP_URL });
   // A publishing client of its own: the BullMQ connection is reserved for blocking reads.

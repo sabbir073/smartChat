@@ -64,6 +64,8 @@ export const createPlanSchema = z.object({
   aiRepliesPerMonth: limitSchema.default(null),
   integrations: z.boolean().default(false),
   removeBranding: z.boolean().default(false),
+  /** The account may use its own OpenAI / DeepSeek / Anthropic key. */
+  aiOwnKey: z.boolean().default(false),
   isContactSales: z.boolean().default(false),
   isPublic: z.boolean().default(true),
   isDefault: z.boolean().default(false),

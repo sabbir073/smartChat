@@ -116,7 +116,7 @@ export class PlatformSettingsService {
       this.get(PlatformSettingKey.AI_ROUTING),
     ]);
     const fallbackProvider =
-      provider === 'openai' || provider === 'deepseek' ? provider : ('none' as const);
+      provider === 'openai' || provider === 'deepseek' || provider === 'anthropic' ? provider : ('none' as const);
     const timeoutMs = Number(timeout);
     return {
       fallbackProvider,
@@ -134,7 +134,7 @@ export class PlatformSettingsService {
 export const DEFAULT_AI_LOCAL_TIMEOUT_MS = 30_000;
 
 export interface AiProviderConfiguration {
-  fallbackProvider: 'openai' | 'deepseek' | 'none';
+  fallbackProvider: 'openai' | 'deepseek' | 'anthropic' | 'none';
   fallbackApiKey: string | null;
   fallbackModel: string | null;
   localTimeoutMs: number;

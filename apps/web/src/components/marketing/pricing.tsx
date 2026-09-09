@@ -27,6 +27,7 @@ export interface PublicPlan {
   aiAgent: boolean;
   integrations: boolean;
   removeBranding: boolean;
+  aiOwnKey: boolean;
   isContactSales: boolean;
   sortOrder: number;
 }
@@ -165,6 +166,7 @@ export function PricingTable({
                 <Line on={plan.aiAgent}>AI agent</Line>
                 <Line on={plan.integrations}>API keys &amp; webhooks</Line>
                 <Line on={plan.removeBranding}>Remove widget branding</Line>
+                {plan.aiOwnKey && <Line on>Your own AI provider key</Line>}
               </ul>
 
               <Link

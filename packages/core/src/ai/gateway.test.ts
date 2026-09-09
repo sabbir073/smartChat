@@ -141,3 +141,40 @@ describe('AiGateway', () => {
     await expect(g.complete(request)).rejects.toMatchObject({ code: ErrorCode.AI_UNAVAILABLE });
   });
 });
+
+/**
+ * Bring your own key: the account's provider replaces the platform fallback, and with
+ * `own_only` replaces the local model too. Accounts without a key see no difference.
+ */
+describe('AiGateway with an account route', () => {
+  const own: ChatProvider = { kind: 'anthropic', model: 'claude', chat: async () => result('claude') };
+
+  it('uses the account provider instead of the platform fallback when local fails', async () => {
+    const local = fakeLocal(async () => {
+      throw new AiProviderError('local', 'down');
+    });
+    const g = gateway({
+      local,
+      fallback: async () => fakeFallback(),
+      accountRoute: async (accountId) => (accountId === 'acc-own' ? { provider: own, routing: 'local_first' } : null),
+    });
+    expect(await g.complete(request, { accountId: 'acc-own' })).toMatchObject({ provider: 'anthropic', fellBack: true });
+    expect(await g.complete(request, { accountId: 'acc-other' })).toMatchObject({ provider: 'openai', fellBack: true });
+    expect(await g.complete(request)).toMatchObject({ provider: 'openai', fellBack: true });
+  });
+
+  it('keeps local first for the account by default, and skips it with own_only', async () => {
+    const localChat = vi.fn(async () => result('qwen'));
+    const g = gateway({
+      local: fakeLocal(localChat),
+      accountRoute: async (accountId) => ({ provider: own, routing: accountId === 'acc-only' ? 'own_only' : 'local_first' }),
+    });
+    expect(await g.complete(request, { accountId: 'acc-first' })).toMatchObject({ provider: 'local', fellBack: false });
+    expect(localChat).toHaveBeenCalledTimes(1);
+    const only = await g.complete(request, { accountId: 'acc-only' });
+    expect(only).toMatchObject({ provider: 'anthropic', fellBack: true });
+    expect(only.fallbackReason).toContain('own_only');
+    expect(localChat).toHaveBeenCalledTimes(1);
+  });
+});
+

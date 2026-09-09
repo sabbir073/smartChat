@@ -29,6 +29,7 @@ export interface Entitlements {
     | 'aiRepliesPerMonth'
     | 'integrations'
     | 'removeBranding'
+    | 'aiOwnKey'
     | 'isContactSales'
   >;
   subscription: Pick<
@@ -46,7 +47,7 @@ export interface Entitlements {
   lock: LockVerdict;
 }
 
-export type PlanFeature = 'aiAgent' | 'integrations' | 'removeBranding';
+export type PlanFeature = 'aiAgent' | 'integrations' | 'removeBranding' | 'aiOwnKey';
 
 export interface EntitlementServiceOptions {
   db: Database;
@@ -239,5 +240,7 @@ function featureMessage(feature: PlanFeature, planName: string): string {
       return `API keys and webhooks are not included in the ${planName} plan.`;
     case 'removeBranding':
       return `Removing the widget branding is not included in the ${planName} plan.`;
+    case 'aiOwnKey':
+      return `Using your own AI provider key is not included in the ${planName} plan.`;
   }
 }

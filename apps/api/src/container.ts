@@ -46,6 +46,7 @@ import {
   type MailDeliver,
   type MailProvider,
   type RedisClient,
+  AccountAiService,
   AiAnalyticsService,
   AiFeedbackService,
   AiReplyService,
@@ -102,6 +103,8 @@ export interface Container {
   aiAnalytics: AiAnalyticsService;
   /** Drafts for agents. The visitor-facing replies run in the worker; this is the same engine, asked directly. */
   aiReplies: AiReplyService;
+  /** The account's own hosted-model key. */
+  accountAi: AccountAiService;
   platformAi: PlatformAiService;
   /** The Stripe client for the currently stored secret, or null when none is stored. */
   stripeGateway: () => Promise<StripeGateway | null>;
@@ -434,6 +437,13 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
    * key facts an owner types (through the same knowledge service, which reaches the local
    * embedding model), and the console asks it whether the local model is up.
    */
+  const accountAi = new AccountAiService({
+    db,
+    entitlements,
+    encryptionKeyHex: config.SETTINGS_ENCRYPTION_KEY,
+    baseUrl: config.AI_FALLBACK_BASE_URL || undefined,
+    clock,
+  });
   const aiGateway = createAiGateway(
     {
       url: config.AI_LOCAL_URL || undefined,
@@ -444,7 +454,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
       fallbackBaseUrl: config.AI_FALLBACK_BASE_URL || undefined,
     },
     settings,
-    { clock, log: (event, detail) => logger.warn(detail, event) },
+    { clock, log: (event, detail) => logger.warn(detail, event), accountRoute: (accountId) => accountAi.routeFor(accountId) },
   );
   const knowledge = new KnowledgeService({ db, gateway: aiGateway, appUrl: config.APP_URL, clock });
   const aiSettings = new AiSettingsService({ db, knowledge, queue, entitlements, clock });
@@ -535,6 +545,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     aiFeedback,
     aiAnalytics,
     aiReplies,
+    accountAi,
     platformAi,
     stripeGateway,
     stripeWebhooks,

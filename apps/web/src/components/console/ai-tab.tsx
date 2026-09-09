@@ -10,9 +10,9 @@ import { ApiError, api } from '@/lib/api-client';
 
 interface SettingsView {
   local: { url: string; chatModel: string; embedModel: string; embedDimensions: number; timeoutMs: number };
-  fallback: { provider: 'none' | 'openai' | 'deepseek'; model: string | null; apiKeyConfigured: boolean };
+  fallback: { provider: 'none' | 'openai' | 'deepseek' | 'anthropic'; model: string | null; apiKeyConfigured: boolean };
   routing: 'local_first' | 'fallback_only';
-  defaultModels: Record<'openai' | 'deepseek', string>;
+  defaultModels: Record<'openai' | 'deepseek' | 'anthropic', string>;
 }
 
 interface HealthView {
@@ -252,6 +252,7 @@ function FallbackSettings({
             <option value="none">None - local only</option>
             <option value="openai">OpenAI</option>
             <option value="deepseek">DeepSeek</option>
+            <option value="anthropic">Anthropic</option>
           </select>
         </label>
         <label className="block text-[13px]">

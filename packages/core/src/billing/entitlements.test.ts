@@ -15,6 +15,7 @@ function plan(overrides: Partial<Record<string, unknown>> = {}) {
     aiAgent: false,
     integrations: false,
     removeBranding: false,
+    aiOwnKey: false,
     isContactSales: false,
     ...overrides,
   };

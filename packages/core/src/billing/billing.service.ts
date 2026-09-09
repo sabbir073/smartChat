@@ -34,6 +34,7 @@ export type PlanCard = Pick<
   | 'aiRepliesPerMonth'
   | 'integrations'
   | 'removeBranding'
+  | 'aiOwnKey'
   | 'isContactSales'
   | 'sortOrder'
 > & {
@@ -320,6 +321,7 @@ export function pickPlan(plan: Plan): Omit<PlanCard, 'purchasable'> {
     aiRepliesPerMonth: plan.aiRepliesPerMonth,
     integrations: plan.integrations,
     removeBranding: plan.removeBranding,
+    aiOwnKey: plan.aiOwnKey,
     isContactSales: plan.isContactSales,
     sortOrder: plan.sortOrder,
   };
