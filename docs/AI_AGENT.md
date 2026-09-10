@@ -157,8 +157,9 @@ little geography, two tickets, a handoff - then "the practice is over" and the r
 numbered so the model can cite them, then the last ten messages and the question. The practice
 turns are not decoration: measured on the production model with rules alone, it answered
 "ticket" to a helmet return the passage plainly covered and to delivery to a city inside the
-country it ships to; with the practice turns it got seven of eight right. Budget: ~3,000
-estimated tokens, of which passages take at most 1,600 and history 500.
+country it ships to; with the practice turns it got seven of eight right. Budget: ~2,200
+estimated tokens, of which passages take at most 800 and history 350; replies are asked to be
+one to three sentences, because on this CPU every generated token costs ~45 ms.
 
 ## The website crawler (`crawler.ts`, `reader.ts`, `extract.ts`, `crawl.service.ts`)
 
