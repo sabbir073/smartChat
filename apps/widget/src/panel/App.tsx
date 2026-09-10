@@ -95,6 +95,8 @@ export function App() {
    * complaint about response times.
    */
   const [online, setOnline] = useState(false);
+  /** The person at the top of the window - the assignee, or the owner - as the server tells it. */
+  const [presenter, setPresenter] = useState<{ name: string; avatarUrl: string | null } | null>(null);
   /** Pre-chat answers, held until the first message so they arrive with it in one write. */
   const [preChat, setPreChat] = useState<Record<string, string> | null>(null);
   const [offlineError, setOfflineError] = useState<string | null>(null);
@@ -104,6 +106,18 @@ export function App() {
   const [confirmingEnd, setConfirmingEnd] = useState(false);
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
+
+  /**
+   * A message the visitor wrote before giving their details: held while the pre-chat form is
+   * shown in the conversation, sent the moment it is filled in.
+   */
+  const [detailsFor, setDetailsFor] = useState<string | null>(null);
+  /** The loader opened the window for the greeting; ask for it once the socket is up. */
+  const wantsGreeting = useRef(false);
+  const connected = useRef(false);
+  /** The latest `greet` and business name, for handlers that were bound once. */
+  const greetRef = useRef<(chat: ChatClient) => Promise<void>>(async () => undefined);
+  const businessName = useRef('');
 
   const bridge = useMemo(() => (params ? new PanelBridge(params.nonce) : null), [params]);
   const hostPage = useRef<HostPage | null>(null);
@@ -141,6 +155,7 @@ export function App() {
       const chat = new ChatClient(token, {
         onState: (state) => {
           setConnection(state);
+          connected.current = state === 'connected';
           /**
            * Say which page this is the moment the socket is up - and again on every reconnect.
            *
@@ -151,14 +166,23 @@ export function App() {
           if (state === 'connected' && hostPage.current) {
             chat.reportPage(hostPage.current.url, hostPage.current.title);
           }
+          if (state === 'connected' && wantsGreeting.current) {
+            wantsGreeting.current = false;
+            void greetRef.current(chat);
+          }
         },
         onAvailability: (available) => setOnline(available),
-        onMessage: (message) => {
+        onPresenter: (next) => setPresenter(next),
+        onMessage: (message, live) => {
           upsertMessage(message, 'sent');
           if (message.senderType !== 'visitor') {
             setAgentTyping(false);
             // A trigger can greet somebody who is still on a form. Show them what was sent.
             setView((current) => viewAfterInboundMessage(current, message.senderType));
+            // A reply that just happened: the host page chimes, and tells them if they are away.
+            if (live && message.type !== 'system' && message.type !== 'note') {
+              bridge?.alert(message.senderName ?? businessName.current, message.type === 'text' ? message.body : 'Sent you a file');
+            }
             // The badge only counts what the visitor has not seen.
             if (!isOpen.current) {
               setMessages((current) => {
@@ -220,6 +244,7 @@ export function App() {
         setConfig(result.widget.config);
         applyTheme(result.widget.config);
         setOnline(result.agentsAvailable);
+        if (result.presenter !== undefined) setPresenter(result.presenter);
 
         const behaviour = result.widget.config.behaviour;
         const knowsVisitor = Boolean(result.visitor.name || result.visitor.email);
@@ -280,10 +305,16 @@ export function App() {
         applyTheme(parsed);
         setView(parsed.behaviour.preChatEnabled ? 'prechat' : 'chat');
       },
-      onOpen() {
+      onOpen(proactive) {
         isOpen.current = true;
         bridge.setUnread(0);
         client.current?.markRead();
+        if (proactive) {
+          const chat = client.current;
+          if (chat && chat.hasConversation) return;
+          if (chat && connected.current) void greetRef.current(chat);
+          else wantsGreeting.current = true;
+        }
       },
       onClose() {
         isOpen.current = false;
@@ -340,7 +371,12 @@ export function App() {
   }
 
   const resolved = params;
-  const subtitle = online ? config.content.subtitleOnline : config.content.subtitleOffline;
+  // With a person on the chat, their name is the subtitle: the visitor is talking to somebody.
+  const subtitle = presenter && !closed && messages.some((m) => m.senderType === 'agent')
+    ? `${presenter.name} · ${online ? 'online' : 'away'}`
+    : online
+      ? config.content.subtitleOnline
+      : config.content.subtitleOffline;
 
   /**
    * Keep the answers, do not send them yet.
@@ -350,9 +386,34 @@ export function App() {
    * "who is this" panel is still empty. The server re-applies the configured field list, so what
    * is held here is a claim, not a decision.
    */
+  /** The window opened on its own: ask the server to say hello. It may decline; that is fine. */
+  async function greet(chat: ChatClient) {
+    if (resolved.preview || chat.hasConversation || closed) return;
+    try {
+      const message = await chat.greet();
+      if (!message) return;
+      upsertMessage(message, 'sent');
+      setView((current) => viewAfterInboundMessage(current, message.senderType));
+      if (isOpen.current) chat.markRead();
+    } catch {
+      // Not greeted, then. The visitor can still open the chat themselves.
+    }
+  }
+
+  greetRef.current = greet;
+  businessName.current = config.content.businessName;
+
   function handlePreChat(values: Record<string, string>) {
     setPreChat(values);
     setView('chat');
+  }
+
+  /** The details form shown inside the conversation, before the visitor's first message goes. */
+  function handleDetailsThenSend(values: Record<string, string>) {
+    const body = detailsFor;
+    setDetailsFor(null);
+    setPreChat(values);
+    if (body) sendMessage(body, values);
   }
 
   /**
@@ -512,6 +573,27 @@ export function App() {
   function handleSend(body: string) {
     const chat = client.current;
     if (!chat) return;
+    /**
+     * The greeting opened this conversation, so the pre-chat form was never shown. When the
+     * customer asks for details first, ask now, before the visitor's first words go out.
+     */
+    const knowsVisitor = Boolean(session?.visitor.name || session?.visitor.email);
+    const firstWords = !messages.some((m) => m.senderType === 'visitor');
+    if (config.behaviour.preChatEnabled && !preChat && !knowsVisitor && firstWords && !resolved.preview) {
+      setDetailsFor(body);
+      return;
+    }
+    sendMessage(body, preChat ?? undefined);
+  }
+
+  function sendMessage(body: string, details: Record<string, string> | undefined) {
+    const chat = client.current;
+    if (!chat) return;
+    const firstWords = !messages.some((m) => m.senderType === 'visitor');
+    if (firstWords) {
+      bridge?.engaged();
+      bridge?.requestPermission();
+    }
 
     const clientMessageId = ulid();
     const optimistic: PanelMessage = {
@@ -530,9 +612,11 @@ export function App() {
     };
     setMessages((current) => [...current, optimistic]);
 
-    const promise = chat.conversationId
+    // Details travel on `start`, which the server also uses to continue the greeting's
+    // conversation - the visitor's first words arrive with their name attached.
+    const promise = chat.conversationId && !details
       ? chat.send(clientMessageId, body)
-      : chat.start(clientMessageId, body, preChat ?? undefined);
+      : chat.start(clientMessageId, body, details);
 
     promise
       .then((message) => {
@@ -615,7 +699,9 @@ export function App() {
         title={config.content.businessName}
         subtitle={subtitle}
         online={online}
-        avatarUrl={config.appearance.avatarUrl}
+        // The person's own picture when the business set one; the widget's picture otherwise.
+        avatarUrl={presenter?.avatarUrl ?? config.appearance.avatarUrl}
+        avatarName={presenter?.name ?? config.content.businessName}
         canEnd={canEndChat}
         onEnd={() => {
           setEndError(null);
@@ -731,6 +817,17 @@ export function App() {
                 }}
                 onSubmit={(values) => void handleTicketSubmit(values)}
                 onCancel={() => setTicketFor(null)}
+              />
+            </div>
+          ) : detailsFor !== null ? (
+            <div className="ticket-form">
+              <PreChatForm
+                intro={config.forms.preChatIntro}
+                fields={config.forms.preChatFields}
+                submitLabel="Send"
+                busy={submitting}
+                onSubmit={handleDetailsThenSend}
+                onCancel={() => setDetailsFor(null)}
               />
             </div>
           ) : closed ? (

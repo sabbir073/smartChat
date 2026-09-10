@@ -186,6 +186,13 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+.bubble-link {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  word-break: break-all;
+}
+
 .bubble-agent {
   align-self: flex-start;
   background: var(--sc-surface-alt);

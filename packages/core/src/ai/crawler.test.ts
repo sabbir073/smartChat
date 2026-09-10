@@ -290,6 +290,23 @@ describe('crawlSite with the reader', () => {
     expect(summary.rendered).toBe(0);
     expect(summary.skipped).toBe(0);
 
+    // The browser rendered an empty document for a page the plain fetch read in full.
+    const wiped: string[] = [];
+    await crawlSite(
+      {
+        startUrl: 'https://shop.example',
+        maxPages: 10,
+        delayMs: 0,
+        fetchImpl: site({ '/': about, '/robots.txt': '' }),
+        read: async (url) => ({ finalUrl: url, status: 200, title: 'About', description: null, markdown: '\n', html: '<html><head><title>About</title></head><body><div></div></body></html>', links: [] }),
+      },
+      async (page) => {
+        wiped.push(page.text);
+      },
+    );
+    expect(wiped).toHaveLength(1);
+    expect(wiped[0]).toContain('Founded in 2012');
+
     // A shell with no reader at all has nothing to say.
     const bare = await crawlSite(
       { startUrl: 'https://shop.example', maxPages: 10, delayMs: 0, fetchImpl: site({ '/': shell, '/robots.txt': '' }) },

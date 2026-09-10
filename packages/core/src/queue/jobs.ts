@@ -39,6 +39,8 @@ export const MaintenanceJob = {
    * Hourly. The lock itself applies at the moment the window closes, with or without this.
    */
   BILLING_RECONCILE: 'maintenance.billing_reconcile',
+  /** Close the widget's own greetings that nobody answered. Every ten minutes. */
+  EXPIRE_GREETINGS: 'maintenance.expire_greetings',
 } as const;
 
 export const AiJob = {
@@ -151,6 +153,7 @@ export type JobPayloadMap = {
   [MaintenanceJob.APPLY_RETENTION]: Record<string, never>;
   [MaintenanceJob.REFRESH_GEO]: Record<string, never>;
   [MaintenanceJob.BILLING_RECONCILE]: Record<string, never>;
+  [MaintenanceJob.EXPIRE_GREETINGS]: Record<string, never>;
   [AiJob.REPLY]: AiReplyPayload;
   [AiJob.INDEX_DOCUMENT]: AiIndexDocumentPayload;
   [AiJob.REMOVE_DOCUMENT]: AiIndexDocumentPayload;

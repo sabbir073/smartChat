@@ -1,5 +1,5 @@
 import type { Conversation, Database, Message } from '@smartchat/database';
-import { ActorType as DbActorType, isUniqueViolation } from '@smartchat/database';
+import { ActorType as DbActorType, isUniqueViolation, toJson } from '@smartchat/database';
 import {
   AppError,
   ErrorCode,
@@ -21,6 +21,7 @@ import {
 import { WebhookEvent } from '@smartchat/types';
 import type { WebhookEmitter } from './webhook.service.js';
 import { AuditRepository } from '../repositories/audit.repository.js';
+import { PresenterService } from './presenter.service.js';
 import {
   ConversationRepository,
   type ConversationWithVisitor,
@@ -37,6 +38,11 @@ import {
 } from '../realtime/events.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
+
+/** A visitor is greeted on their own at most this often. */
+const GREETING_INTERVAL_MS = 24 * 60 * 60 * 1000;
+/** A greeting nobody answered is closed after this long. */
+const GREETING_EXPIRE_MS = 30 * 60 * 1000;
 
 export interface VisitorIdentity {
   accountId: string;
@@ -128,9 +134,11 @@ export class ConversationService {
   private readonly attachments: AttachmentRepository;
   private readonly widgets: WidgetRepository;
   private readonly audit: AuditRepository;
+  private readonly presenters: PresenterService;
 
   constructor(private readonly options: ConversationServiceOptions) {
     this.clock = options.clock ?? systemClock;
+    this.presenters = new PresenterService(options.db);
     this.repo = new ConversationRepository(options.db);
     this.visitors = new VisitorRepository(options.db);
     this.attachments = new AttachmentRepository(options.db);
@@ -182,8 +190,11 @@ export class ConversationService {
      * help because they skipped a field is the wrong failure direction for a support product; the
      * agent sees exactly what was answered. See ADR-036.
      */
+    // A conversation the widget opened with its greeting is still waiting for the visitor's first
+    // words; their pre-chat answers belong to it just as they would to a new one.
+    const firstWords = !reusable || (reusable.greetingAt !== null && reusable.lastVisitorMessageAt === null);
     const preChat =
-      input.preChat && !reusable ? await this.sanitisePreChat(identity, input.preChat) : null;
+      input.preChat && firstWords ? await this.sanitisePreChat(identity, input.preChat) : null;
 
     const conversation =
       reusable ??
@@ -197,6 +208,9 @@ export class ConversationService {
         },
         now,
       ));
+    if (reusable && preChat && Object.keys(preChat).length > 0) {
+      await this.options.db.conversation.update({ where: { id: reusable.id }, data: { preChatData: toJson(preChat) } });
+    }
 
     // Answers that identify the person are traits about them, so they are attached to the visitor
     // as well as to the conversation.
@@ -235,6 +249,122 @@ export class ConversationService {
     }
 
     return { conversation: result.conversation, message: result.message, isNew: !reusable };
+  }
+
+  /**
+   * The widget's own greeting.
+   *
+   * Opens a conversation before the visitor has said anything and puts the configured greeting
+   * in it, as the assistant (or the team's display name where there is no assistant). It is a
+   * real conversation from the first second - it is in the inbox, a person can answer it, the
+   * visitor's reply lands in it - which is the point: the team sees who is on the site and can
+   * step in, and the visitor is invited rather than left to find the button.
+   *
+   * Once a day per visitor, and never while they already have a conversation open: a returning
+   * visitor picks up where they were. Returns null when there is nothing to do.
+   */
+  async greet(identity: VisitorIdentity): Promise<{ conversation: Conversation; message: MessageDto } | null> {
+    const now = this.clock.now();
+    const config = await this.widgets.liveConfigForProperty(identity.accountId, identity.propertyId);
+    if (!config || !config.behaviour.proactiveEnabled) return null;
+
+    const existing = await this.repo.findLatestForVisitor(identity.accountId, identity.visitorId);
+    if (existing && existing.status !== 'closed') return null;
+    const visitor = await this.options.db.visitor.findFirst({
+      where: { id: identity.visitorId, accountId: identity.accountId },
+      select: { greetedAt: true, isBanned: true },
+    });
+    if (!visitor || visitor.isBanned) return null;
+    if (visitor.greetedAt && now.getTime() - visitor.greetedAt.getTime() < GREETING_INTERVAL_MS) return null;
+
+    const assistant = await this.options.db.aiSetting.findUnique({
+      where: { accountId_propertyId: { accountId: identity.accountId, propertyId: identity.propertyId } },
+      select: { assistantName: true, mode: true },
+    });
+    const senderName = assistant && assistant.mode !== 'team' ? assistant.assistantName : config.content.agentDisplayName;
+
+    const conversation = await this.repo.create(
+      { accountId: identity.accountId, propertyId: identity.propertyId, visitorId: identity.visitorId, channel: 'widget' },
+      now,
+    );
+    await this.options.db.conversation.update({ where: { id: conversation.id }, data: { greetingAt: now } });
+    await this.options.db.visitor.update({ where: { id: identity.visitorId }, data: { greetedAt: now } });
+
+    const persisted = await this.repo.insertMessage({
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId: conversation.id,
+      senderType: 'bot',
+      type: 'text',
+      body: config.content.proactiveMessage,
+      metadata: { source: 'proactive', senderName },
+      now,
+    });
+    const message = toMessageDto(persisted.message);
+
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_CREATED,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId: conversation.id,
+      visitorId: identity.visitorId,
+      payload: { conversationId: conversation.id, greeting: true },
+    });
+    await this.options.events.publish({
+      type: ServerEvent.MESSAGE_NEW,
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      conversationId: conversation.id,
+      visitorId: identity.visitorId,
+      payload: { message, room: room.conversation(conversation.id) },
+    });
+    return { conversation: persisted.conversation, message };
+  }
+
+  /**
+   * Greetings nobody answered. A conversation the widget opened, where the visitor never wrote
+   * back, is closed quietly after a while so the inbox shows people who talked, not everyone
+   * who passed by. The visitor's window carries on as before; their next message starts fresh.
+   */
+  async expireGreetings(olderThanMs = GREETING_EXPIRE_MS, limit = 500): Promise<number> {
+    const now = this.clock.now();
+    const stale = await this.options.db.conversation.findMany({
+      where: {
+        status: 'open',
+        deletedAt: null,
+        greetingAt: { not: null, lt: new Date(now.getTime() - olderThanMs) },
+        lastVisitorMessageAt: null,
+        // A person who wrote into it is waiting for an answer of their own; leave that one to them.
+        messages: { none: { senderType: 'agent', deletedAt: null } },
+      },
+      take: limit,
+      select: { id: true, accountId: true, propertyId: true, visitorId: true },
+    });
+    for (const conversation of stale) {
+      await this.options.db.conversation.update({
+        where: { id: conversation.id },
+        data: { status: 'closed', closedAt: now, closedByMemberId: null },
+      });
+      await this.repo.insertMessage({
+        accountId: conversation.accountId,
+        propertyId: conversation.propertyId,
+        conversationId: conversation.id,
+        senderType: 'system',
+        type: 'system',
+        body: 'The visitor did not reply to the greeting.',
+        metadata: { kind: 'conversation.closed', by: 'system', reason: 'greeting_unanswered' },
+        now,
+      });
+      await this.options.events.publish({
+        type: ServerEvent.CONVERSATION_CLOSED,
+        accountId: conversation.accountId,
+        propertyId: conversation.propertyId,
+        conversationId: conversation.id,
+        visitorId: conversation.visitorId,
+        payload: { conversationId: conversation.id, status: 'closed', closedBy: 'system' },
+      });
+    }
+    return stale.length;
   }
 
   private async sanitisePreChat(
@@ -569,6 +699,7 @@ export class ConversationService {
       agentsOnly: true,
       payload: { conversationId, aiPausedAt: null },
     });
+    await this.presenters.announce(this.options.events, updated);
     return updated;
   }
 
@@ -1262,6 +1393,7 @@ export class ConversationService {
       agentsOnly: true,
       payload: { conversationId, assignedMemberId: assigneeMemberId },
     });
+    await this.presenters.announce(this.options.events, updated);
 
     return updated;
   }

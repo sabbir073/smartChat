@@ -305,7 +305,12 @@ model User {
   /// treats a null hash as never matching, so this cannot become an authentication bypass.
   passwordHash       String?   @map("password_hash")
   name               String
+  /// A public, cache-forever address served by the API (`/avatars/:userId/:avatarId`), or null.
   avatarUrl          String?   @map("avatar_url")
+  /// Where the picture's bytes live in the object store; only this API may read them.
+  avatarKey          String?   @map("avatar_key")
+  /// The type the bytes were verified to be (magic numbers, not the client's claim).
+  avatarContentType  String?   @map("avatar_content_type")
   locale             String    @default("en")
   timezone           String    @default("UTC")
   emailVerifiedAt    DateTime? @map("email_verified_at") @db.Timestamptz(6)
@@ -711,6 +716,8 @@ model Visitor {
   firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
   lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
   visitCount  Int      @default(1) @map("visit_count")
+  /// When the widget last greeted them on its own. A visitor is greeted once a day at most.
+  greetedAt   DateTime? @map("greeted_at") @db.Timestamptz(6)
 
   country    String?    @db.Char(2)
   region     String?
@@ -850,6 +857,9 @@ model Conversation {
   startedAt            DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
   lastMessageAt        DateTime  @default(now()) @map("last_message_at") @db.Timestamptz(6)
   lastVisitorMessageAt DateTime? @map("last_visitor_message_at") @db.Timestamptz(6)
+  /// Opened by the widget's own greeting rather than by the visitor. Closed by the sweep if
+  /// the visitor never writes back.
+  greetingAt           DateTime? @map("greeting_at") @db.Timestamptz(6)
   lastAgentMessageAt   DateTime? @map("last_agent_message_at") @db.Timestamptz(6)
   /// First agent reply. The basis of the response-time report, so it is recorded once and never
   /// overwritten.

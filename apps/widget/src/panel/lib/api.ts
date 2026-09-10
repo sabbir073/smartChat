@@ -21,6 +21,8 @@ export interface BootstrapResponse {
    * from being worked out differently.
    */
   showBranding: boolean;
+  /** Who the window shows at the top: the assigned person or the owner. Null when the account has no owner. */
+  presenter?: { name: string; avatarUrl: string | null } | null;
 }
 
 export class WidgetApiError extends Error {

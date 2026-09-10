@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { PanelMessage } from '../lib/types.js';
 import { AttachmentBubble, UploadingBubble } from './Attachment.js';
+import { splitLinks } from '../lib/linkify.js';
 
 /**
  * The visitor-facing wording for a system message.
@@ -124,7 +125,7 @@ export function MessageList({
                   resolveUrl={resolveAttachmentUrl}
                 />
               ) : (
-                message.body
+                <MessageBody body={message.body} />
               )}
             </div>
             <div className="message-meta">
@@ -211,5 +212,24 @@ export function MessageList({
 
       <div ref={bottom} />
     </div>
+  );
+}
+
+/** The body as text nodes, with its http(s) addresses as links that open in a new tab. */
+function MessageBody({ body }: { body: string }) {
+  const parts = splitLinks(body);
+  if (parts.length === 1 && parts[0]!.kind === 'text') return <>{body}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.kind === 'link' ? (
+          <a key={i} href={part.href} target="_blank" rel="noopener noreferrer" className="bubble-link">
+            {part.href}
+          </a>
+        ) : (
+          <span key={i}>{part.text}</span>
+        ),
+      )}
+    </>
   );
 }

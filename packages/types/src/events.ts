@@ -2,6 +2,8 @@
 
 export const VisitorClientEvent = {
   CONVERSATION_START: 'conversation:start',
+  /** The widget opened on its own: ask for the greeting. The server decides whether one is due. */
+  CONVERSATION_GREET: 'conversation:greet',
   /** The visitor ends their own chat. There is no visitor-facing reopen; see ADR-027. */
   CONVERSATION_CLOSE: 'conversation:close',
   MESSAGE_SEND: 'message:send',
@@ -34,6 +36,8 @@ export const ServerEvent = {
   CONVERSATION_UPDATED: 'conversation:updated',
   CONVERSATION_ASSIGNED: 'conversation:assigned',
   CONVERSATION_CLOSED: 'conversation:closed',
+  /** Who the visitor's window shows - the assigned person, or the owner. Sent to the visitor. */
+  CONVERSATION_PRESENTER: 'conversation:presenter',
   TYPING: 'typing',
   PRESENCE_AGENT: 'presence:agent',
   PRESENCE_VISITOR: 'presence:visitor',

@@ -39,6 +39,10 @@ PORT = int(os.environ.get("PORT", "3000"))
 TOKEN = os.environ.get("CRAWL4AI_TOKEN", "")
 ALLOW_PRIVATE = os.environ.get("CRAWL4AI_ALLOW_PRIVATE") == "true"
 CONCURRENCY = max(1, int(os.environ.get("CRAWL4AI_CONCURRENCY", "2")))
+# Hosts a page may not talk to from inside this browser - our own, above all: a customer's site
+# carries our chat widget, and a crawl that ran it would open a visitor session, show up in the
+# customer's inbox as somebody browsing, and be greeted by the assistant.
+BLOCKED_HOSTS = {h.strip().lower() for h in os.environ.get("CRAWL4AI_BLOCK_HOSTS", "").split(",") if h.strip()}
 PAGE_TIMEOUT_MS = int(os.environ.get("CRAWL4AI_TIMEOUT_MS", "20000"))
 # Everything, including queueing for a browser slot: the worker gives up at 45 s.
 REQUEST_DEADLINE_S = PAGE_TIMEOUT_MS / 1000 + 20
@@ -192,7 +196,8 @@ class Reader:
                 await handler.abort()
                 return
             target = plausible_url(request.url)
-            if not target or not await host_is_allowed(urlsplit(target).hostname or ""):
+            hostname = (urlsplit(target).hostname or "").lower() if target else ""
+            if not target or hostname in BLOCKED_HOSTS or not await host_is_allowed(hostname):
                 await handler.abort()
                 return
             await handler.continue_()

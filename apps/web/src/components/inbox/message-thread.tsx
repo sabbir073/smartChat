@@ -5,6 +5,7 @@ import { MESSAGE_MAX_LENGTH, expandShortcut } from '@smartchat/validation';
 import { cn } from '@/components/ui';
 import type { AgentMessage } from '@/lib/realtime';
 import type { AiSuggestion, ShortcutDto } from '@/lib/types';
+import { splitLinks } from '@/lib/linkify';
 import { ShortcutPicker, readShortcutQuery } from './shortcut-picker';
 import { AttachmentCard, formatBytes } from './attachment';
 
@@ -141,7 +142,7 @@ export function MessageThread({
               ) : message.attachment ? (
                 <AttachmentCard attachment={message.attachment} fromAgent={fromAgent} />
               ) : (
-                message.body
+                <MessageBody body={message.body} />
               )}
             </div>
             <div className="flex flex-wrap gap-2 px-1 text-[11px] text-ink-subtle">
@@ -632,3 +633,22 @@ export function AgentComposer({
 }
 
 export type { ThreadMessage };
+
+/** The body as text, with its http(s) addresses as links that open in a new tab. */
+function MessageBody({ body }: { body: string }) {
+  const parts = splitLinks(body);
+  if (parts.length === 1 && parts[0]!.kind === 'text') return <>{body}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        part.kind === 'link' ? (
+          <a key={i} href={part.href} target="_blank" rel="noopener noreferrer" className="break-all underline underline-offset-2 opacity-90 hover:opacity-100">
+            {part.href}
+          </a>
+        ) : (
+          <span key={i}>{part.text}</span>
+        ),
+      )}
+    </>
+  );
+}

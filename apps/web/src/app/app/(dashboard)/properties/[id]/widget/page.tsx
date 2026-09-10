@@ -298,8 +298,24 @@ export default function WidgetBuilderPage() {
               onChange={(showDelaySeconds) => update('behaviour', { showDelaySeconds })}
             />
             <ToggleControl
-              label="Ask for details first"
-              description="Collect a name and email before the first message."
+              label="Greet visitors automatically"
+              description="A few seconds after the page loads, the window opens with a greeting - once per visitor. The conversation shows in your inbox right away, so you can see who is on the site and step in."
+              checked={draft.behaviour.proactiveEnabled}
+              onChange={(proactiveEnabled) => update('behaviour', { proactiveEnabled })}
+            />
+            {draft.behaviour.proactiveEnabled && (
+              <SliderControl
+                label="Greet after"
+                min={1}
+                max={60}
+                suffix="s"
+                value={draft.behaviour.proactiveDelaySeconds}
+                onChange={(proactiveDelaySeconds) => update('behaviour', { proactiveDelaySeconds })}
+              />
+            )}
+            <ToggleControl
+              label="Name and email required"
+              description="Ask for a name and email before the first message. Off: visitors can write straight away and show as 'Visitor' until they say who they are. Leaving a message when nobody is online still asks."
               checked={draft.behaviour.preChatEnabled}
               onChange={(preChatEnabled) => update('behaviour', { preChatEnabled })}
             />
@@ -310,8 +326,15 @@ export default function WidgetBuilderPage() {
             />
             <ToggleControl
               label="Notification sound"
+              description="A short chime when a reply arrives, on the visitor's page."
               checked={draft.behaviour.soundEnabled}
               onChange={(soundEnabled) => update('behaviour', { soundEnabled })}
+            />
+            <ToggleControl
+              label="Browser notifications"
+              description="Ask the visitor's browser to show a notification for replies while they are on another tab. Their browser will ask them once, after their first message."
+              checked={draft.behaviour.browserNotifications}
+              onChange={(browserNotifications) => update('behaviour', { browserNotifications })}
             />
           </ControlGroup>
 
@@ -338,6 +361,20 @@ export default function WidgetBuilderPage() {
                 />
               )}
             </Field>
+            {draft.behaviour.proactiveEnabled && (
+              <Field label="Greeting" hint="Sent by the assistant (or in your team's name) when the window opens on its own.">
+                {({ id: fieldId }) => (
+                  <textarea
+                    id={fieldId}
+                    value={draft.content.proactiveMessage}
+                    maxLength={500}
+                    rows={3}
+                    onChange={(event) => update('content', { proactiveMessage: event.target.value })}
+                    className="w-full rounded-[var(--radius-control)] border border-border-strong bg-surface px-3 py-2 text-sm text-ink"
+                  />
+                )}
+              </Field>
+            )}
             <Field label="Subtitle when online">
               {({ id: fieldId }) => (
                 <TextInput

@@ -19,6 +19,7 @@ import {
   verifyEmbedTicket,
 } from '../crypto/embed-ticket.js';
 import { AuditRepository } from '../repositories/audit.repository.js';
+import { PresenterService } from './presenter.service.js';
 import { requirePermission, requirePropertyAccess } from '../tenancy/context.js';
 import { PropertyRepository } from '../repositories/property.repository.js';
 import { VisitorRepository } from '../repositories/visitor.repository.js';
@@ -82,6 +83,11 @@ export interface BootstrapResult {
    * differently.
    */
   showBranding: boolean;
+  /**
+   * Who the window shows at the top: the person the visitor's current conversation is assigned
+   * to, or the account's owner. A name and a picture, nothing else about them.
+   */
+  presenter: { name: string; avatarUrl: string | null } | null;
 }
 
 export interface VisitorServiceOptions {
@@ -127,8 +133,11 @@ export class VisitorService {
   private readonly properties: PropertyRepository;
   private readonly audit: AuditRepository;
 
+  private readonly presenters: PresenterService;
+
   constructor(private readonly options: VisitorServiceOptions) {
     this.clock = options.clock ?? systemClock;
+    this.presenters = new PresenterService(options.db);
     this.widgets = new WidgetRepository(options.db);
     this.visitors = new VisitorRepository(options.db);
     this.properties = new PropertyRepository(options.db);
@@ -254,13 +263,14 @@ export class VisitorService {
       this.options.visitorTokenSecret,
     );
 
-    const [agentsAvailable, removeBranding] = await Promise.all([
+    const [agentsAvailable, removeBranding, presenter] = await Promise.all([
       this.options.isAgentAvailable
         ? this.options.isAgentAvailable(property.accountId).catch(() => false)
         : false,
       this.options.canRemoveBranding
         ? this.options.canRemoveBranding(property.accountId).catch(() => false)
         : false,
+      this.presenterFor(property.accountId, visitor.id),
     ]);
 
     return {
@@ -268,6 +278,7 @@ export class VisitorService {
       expiresInSeconds: VISITOR_TOKEN_TTL_SECONDS,
       agentsAvailable,
       showBranding: !removeBranding,
+      presenter,
       visitor: {
         id: visitor.id,
         name: visitor.name,
@@ -279,6 +290,16 @@ export class VisitorService {
       property: { publicId: input.publicId, name: property.propertyName },
       widget: { version: property.version, config: property.config },
     };
+  }
+
+  /** The presenter for the visitor's latest conversation, or the owner when there is none. */
+  private async presenterFor(accountId: string, visitorId: string): Promise<{ name: string; avatarUrl: string | null } | null> {
+    const latest = await this.options.db.conversation.findFirst({
+      where: { accountId, visitorId, deletedAt: null },
+      orderBy: { lastMessageAt: 'desc' },
+      select: { assignedMemberId: true },
+    });
+    return this.presenters.forConversation(accountId, latest?.assignedMemberId ?? null);
   }
 
   /** Config only, for the loader's first request. Cheap, and it never creates a visitor. */

@@ -203,7 +203,21 @@ describe('cleanText', () => {
   it('removes links to hosts the account does not own', () => {
     const text = 'See https://acmebikes.example/returns or https://evil.example/login now';
     expect(cleanText(text, ['acmebikes.example'])).toBe('See https://acmebikes.example/returns or now');
+    expect(cleanText('Details: https://evil.example/x', [])).toBe('');
+    expect(cleanText('Prices start at 500 BDT (https://evil.example/x). Delivery is free.', [])).toBe('Delivery is free.');
     expect(cleanText('Go to https://shop.acmebikes.example/x', ['acmebikes.example'])).toContain('shop.acmebikes.example');
+  });
+
+  it('treats www and the bare host as one site, and leaves the sentence its full stop', () => {
+    expect(cleanText('See https://acmebikes.example/returns.', ['www.acmebikes.example'])).toBe('See https://acmebikes.example/returns.');
+    expect(cleanText('See https://www.acmebikes.example/returns.', ['acmebikes.example'])).toBe('See https://www.acmebikes.example/returns.');
+    expect(cleanText('See https://evil.example/x.', ['acmebikes.example'])).toBe('');
+  });
+
+  it('drops the sentence a stripped link leaves dangling, and keeps the rest', () => {
+    expect(cleanText('We offer coaching and career guidance. For more details, visit https://evil.example/x.', [])).toBe('We offer coaching and career guidance.');
+    expect(cleanText('We offer coaching. For more details, visit https://acmebikes.example/about.', ['acmebikes.example'])).toBe('We offer coaching. For more details, visit https://acmebikes.example/about.');
+    expect(cleanText('Please visit us in Dhanmondi any day.', [])).toBe('Please visit us in Dhanmondi any day.');
   });
 
   it('cuts an essay at a sentence boundary', () => {

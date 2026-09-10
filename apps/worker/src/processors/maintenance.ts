@@ -25,6 +25,8 @@ import type { Logger } from '@smartchat/logger';
  */
 export interface MaintenanceDeps {
   storage?: StorageService;
+  /** For the greeting sweep. Optional so tests need not wire the realtime publisher. */
+  conversations?: { expireGreetings(): Promise<number> };
   /** For the billing notices: who we are, and how an email leaves. */
   brand: BrandContext;
   deliver: (message: MailMessage) => Promise<void>;
@@ -103,6 +105,12 @@ export async function processMaintenanceJob(
       throw new Error(`geo refresh incomplete - ${failed}`);
     }
 
+    case MaintenanceJob.EXPIRE_GREETINGS: {
+      if (!deps.conversations) return;
+      const closed = await deps.conversations.expireGreetings();
+      if (closed > 0) logger.info({ closed }, 'unanswered greetings closed');
+      return;
+    }
     case MaintenanceJob.BILLING_RECONCILE: {
       const outcome = await new BillingReconcileService({
         db,

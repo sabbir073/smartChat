@@ -236,8 +236,12 @@ export default function TeamPage() {
                   className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-soft text-[12px] font-semibold text-brand">
-                      {initials(member.displayName ?? member.name)}
+                    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-[12px] font-semibold text-brand">
+                      {member.avatarUrl ? (
+                        <img src={member.avatarUrl} alt="" className="size-full object-cover" />
+                      ) : (
+                        initials(member.displayName ?? member.name)
+                      )}
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ink">

@@ -16,11 +16,19 @@ export type ConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnectin
 
 export interface ChatClientHandlers {
   onState(state: ConnectionState): void;
-  onMessage(message: MessageDto): void;
+  /** `live` is true for a message that just happened, false for history being replayed. */
+  onMessage(message: MessageDto, live: boolean): void;
   onTyping(payload: { actorType: string; actorName?: string | null; typing: boolean }): void;
   onConversation(payload: { conversationId: string; status?: string }): void;
   /** Whether anybody is there to answer. One boolean; never who. */
   onAvailability(available: boolean): void;
+  /** Who the window shows: the person with this conversation, or the owner. */
+  onPresenter(presenter: Presenter | null): void;
+}
+
+export interface Presenter {
+  name: string;
+  avatarUrl: string | null;
 }
 
 interface Ack<T> {
@@ -105,7 +113,7 @@ export class ChatClient {
         this.conversationId = payload.message.conversationId;
       }
       this.lastSeq = Math.max(this.lastSeq, payload.message.seq);
-      this.handlers.onMessage(payload.message);
+      this.handlers.onMessage(payload.message, true);
     });
 
     socket.on(ServerEvent.AGENTS_AVAILABLE, (payload: { available: boolean }) => {
@@ -129,6 +137,11 @@ export class ChatClient {
     socket.on(ServerEvent.CONVERSATION_CLOSED, (payload: { conversationId: string }) =>
       this.handlers.onConversation({ ...payload, status: 'closed' }),
     );
+    socket.on(ServerEvent.CONVERSATION_PRESENTER, (payload: { conversationId: string; presenter: Presenter | null }) => {
+      if (!this.conversationId || payload?.conversationId === this.conversationId) {
+        this.handlers.onPresenter(payload?.presenter ?? null);
+      }
+    });
   }
 
   private async fetchTicket(): Promise<{ ticket: string; url: string }> {
@@ -198,16 +211,18 @@ export class ChatClient {
         const resumed = await this.emit<{
           conversation: { id: string; status: string; lastSeq: number } | null;
           messages: MessageDto[];
+          presenter?: Presenter | null;
         }>('conversation:resume', {});
 
         if (resumed.conversation) {
           this.conversationId = resumed.conversation.id;
           this.lastSeq = resumed.conversation.lastSeq;
-          for (const message of resumed.messages) this.handlers.onMessage(message);
+          for (const message of resumed.messages) this.handlers.onMessage(message, false);
           this.handlers.onConversation({
             conversationId: resumed.conversation.id,
             status: resumed.conversation.status,
           });
+          if (resumed.presenter !== undefined) this.handlers.onPresenter(resumed.presenter);
         }
         return;
       }
@@ -218,7 +233,7 @@ export class ChatClient {
       });
       for (const message of synced.messages) {
         this.lastSeq = Math.max(this.lastSeq, message.seq);
-        this.handlers.onMessage(message);
+        this.handlers.onMessage(message, false);
       }
     } catch {
       /* the next reconnect will try again */
@@ -237,6 +252,29 @@ export class ChatClient {
     this.conversationId = result.conversationId;
     this.lastSeq = Math.max(this.lastSeq, result.message.seq);
     return result.message;
+  }
+
+  /**
+   * Ask for the greeting. The server decides whether one is due (once a day, never over an open
+   * conversation); when it is, the greeting arrives here as the first message and the
+   * conversation is adopted as if the visitor had started it.
+   */
+  async greet(): Promise<MessageDto | null> {
+    const result = await this.emit<{
+      conversation: { id: string; status: string; lastSeq: number } | null;
+      message: MessageDto | null;
+      presenter?: Presenter | null;
+    }>(VisitorClientEvent.CONVERSATION_GREET, {});
+    if (!result.conversation || !result.message) return null;
+    this.conversationId = result.conversation.id;
+    this.lastSeq = Math.max(this.lastSeq, result.conversation.lastSeq);
+    if (result.presenter !== undefined) this.handlers.onPresenter(result.presenter);
+    return result.message;
+  }
+
+  /** Whether the visitor has written anything yet - a greeting alone does not count. */
+  get hasConversation(): boolean {
+    return this.conversationId !== null;
   }
 
   async send(clientMessageId: string, body: string): Promise<MessageDto> {

@@ -75,7 +75,7 @@ export class UserRepository {
 
   updateProfile(
     userId: string,
-    data: { name?: string; timezone?: string; locale?: string; avatarUrl?: string | null },
+    data: { name?: string; timezone?: string; locale?: string },
   ): Promise<User> {
     return this.db.user.update({ where: { id: userId }, data });
   }

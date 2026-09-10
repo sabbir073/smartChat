@@ -240,9 +240,14 @@ export async function crawlSite(
       // is one. Otherwise only pages worth reading are sent to it.
       if (isHtml || result.status === 403) {
         read = await options.read(result.finalUrl);
-        if (read && (read.status !== 200 || looksLikeBotChallenge(read.html) || read.markdown.trim().length < MIN_PAGE_CHARS)) {
-          // The browser did no better; fall back to what the plain fetch found.
-          read = read.status === 200 && !looksLikeBotChallenge(read.html) ? read : null;
+        if (read && (read.status !== 200 || looksLikeBotChallenge(read.html))) read = null;
+        // The browser came back with next to nothing (a page that rendered empty, a script that
+        // wiped the document): the plain fetch's HTML is the better copy whenever it has words.
+        // Measured live: a site the plain fetch read in full once came back from the browser as
+        // three kilobytes of head and an empty body, and was indexed as nothing.
+        if (read && read.markdown.trim().length < MIN_PAGE_CHARS && result.status === 200 && !challenged) {
+          const plain = extractPage(result.text, result.finalUrl);
+          if (plain && plain.text.length >= MIN_PAGE_CHARS) read = null;
         }
       }
     }

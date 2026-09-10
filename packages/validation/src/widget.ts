@@ -69,8 +69,20 @@ export const behaviourSchema = z.object({
   showUnreadBadge: z.boolean().default(true),
   showTypingIndicator: z.boolean().default(true),
   showAgentTyping: z.boolean().default(true),
-  /** Ask for details before the first message. */
+  /**
+   * Ask for name and email before the first message. Off: the visitor types straight away and
+   * shows as "Visitor" until they say who they are; a ticket still asks (the offline form).
+   */
   preChatEnabled: z.boolean().default(true),
+  /**
+   * Open the window on its own a few seconds after the page loads and greet the visitor, once
+   * per visitor. The greeting is a bot message in a real conversation, so the team sees who
+   * is on the site and can step in.
+   */
+  proactiveEnabled: z.boolean().default(true),
+  proactiveDelaySeconds: z.number().int().min(1).max(600).default(3),
+  /** Ask the visitor's browser to show notifications for replies while they are on another tab. */
+  browserNotifications: z.boolean().default(false),
   /** Collect a message when nobody is available. */
   offlineFormEnabled: z.boolean().default(true),
   /** Whether the visitor can request a transcript. Implemented in Phase 9. */
@@ -83,6 +95,13 @@ export const contentSchema = z.object({
   subtitleOnline: z.string().trim().max(80).default('We typically reply in a few minutes'),
   subtitleOffline: z.string().trim().max(80).default('Leave a message and we will get back to you'),
   welcomeMessage: z.string().trim().max(500).default('Hello. How can we help you today?'),
+  /** What the proactive greeting says. Sent as the assistant, in a conversation of its own. */
+  proactiveMessage: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .default("Hi there! Welcome. I'm here if you have any questions - how can I help?"),
   inputPlaceholder: z.string().trim().max(60).default('Type your message'),
   offlineMessage: z
     .string()

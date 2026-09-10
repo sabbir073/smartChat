@@ -20,7 +20,8 @@ export interface HostPage {
 
 export interface BridgeHandlers {
   onInit(page: HostPage, locale: string): void;
-  onOpen(): void;
+  /** `proactive`: the loader opened the window on its own, for the greeting. */
+  onOpen(proactive: boolean): void;
   onClose(): void;
   onPage(page: { url: string; title: string }): void;
   onIdentify(traits: Record<string, unknown>): void;
@@ -58,7 +59,7 @@ export class PanelBridge {
         handlers.onInit(message.page, message.locale);
         return;
       case HOST_TO_PANEL.OPEN:
-        handlers.onOpen();
+        handlers.onOpen(message.proactive === true);
         return;
       case HOST_TO_PANEL.CLOSE:
         handlers.onClose();
@@ -105,6 +106,21 @@ export class PanelBridge {
 
   setUnread(count: number): void {
     this.send({ type: PANEL_TO_HOST.UNREAD, count });
+  }
+
+  /** A message arrived for the visitor: the host page chimes, flashes its tab, notifies if away. */
+  alert(title: string, body: string): void {
+    this.send({ type: PANEL_TO_HOST.ALERT, title, body });
+  }
+
+  /** The visitor just acted deliberately - a fair moment to ask about notifications. */
+  requestPermission(): void {
+    this.send({ type: PANEL_TO_HOST.PERMISSION });
+  }
+
+  /** The visitor wrote back: this chat is theirs now, not the greeting's. */
+  engaged(): void {
+    this.send({ type: PANEL_TO_HOST.ENGAGED });
   }
 }
 

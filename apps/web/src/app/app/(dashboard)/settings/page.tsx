@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import { useResource } from '@/lib/use-resource';
@@ -124,6 +124,51 @@ export default function SettingsPage() {
     }
   }
 
+  const pictureInput = useRef<HTMLInputElement>(null);
+  const [savingPicture, setSavingPicture] = useState(false);
+
+  /**
+   * A picture goes to the object store, not through this page: sign, PUT, confirm. The server
+   * reads the bytes back and keeps only a real image, then hands out a public address the chat
+   * window shows to visitors.
+   */
+  async function uploadPicture(file: File | undefined) {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Pictures can be up to 2 MB.');
+      return;
+    }
+    setSavingPicture(true);
+    try {
+      const signed = await api.post<{ avatarId: string; uploadUrl: string }>('/auth/profile/avatar/sign', {
+        contentType: file.type,
+        byteSize: file.size,
+      });
+      const put = await fetch(signed.data.uploadUrl, { method: 'PUT', body: file, headers: { 'content-type': file.type } });
+      if (!put.ok) throw new Error(`upload failed: ${put.status}`);
+      await api.post('/auth/profile/avatar/confirm', { avatarId: signed.data.avatarId });
+      await refresh();
+      toast.success('Picture updated');
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not upload the picture.');
+    } finally {
+      setSavingPicture(false);
+    }
+  }
+
+  async function removePicture() {
+    setSavingPicture(true);
+    try {
+      await api.delete('/auth/profile/avatar');
+      await refresh();
+      toast.success('Picture removed');
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not remove the picture.');
+    } finally {
+      setSavingPicture(false);
+    }
+  }
+
   async function changePassword(event: FormEvent) {
     event.preventDefault();
     setSavingPassword(true);
@@ -200,6 +245,45 @@ export default function SettingsPage() {
           <CardHeader title="Your profile" description={user?.email} />
           <form onSubmit={saveProfile}>
             <CardBody className="space-y-4">
+              <div className="flex items-center gap-4">
+                <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-lg font-semibold text-brand">
+                  {user?.avatarUrl ? (
+                    <img src={user.avatarUrl} alt="" className="size-full object-cover" />
+                  ) : (
+                    (user?.name ?? '?')
+                      .split(' ')
+                      .slice(0, 2)
+                      .map((part) => part.charAt(0).toUpperCase())
+                      .join('')
+                  )}
+                </span>
+                <div className="space-y-1.5">
+                  <p className="text-sm font-medium text-ink">Profile picture</p>
+                  <p className="text-[13px] text-ink-subtle">
+                    Visitors see it at the top of the chat window while a conversation is yours. PNG, JPEG, WebP or GIF, up to 2 MB.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      ref={pictureInput}
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp,image/gif"
+                      className="sr-only"
+                      onChange={(event) => {
+                        void uploadPicture(event.target.files?.[0]);
+                        event.target.value = '';
+                      }}
+                    />
+                    <Button type="button" size="sm" variant="secondary" loading={savingPicture} onClick={() => pictureInput.current?.click()}>
+                      {user?.avatarUrl ? 'Change picture' : 'Upload picture'}
+                    </Button>
+                    {user?.avatarUrl && (
+                      <Button type="button" size="sm" variant="ghost" disabled={savingPicture} onClick={() => void removePicture()}>
+                        Remove
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </div>
               <Field label="Display name">
                 {({ id }) => (
                   <TextInput

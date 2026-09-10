@@ -9,6 +9,7 @@ import { agentAvailabilityReader } from '../services/availability.js';
 import { systemClock, type Clock } from '../time.js';
 import { postBotMessage } from './bot-message.js';
 import { decideAiReply } from './dispatch.js';
+import { PresenterService } from '../services/presenter.service.js';
 
 /**
  * The assistant's sense of time.
@@ -173,6 +174,7 @@ export class LifecycleService {
         agentsOnly: true,
         payload: { conversationId: conversation.id, assignedMemberId: null, by: 'ai', reason: 'no_reply' },
       });
+      await new PresenterService(this.options.db).announce(this.options.events, { ...conversation, assignedMemberId: null });
     }
     this.options.log?.('ai.lifecycle.took_back', { conversationId: conversation.id, previousAssignee });
     // The visitor may not answer this either.

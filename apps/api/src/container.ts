@@ -8,6 +8,7 @@ import {
   RetentionService,
   WebhookService,
   AttachmentService,
+  AvatarService,
   AuthService,
   AutomationService,
   BillingService,
@@ -85,6 +86,7 @@ export interface Container {
   webhooks: WebhookService;
   storage: StorageService;
   attachments: AttachmentService;
+  avatars: AvatarService;
   properties: PropertyService;
   widgets: WidgetService;
   visitors: VisitorService;
@@ -393,6 +395,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     flags,
     clock,
   });
+  const avatars = new AvatarService({ db, storage, apiUrl: config.API_URL });
   const properties = new PropertyService({
     db,
     widgetUrl: config.WIDGET_URL,
@@ -532,6 +535,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     webhooks,
     storage,
     attachments,
+    avatars,
     properties,
     widgets,
     visitors,

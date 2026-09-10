@@ -17,6 +17,7 @@
  */
 
 import { HOST_TO_PANEL, PANEL_TO_HOST, isTrustedPanelMessage } from '../shared/protocol.js';
+import { armChimeOnGesture, playChime } from '../shared/chime.js';
 
 declare const __SMARTCHAT_API_URL__: string;
 
@@ -39,8 +40,12 @@ interface LauncherConfig {
     startOpen: boolean;
     showDelaySeconds: number;
     showUnreadBadge: boolean;
+    soundEnabled: boolean;
+    proactiveEnabled: boolean;
+    proactiveDelaySeconds: number;
+    browserNotifications: boolean;
   };
-  content: { title: string };
+  content: { title: string; businessName: string };
 }
 
 type QueuedCall = [command: string, ...args: unknown[]];
@@ -84,6 +89,11 @@ interface SmartChatGlobal {
     let badge: HTMLSpanElement | null = null;
     let root: ShadowRoot | null = null;
     let host: HTMLDivElement | null = null;
+    /** The page's own title, kept so the flash can put it back. */
+    let ownTitle: string | null = null;
+    let flashTimer: number | null = null;
+    /** Once per visitor per browser: the greeting must not pop up on every page. */
+    const GREETED_KEY = `sc:greeted:${publicId}`;
 
     // --- command queue -------------------------------------------------------
     // The snippet defines a stub that pushes into `q`, so `SmartChat('open')` works before this
@@ -192,6 +202,9 @@ interface SmartChatGlobal {
 
       window.addEventListener('message', onPanelMessage);
       document.addEventListener('visibilitychange', onVisibility);
+      document.addEventListener('visibilitychange', stopFlash);
+      window.addEventListener('focus', stopFlash);
+      if (config.behaviour.soundEnabled) armChimeOnGesture(d);
       watchNavigation();
 
       for (const call of pending) {
@@ -201,6 +214,85 @@ interface SmartChatGlobal {
       pending.length = 0;
 
       if (config.behaviour.startOpen) setOpen(true);
+      else if (config.behaviour.proactiveEnabled && !alreadyGreeted()) {
+        // The greeting: the window opens on its own a few seconds in, and the panel asks the
+        // server to say hello. Only for somebody who has never been greeted in this browser.
+        const delay = Math.max(1, Number(config.behaviour.proactiveDelaySeconds) || 3) * 1000;
+        window.setTimeout(() => {
+          if (open || alreadyGreeted()) return;
+          markGreeted();
+          setOpen(true, true);
+        }, delay);
+      }
+    }
+
+    function alreadyGreeted(): boolean {
+      try {
+        return localStorage.getItem(GREETED_KEY) !== null;
+      } catch {
+        return false;
+      }
+    }
+
+    function markGreeted(): void {
+      try {
+        localStorage.setItem(GREETED_KEY, String(Date.now()));
+      } catch {
+        /* private mode: the server also greets a visitor only once */
+      }
+    }
+
+    // --- alerts: sound, the tab title, a notification when they are away ------------------------
+
+    function alert(title: string, body: string): void {
+      if (!config) return;
+      if (config.behaviour.soundEnabled) playChime();
+      if (!d.hidden) return;
+      startFlash(title);
+      if (config.behaviour.browserNotifications && 'Notification' in w && Notification.permission === 'granted') {
+        try {
+          const notification = new Notification(title, { body, tag: `smartchat-${publicId}` });
+          notification.onclick = () => {
+            w.focus();
+            setOpen(true);
+            notification.close();
+          };
+        } catch {
+          /* notifications are a nicety */
+        }
+      }
+    }
+
+    function startFlash(title: string): void {
+      if (flashTimer !== null) return;
+      ownTitle = d.title;
+      let shown = false;
+      flashTimer = window.setInterval(() => {
+        shown = !shown;
+        d.title = shown ? title : (ownTitle ?? '');
+      }, 1500);
+    }
+
+    function stopFlash(): void {
+      if (d.hidden && !d.hasFocus()) return;
+      if (flashTimer !== null) {
+        window.clearInterval(flashTimer);
+        flashTimer = null;
+      }
+      if (ownTitle !== null) {
+        d.title = ownTitle;
+        ownTitle = null;
+      }
+    }
+
+    function askPermission(): void {
+      if (!config?.behaviour.browserNotifications || !('Notification' in w)) return;
+      if (Notification.permission !== 'default') return;
+      try {
+        void Notification.requestPermission();
+      } catch {
+        /* older browsers take a callback; a missed prompt costs nothing */
+      }
     }
 
     function styles(cfg: LauncherConfig): HTMLStyleElement {
@@ -306,9 +398,13 @@ interface SmartChatGlobal {
       return iframe;
     }
 
-    function setOpen(next: boolean): void {
+    /** Whether the current open was the loader's own doing (the greeting), for the READY replay. */
+    let openedProactively = false;
+
+    function setOpen(next: boolean, proactive = false): void {
       if (!config || !launcher) return;
       open = next;
+      openedProactively = next && proactive;
 
       const frame = ensureFrame();
       frame.dataset['open'] = next ? '1' : '0';
@@ -321,9 +417,11 @@ interface SmartChatGlobal {
         post({
           type: HOST_TO_PANEL.OPEN,
           nonce,
+          ...(proactive ? { proactive: true } : {}),
         });
-        // Focus follows the panel so keyboard users land inside it.
-        window.setTimeout(() => frame.contentWindow?.focus(), 60);
+        // Focus follows the panel so keyboard users land inside it - unless the window opened on
+        // its own: stealing focus from what the visitor was reading would be rude.
+        if (!proactive) window.setTimeout(() => frame.contentWindow?.focus(), 60);
       } else {
         post({ type: HOST_TO_PANEL.CLOSE, nonce });
         launcher.focus();
@@ -368,7 +466,7 @@ interface SmartChatGlobal {
           // the panel is listening and is lost. Replaying it here is what tells the panel it is
           // visible - without it the panel counts unread messages the visitor is looking at and
           // never sends a read receipt.
-          if (open) post({ type: HOST_TO_PANEL.OPEN, nonce });
+          if (open) post({ type: HOST_TO_PANEL.OPEN, nonce, ...(openedProactively ? { proactive: true } : {}) });
           return;
         case PANEL_TO_HOST.CLOSE:
           setOpen(false);
@@ -376,6 +474,17 @@ interface SmartChatGlobal {
         case PANEL_TO_HOST.UNREAD:
           unread = Math.max(0, Number(message.count) || 0);
           paintBadge();
+          return;
+        case PANEL_TO_HOST.ALERT:
+          alert(String(message.title || config?.content.businessName || 'New message'), String(message.body || ''));
+          return;
+        case PANEL_TO_HOST.PERMISSION:
+          askPermission();
+          return;
+        case PANEL_TO_HOST.ENGAGED:
+          // The visitor wrote back: from here on this chat was theirs, not the greeting's.
+          openedProactively = false;
+          markGreeted();
           return;
         default:
           return;

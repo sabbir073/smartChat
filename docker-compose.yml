@@ -236,6 +236,8 @@ services:
       CRAWL4AI_CONCURRENCY: ${AI_READER_CONCURRENCY:-2}
       # Development only: let it read a test site on a private address.
       CRAWL4AI_ALLOW_PRIVATE: ${AI_CRAWL_ALLOW_PRIVATE:-false}
+      # Never run our own widget inside the crawl: the customer's page loads it from these hosts.
+      CRAWL4AI_BLOCK_HOSTS: ${AI_READER_BLOCK_HOSTS:-}
     # Chromium wants a bigger /dev/shm than Docker's default 64 MB, or it crashes on real pages.
     shm_size: 512m
     networks: [smartchat]

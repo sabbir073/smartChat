@@ -235,24 +235,50 @@ function extractJson(raw: string): string {
 
 const URL_PATTERN = /\bhttps?:\/\/[^\s<>()"']+/gi;
 
+/** Trailing punctuation the model wrote after a link belongs to the sentence, not the address. */
+const URL_TRAILER = /[.,;:!?)\]]+$/;
+
+/**
+ * A link that was stripped leaves its sentence dangling - "For more details, visit ." - and the
+ * sentence goes with it. The stripped link is replaced by a marker first, so only a sentence that
+ * really lost its link is dropped; "We love bikes here!" stays.
+ */
+const STRIPPED = '\u0000link\u0000';
+
+function dropDanglingSentences(text: string): string {
+  if (!text.includes(STRIPPED)) return text;
+  return text
+    .split(/(?<=[.!?])\s+|\n/)
+    // A sentence that kept another link still says something; one that kept none does not.
+    .filter((sentence) => !sentence.includes(STRIPPED) || /https?:\/\//i.test(sentence))
+    .join(' ')
+    .replace(/\s+([.,;:!?])/g, '$1')
+    .trim();
+}
+
 export function cleanText(text: string, allowedHosts: string[]): string {
-  const allowed = allowedHosts.map((host) => host.toLowerCase());
+  // `www.` is the same site: a business whose address is www.example.com links to example.com
+  // pages and the other way round, and the passages carry whichever the crawl saw.
+  const allowed = allowedHosts.map((host) => host.toLowerCase().replace(/^www\./, ''));
   let out = text
     .replace(/<[^>]+>/g, '')
     // eslint-disable-next-line no-control-regex -- stripping control characters is the point
     .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
     .replace(URL_PATTERN, (url) => {
+      const trailer = URL_TRAILER.exec(url)?.[0] ?? '';
+      const address = trailer ? url.slice(0, -trailer.length) : url;
       try {
-        const host = new URL(url).hostname.toLowerCase();
+        const host = new URL(address).hostname.toLowerCase().replace(/^www\./, '');
         const permitted = allowed.some((h) => host === h || host.endsWith(`.${h}`));
-        return permitted ? url : '';
+        return permitted ? url : STRIPPED + trailer;
       } catch {
-        return '';
+        return STRIPPED + trailer;
       }
     })
     .replace(/[ \t]{2,}/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
+  out = dropDanglingSentences(out).split(STRIPPED).join('').replace(/\s+([.,;:!?])/g, '$1').replace(/[ \t]{2,}/g, ' ').trim();
   if (out.length > MAX_REPLY_CHARS) {
     const cut = out.slice(0, MAX_REPLY_CHARS);
     const lastStop = Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('\n'));

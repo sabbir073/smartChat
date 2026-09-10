@@ -13,6 +13,12 @@ export const PANEL_TO_HOST = {
   CLOSE: 'sc:panel:close',
   UNREAD: 'sc:panel:unread',
   SOUND: 'sc:panel:sound',
+  /** A message arrived for the visitor: chime, flash the tab, notify if they are away. */
+  ALERT: 'sc:panel:alert',
+  /** The visitor just did something deliberate: a good moment to ask for notification permission. */
+  PERMISSION: 'sc:panel:permission',
+  /** The visitor's first words in this chat, so the host can stop treating the open as unprompted. */
+  ENGAGED: 'sc:panel:engaged',
 } as const;
 
 export const HOST_TO_PANEL = {
@@ -60,6 +66,8 @@ export interface HostSimpleMessage {
   type: typeof HOST_TO_PANEL.OPEN | typeof HOST_TO_PANEL.CLOSE | typeof HOST_TO_PANEL.VISIBILITY;
   nonce: string;
   visible?: boolean;
+  /** An OPEN the loader made on its own (the proactive greeting), not the visitor's click. */
+  proactive?: boolean;
 }
 
 export type HostMessage =
@@ -86,13 +94,20 @@ export interface PanelUnreadMessage {
   count: number;
 }
 
+export interface PanelAlertMessage {
+  type: typeof PANEL_TO_HOST.ALERT;
+  nonce: string;
+  title: string;
+  body: string;
+}
+
 export interface PanelSimpleMessage {
-  type: typeof PANEL_TO_HOST.CLOSE | typeof PANEL_TO_HOST.SOUND;
+  type: typeof PANEL_TO_HOST.CLOSE | typeof PANEL_TO_HOST.SOUND | typeof PANEL_TO_HOST.PERMISSION | typeof PANEL_TO_HOST.ENGAGED;
   nonce: string;
 }
 
 export type PanelMessage =
-  PanelReadyMessage | PanelResizeMessage | PanelUnreadMessage | PanelSimpleMessage;
+  PanelReadyMessage | PanelResizeMessage | PanelUnreadMessage | PanelAlertMessage | PanelSimpleMessage;
 
 const PANEL_TYPES = new Set<string>(Object.values(PANEL_TO_HOST));
 const HOST_TYPES = new Set<string>(Object.values(HOST_TO_PANEL));

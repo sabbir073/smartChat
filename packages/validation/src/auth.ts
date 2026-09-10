@@ -88,7 +88,16 @@ export const updateProfileSchema = z.object({
   name: displayNameSchema.optional(),
   timezone: timezoneSchema.optional(),
   locale: localeSchema.optional(),
-  avatarUrl: z.string().url().max(2048).nullable().optional(),
+});
+
+/** A profile picture is uploaded, never linked: the address is ours, the bytes are verified. */
+export const signAvatarSchema = z.object({
+  contentType: z.enum(['image/png', 'image/jpeg', 'image/webp', 'image/gif']),
+  byteSize: z.number().int().min(1).max(2 * 1024 * 1024),
+});
+
+export const confirmAvatarSchema = z.object({
+  avatarId: uuidSchema,
 });
 
 export const revokeSessionSchema = z.object({

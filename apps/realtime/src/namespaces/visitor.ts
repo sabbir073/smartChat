@@ -14,6 +14,7 @@ import {
   widgetPageViewSchema,
 } from '@smartchat/validation';
 import {
+  PresenterService,
   VisitorRepository,
   agentAvailabilityReader,
   sanitiseUrl,
@@ -48,6 +49,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
    * here" over HTTP and corrected to "nobody is here" a moment later, every time.
    */
   const hasAvailableAgent = agentAvailabilityReader(container.db);
+  const presenters = new PresenterService(container.db);
   const guard = new SocketAbuseGuard(container.redis, (error) =>
     logger.error({ err: error }, 'rate limiter unavailable'),
   );
@@ -137,6 +139,32 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
     );
 
     logger.debug({ visitorId: identity.visitorId, socketId: socket.id }, 'visitor connected');
+
+    // --- the widget's own greeting --------------------------------------------
+    socket.on(VisitorClientEvent.CONVERSATION_GREET, async (_payload: unknown, callback: AckCallback<unknown>) => {
+      try {
+        if (!(await guard.allowMessage(identity.visitorId, identity.visitorId, identity.propertyId))) {
+          throw new AppError(ErrorCode.RATE_LIMITED);
+        }
+        const result = await conversations.greet(identity);
+        if (!result) {
+          respond(callback, ackOk({ conversation: null, message: null }));
+          return;
+        }
+        await socket.join(room.conversation(result.conversation.id));
+        respond(
+          callback,
+          ackOk({
+            conversation: { id: result.conversation.id, status: result.conversation.status, lastSeq: Number(result.conversation.messageSeq) },
+            message: result.message,
+            presenter: await presenters.forConversation(identity.accountId, null),
+          }),
+        );
+      } catch (error) {
+        void handleFailure(socket, guard, identity.visitorId, logger, error);
+        respond(callback, ackError(error));
+      }
+    });
 
     // --- start or continue a conversation -----------------------------------
     socket.on(
@@ -282,9 +310,10 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
           respond(callback, ackOk({ conversation: null, messages: [] }));
           return;
         }
-        const messages = await conversations.visitorHistory(identity, conversation.id, {
-          limit: 50,
-        });
+        const [messages, presenter] = await Promise.all([
+          conversations.visitorHistory(identity, conversation.id, { limit: 50 }),
+          presenters.forConversation(identity.accountId, conversation.assignedMemberId),
+        ]);
         await socket.join(room.conversation(conversation.id));
         respond(
           callback,
@@ -295,6 +324,7 @@ export function registerVisitorNamespace(namespace: Namespace, container: Realti
               lastSeq: Number(conversation.messageSeq),
             },
             messages,
+            presenter,
           }),
         );
       } catch (error) {

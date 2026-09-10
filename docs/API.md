@@ -76,6 +76,8 @@ Everything below is under the `/api/v1` prefix.
 POST   /auth/register                 POST   /auth/login
 POST   /auth/logout                   GET    /auth/me
 PATCH  /auth/profile                  POST   /auth/switch-account
+POST   /auth/profile/avatar/sign      POST   /auth/profile/avatar/confirm
+DELETE /auth/profile/avatar           GET    /avatars/:userId/:avatarId   (public, immutable)
 POST   /auth/accept-invitation
 POST   /auth/verify-email             POST   /auth/resend-verification
 POST   /auth/forgot-password          POST   /auth/reset-password

@@ -22,6 +22,7 @@ import {
 import { VisitorPanel } from '@/components/inbox/visitor-panel';
 import { Alert, EmptyState, Spinner, cn, useToast } from '@/components/ui';
 import type { AiSuggestion, ConversationDto, MemberDto, PropertyDto, ShortcutDto } from '@/lib/types';
+import { armChimeOnGesture, playChime } from '@/lib/chime';
 
 /**
  * The agent inbox.
@@ -48,12 +49,29 @@ export default function InboxPage() {
   const [properties, setProperties] = useState<PropertyDto[]>([]);
   const [members, setMembers] = useState<MemberDto[]>([]);
   // Read inside socket handlers, which are bound once.
+  const conversationsRef = useRef<ConversationDto[]>([]);
+  conversationsRef.current = conversations;
   const membersRef = useRef<MemberDto[]>([]);
   membersRef.current = members;
   const userIdRef = useRef<string | null>(null);
   userIdRef.current = user?.id ?? null;
   const toastRef = useRef(toast);
   toastRef.current = toast;
+  /**
+   * The chime for incoming visitor messages. On by default; the choice is this browser's and is
+   * remembered here, because a shared inbox on a shop floor and one on a quiet desk want different
+   * things. Read through a ref by the socket handler, which is bound once.
+   */
+  const [soundOn, setSoundOn] = useState(() => {
+    try {
+      return localStorage.getItem('inbox.sound') !== 'off';
+    } catch {
+      return true;
+    }
+  });
+  const soundOnRef = useRef(soundOn);
+  soundOnRef.current = soundOn;
+  const openConversationRef = useRef<(conversation: ConversationDto) => Promise<void>>(async () => undefined);
   const [shortcuts, setShortcuts] = useState<ShortcutDto[]>([]);
   const [updating, setUpdating] = useState(false);
 
@@ -202,6 +220,30 @@ export default function InboxPage() {
 
   // --- realtime -----------------------------------------------------------
 
+  /**
+   * A visitor wrote: a chime, and - when this tab is not the one being looked at - a desktop
+   * notification that opens the conversation. Both sides of the product make the same sound.
+   */
+  const announce = useCallback((message: AgentMessage) => {
+    if (soundOnRef.current) playChime();
+    if (typeof document === 'undefined' || document.visibilityState === 'visible') return;
+    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    try {
+      const notification = new Notification('New message from a visitor', {
+        body: message.type === 'text' ? message.body.slice(0, 140) : 'Sent a file',
+        tag: `message-${message.conversationId}`,
+      });
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+        const conversation = conversationsRef.current.find((c) => c.id === message.conversationId);
+        if (conversation) void openConversationRef.current(conversation);
+      };
+    } catch {
+      // Notifications are a nicety; the chime and the badge are the message.
+    }
+  }, []);
+
   useEffect(() => {
     const client = new AgentRealtimeClient({
       onState: setConnection,
@@ -239,6 +281,7 @@ export default function InboxPage() {
 
         // Whatever the visitor was typing, they have now sent it.
         if (message.senderType === 'visitor') {
+          announce(message);
           setTypingIn((current) => {
             if (!current.has(message.conversationId)) return current;
             const next = new Set(current);
@@ -382,7 +425,7 @@ export default function InboxPage() {
     // One client per account. Everything that changes more often than that - the status filter,
     // the open conversation - is reached through a ref, so the socket is never torn down and no
     // handler can act on a stale filter.
-  }, [activeAccount?.id, upsertMessage]);
+  }, [activeAccount?.id, upsertMessage, announce]);
 
   // --- data ---------------------------------------------------------------
 
@@ -521,15 +564,18 @@ export default function InboxPage() {
       setThreadLoading(false);
     }
   }, []);
+  openConversationRef.current = openConversation;
 
   /**
    * `/app/inbox?conversation=<id>` - the links from tickets, contacts and the AI report. Opened
    * once, on arrival, straight from the API: the conversation may be closed or filtered out of
    * the list, and a deep link that only works for open conversations is a broken link.
    */
-  // Desktop notifications for handoffs need permission, which a browser grants only from a
-  // gesture: asked once, on the first click in the inbox, and never again if refused.
+  // Desktop notifications need permission, which a browser grants only from a gesture: asked
+  // once, on the first click in the inbox, and never again if refused. The same first gesture
+  // unlocks the chime.
   useEffect(() => {
+    armChimeOnGesture();
     if (typeof Notification === 'undefined' || Notification.permission !== 'default') return;
     const ask = () => {
       void Notification.requestPermission().catch(() => undefined);
@@ -537,6 +583,24 @@ export default function InboxPage() {
     document.addEventListener('click', ask, { once: true });
     return () => document.removeEventListener('click', ask);
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('inbox.sound', soundOn ? 'on' : 'off');
+    } catch {
+      /* remembered for this session only */
+    }
+  }, [soundOn]);
+
+  // The tab's title carries the unread count, so a glance at the tab bar says whether to come back.
+  const unreadTotal = conversations.reduce((sum, c) => sum + (c.agentUnreadCount > 0 ? 1 : 0), 0);
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\) /, '');
+    document.title = unreadTotal > 0 ? `(${unreadTotal}) ${base}` : base;
+    return () => {
+      document.title = base;
+    };
+  }, [unreadTotal]);
 
   const deepLinked = useRef(false);
   useEffect(() => {
@@ -835,6 +899,15 @@ export default function InboxPage() {
           />
           {live ? 'Live' : connection === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
         </span>
+        <button
+          type="button"
+          onClick={() => setSoundOn((on) => !on)}
+          aria-pressed={soundOn}
+          title={soundOn ? 'Sound on: a chime for every new visitor message. Click to mute.' : 'Sound off. Click to hear a chime for new visitor messages.'}
+          className="rounded-full px-2 py-0.5 text-[12px] text-ink-muted transition-colors hover:bg-surface-raised"
+        >
+          {soundOn ? '🔔 Sound on' : '🔕 Muted'}
+        </button>
 
         <div className="min-w-0 flex-1">
           <FilterBar

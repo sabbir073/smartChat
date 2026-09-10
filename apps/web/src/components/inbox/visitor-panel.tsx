@@ -20,19 +20,22 @@ function Row({
   value,
   title,
   mono,
+  wrap,
 }: {
   label: string;
   value: React.ReactNode;
   title?: string | undefined;
   /** For an address or a path: fixed-width so digits line up and a truncation is visible. */
   mono?: boolean;
+  /** Show every character, over as many lines as it takes, rather than truncating. */
+  wrap?: boolean;
 }) {
   if (value === null || value === undefined || value === '') return null;
   return (
-    <div className="flex items-baseline justify-between gap-3 py-1.5">
+    <div className={wrap ? 'py-1.5' : 'flex items-baseline justify-between gap-3 py-1.5'}>
       <dt className="shrink-0 text-[12px] text-ink-subtle">{label}</dt>
       <dd
-        className={`truncate text-right text-[13px] text-ink ${mono ? 'font-mono text-[12px]' : ''}`}
+        className={`${wrap ? 'mt-0.5 break-all' : 'truncate text-right'} text-[13px] text-ink ${mono ? 'font-mono text-[12px]' : ''}`}
         title={title}
       >
         {value}
@@ -154,6 +157,7 @@ export function VisitorPanel({
             <Row
               label={online ? 'Currently on' : 'Last seen on'}
               title={page.url}
+              wrap
               value={
                 <a
                   href={page.url}
@@ -161,10 +165,9 @@ export function VisitorPanel({
                   rel="noopener noreferrer"
                   className="text-brand hover:underline"
                 >
-                  {pageLabel(page)}
-                  {page.title?.trim() && pagePath(page.url) !== '/' ? (
-                    <span className="ml-1 text-ink-subtle">{pagePath(page.url)}</span>
-                  ) : null}
+                  {page.title?.trim() ? <span className="block text-ink">{pageLabel(page)}</span> : null}
+                  {/* The whole address, every character of it: the query string is often the clue. */}
+                  <span className="block break-all font-mono text-[12px]">{page.url}</span>
                 </a>
               }
             />

@@ -3,6 +3,7 @@ export function PanelHeader({
   subtitle,
   online,
   avatarUrl,
+  avatarName,
   canEnd,
   onEnd,
   onMinimise,
@@ -11,12 +12,14 @@ export function PanelHeader({
   subtitle: string;
   online: boolean;
   avatarUrl: string | null;
+  /** Whose initials stand in when there is no picture: the person shown, or the business. */
+  avatarName?: string;
   /** Only offered while there is a live chat to end. */
   canEnd: boolean;
   onEnd: () => void;
   onMinimise: () => void;
 }) {
-  const initials = title
+  const initials = (avatarName ?? title)
     .split(' ')
     .slice(0, 2)
     .map((part) => part.charAt(0).toUpperCase())

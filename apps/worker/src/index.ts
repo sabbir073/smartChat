@@ -4,6 +4,7 @@ import {
   AccountAiService,
   AiJob,
   AiReplyService,
+  ConversationService,
   AiSettingsService,
   CrawlService,
   EntitlementService,
@@ -263,6 +264,7 @@ async function main(): Promise<void> {
         withLogContext({ jobId: job.id ?? undefined }, () =>
           processMaintenanceJob(job, db, logger, {
             ...(storage ? { storage } : {}),
+            conversations: new ConversationService({ db, events }),
             brand: {
               productName: config.PRODUCT_NAME,
               appUrl: config.APP_URL,
@@ -296,6 +298,7 @@ async function main(): Promise<void> {
   await scheduler.schedule(MaintenanceJob.REFRESH_GEO, {}, '30 5 * * *');
   // Hourly, at a quarter past: an account whose grace window closed is told within the hour.
   await scheduler.schedule(MaintenanceJob.BILLING_RECONCILE, {}, '15 * * * *');
+  await scheduler.schedule(MaintenanceJob.EXPIRE_GREETINGS, {}, '*/10 * * * *');
   // Websites with the AI on are re-read weekly; the daily check finds the ones that are due.
   await scheduler.schedule(AiJob.RECRAWL_DUE, {}, '45 4 * * *');
 

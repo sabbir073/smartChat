@@ -13,6 +13,7 @@ import type { AiProviderKind } from './provider.js';
 import type { KnowledgeService, RetrievedChunk } from './knowledge.service.js';
 import type { LifecycleService } from './lifecycle.service.js';
 import { postBotMessage } from './bot-message.js';
+import { PresenterService } from '../services/presenter.service.js';
 import { buildPrompt, PRACTICE_PHRASES, type PromptPassage } from './prompt.js';
 
 /**
@@ -791,6 +792,8 @@ export class AiReplyService {
         type: ServerEvent.CONVERSATION_ASSIGNED,
         payload: { conversationId: conversation.id, assignedMemberId: assignee.id, by: 'ai' },
       });
+      // The window now shows the person who is coming.
+      await new PresenterService(this.options.db).announce(this.options.events, { ...conversation, assignedMemberId: assignee.id });
     }
     // The inbox list shows "waiting for a person" from the flag; tell it the row changed.
     await this.options.events.publish({
