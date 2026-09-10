@@ -9,8 +9,10 @@ import {
   normaliseUrl,
   parseRobots,
   parseSitemap,
+  tidyMarkdown,
   type CrawlResponse,
 } from './crawler.js';
+import type { ReadPage } from './reader.js';
 import { extractPage } from './extract.js';
 
 const page = (title: string, body: string): string =>
@@ -222,56 +224,122 @@ describe('looksLikeAppShell', () => {
   });
 });
 
-describe('crawlSite with a renderer', () => {
+describe('crawlSite with the reader', () => {
   const shell = '<html><head><title>Shop</title></head><body><div id="root"></div><script src="/app.js"></script></body></html>';
   const rendered = '<html><head><title>Shop</title></head><body><div id="root"><h1>Shop</h1><p>' + 'We sell bikes and helmets in Dhanmondi. '.repeat(5) + '</p><a href="/about">About</a></div></body></html>';
   const about = '<html><head><title>About</title></head><body><main><p>' + 'Founded in 2012 by three teachers who ride. '.repeat(5) + '</p></main></body></html>';
+  const challenge = '<html><head><title>Bot Verification</title></head><body>verifying that you are not a robot</body></html>';
 
-  const site = (pages: Record<string, string>) => async (url: string): Promise<CrawlResponse> => {
+  const site = (pages: Record<string, string | { status: number; body: string }>) => async (url: string): Promise<CrawlResponse> => {
     const path = new URL(url).pathname;
-    const body = pages[path];
+    const entry = pages[path];
+    const body = typeof entry === 'string' ? entry : entry?.body;
     return {
-      status: body ? 200 : 404,
+      status: entry === undefined ? 404 : typeof entry === 'string' ? 200 : entry.status,
       headers: { get: (name: string) => (name === 'content-type' ? 'text/html' : null) },
       text: async () => body ?? '',
     };
   };
+  const read = (markdown: string, html: string, links: string[] = []) => (url: string): Promise<ReadPage> =>
+    Promise.resolve({ finalUrl: url, status: 200, title: 'Shop', description: null, markdown, html, links });
 
-  it('renders an application shell, reads its words and follows its links', async () => {
-    const renders: string[] = [];
-    const pages: Array<{ url: string; text: string }> = [];
+  it('reads every page through the browser: its markdown is the text, its links are followed, bullets tidied', async () => {
+    const reads: string[] = [];
+    const pages: Array<{ url: string; text: string; title: string }> = [];
+    const reader = read('# Shop\n\nWe sell bikes and helmets in Dhanmondi.\n\n* Road bikes\n* Helmets\n\n\n\nSee our about page.', rendered, ['https://shop.example/about']);
     const summary = await crawlSite(
       {
         startUrl: 'https://shop.example',
         maxPages: 10,
         delayMs: 0,
         fetchImpl: site({ '/': shell, '/about': about, '/robots.txt': '' }),
-        render: async (url) => {
-          renders.push(url);
-          return { html: rendered, finalUrl: url };
+        read: async (url) => {
+          reads.push(url);
+          return reader(url);
         },
+      },
+      async (page) => {
+        pages.push({ url: page.url, text: page.text, title: page.title });
+      },
+    );
+    expect(reads).toEqual(['https://shop.example/', 'https://shop.example/about']);
+    expect(summary.rendered).toBe(2);
+    expect(pages.map((p) => p.url)).toEqual(['https://shop.example/', 'https://shop.example/about']);
+    expect(pages[0]!.title).toBe('Shop');
+    expect(pages[0]!.text).toBe('# Shop\n\nWe sell bikes and helmets in Dhanmondi.\n\n- Road bikes\n- Helmets\n\nSee our about page.');
+  });
+
+  it('falls back to the plain fetch and its own extraction when the reader fails or has nothing', async () => {
+    const pages: Array<{ url: string; text: string }> = [];
+    const summary = await crawlSite(
+      {
+        startUrl: 'https://shop.example',
+        maxPages: 10,
+        delayMs: 0,
+        fetchImpl: site({ '/': rendered, '/about': about, '/robots.txt': '' }),
+        // Down for the home page; an empty answer for the about page.
+        read: async (url) => (url.endsWith('/about') ? { finalUrl: url, status: 200, title: null, description: null, markdown: '   ', html: about, links: [] } : null),
       },
       async (page) => {
         pages.push({ url: page.url, text: page.text });
       },
     );
-    expect(renders).toEqual(['https://shop.example/']);
-    expect(summary.rendered).toBe(1);
     expect(pages.map((p) => p.url)).toEqual(['https://shop.example/', 'https://shop.example/about']);
     expect(pages[0]!.text).toContain('We sell bikes');
+    expect(pages[1]!.text).toContain('Founded in 2012');
+    expect(summary.rendered).toBe(0);
+    expect(summary.skipped).toBe(0);
+
+    // A shell with no reader at all has nothing to say.
+    const bare = await crawlSite(
+      { startUrl: 'https://shop.example', maxPages: 10, delayMs: 0, fetchImpl: site({ '/': shell, '/robots.txt': '' }) },
+      async (page) => {
+        pages.push({ url: page.url, text: page.text });
+      },
+    );
+    expect(bare.skipped).toBe(1);
+    expect(pages).toHaveLength(2);
   });
 
-  it('skips the shell when there is no renderer, or the renderer fails', async () => {
+  it('lets the browser through a bot challenge the plain fetch met, and gives up when it is challenged too', async () => {
     const pages: string[] = [];
     const summary = await crawlSite(
-      { startUrl: 'https://shop.example', maxPages: 10, delayMs: 0, fetchImpl: site({ '/': shell, '/robots.txt': '' }), render: async () => null },
+      {
+        startUrl: 'https://shop.example',
+        maxPages: 10,
+        delayMs: 0,
+        fetchImpl: site({ '/': challenge, '/about': { status: 403, body: 'forbidden' }, '/robots.txt': '' }),
+        read: async (url) =>
+          url.endsWith('/about')
+            ? { finalUrl: url, status: 200, title: 'About', description: null, markdown: 'Founded in 2012 by three teachers who ride.', html: about, links: [] }
+            : { finalUrl: url, status: 200, title: 'Shop', description: null, markdown: 'We sell bikes and helmets in Dhanmondi, and we fix them too.', html: rendered, links: ['https://shop.example/about'] },
+      },
       async (page) => {
         pages.push(page.url);
       },
     );
-    expect(pages).toEqual([]);
-    expect(summary.rendered).toBe(0);
-    expect(summary.skipped).toBe(1);
+    expect(pages).toEqual(['https://shop.example/', 'https://shop.example/about']);
+    expect(summary.rendered).toBe(2);
+    expect(summary.stoppedBecause).toBe('exhausted');
+
+    const stuck = await crawlSite(
+      {
+        startUrl: 'https://shop.example',
+        maxPages: 10,
+        delayMs: 0,
+        fetchImpl: site({ '/': challenge, '/robots.txt': '' }),
+        read: async (url) => ({ finalUrl: url, status: 200, title: null, description: null, markdown: 'verifying that you are not a robot', html: challenge, links: [] }),
+      },
+      async () => undefined,
+    );
+    expect(stuck.stoppedBecause).toBe('bot_challenge');
   });
 });
 
+describe('tidyMarkdown', () => {
+  it('normalises bullets, line endings and blank runs', () => {
+    expect(tidyMarkdown('# A\r\n\r\n\r\n+ one  \n  * two\n\n\n\ntext\n')).toBe('# A\n\n- one\n- two\n\ntext');
+    // crawl4ai puts a heading and its first paragraph on consecutive lines; the chunker wants them apart.
+    expect(tidyMarkdown('# Fees\nMonthly tuition is 3,500 taka.\n## Discounts\nSiblings get ten percent.')).toBe('# Fees\n\nMonthly tuition is 3,500 taka.\n\n## Discounts\n\nSiblings get ten percent.');
+  });
+});

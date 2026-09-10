@@ -9,7 +9,7 @@ import {
   EntitlementService,
   FeedService,
   LifecycleService,
-  RendererClient,
+  ReaderClient,
   KnowledgeFileService,
   GeoService,
   KnowledgeService,
@@ -179,18 +179,18 @@ async function main(): Promise<void> {
     allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
     log: (event, detail) => logger.warn(detail, event),
   });
-  const renderer =
-    config.AI_RENDERER_URL && config.AI_RENDERER_TOKEN
-      ? new RendererClient({ url: config.AI_RENDERER_URL, token: config.AI_RENDERER_TOKEN, log: (event, detail) => logger.warn(detail, event) })
+  const reader =
+    config.AI_READER_URL && config.AI_READER_TOKEN
+      ? new ReaderClient({ url: config.AI_READER_URL, token: config.AI_READER_TOKEN, log: (event, detail) => logger.warn(detail, event) })
       : null;
-  if (config.AI_RENDERER_URL && !config.AI_RENDERER_TOKEN) {
-    logger.warn('AI_RENDERER_URL is set but AI_RENDERER_TOKEN is empty; JavaScript-only pages will be skipped');
+  if (config.AI_READER_URL && !config.AI_READER_TOKEN) {
+    logger.warn('AI_READER_URL is set but AI_READER_TOKEN is empty; websites will be read without the browser');
   }
   const crawler = new CrawlService({
     db,
     knowledge,
     feed,
-    ...(renderer ? { render: (url: string) => renderer.render(url) } : {}),
+    ...(reader ? { read: (url: string) => reader.read(url) } : {}),
     allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
     log: (event, detail) => logger.warn(detail, event),
   });

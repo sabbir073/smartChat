@@ -110,14 +110,14 @@ services:
           memory: 7g
           cpus: '8'
 
-  renderer:
+  crawl4ai:
     <<: *hardening
-    # A browser is a browser: a page and a half of Chromium, capped so a heavy site cannot take
-    # the box with it. Two renders at once is the concurrency the worker sends.
+    # A browser is a browser: Chromium plus crawl4ai's Python, capped so a heavy site cannot take
+    # the box with it. Two pages at once is the concurrency the worker sends.
     deploy:
       resources:
         limits:
-          memory: 1500m
+          memory: 2g
           cpus: '2'
 
   worker:

@@ -3,6 +3,7 @@ import { systemClock, type Clock } from '../time.js';
 import { crawlSite, type CrawlSummary } from './crawler.js';
 import type { FeedOutcome, FeedService } from './feed.service.js';
 import type { KnowledgeService } from './knowledge.service.js';
+import type { ReadPage } from './reader.js';
 
 /**
  * "Sync my website": crawl it, index what changed, forget what is gone.
@@ -29,8 +30,8 @@ export interface CrawlServiceOptions {
   crawl?: typeof crawlSite;
   /** Development only - see CrawlOptions.allowPrivateAddresses. */
   allowPrivateAddresses?: boolean;
-  /** The browser for JavaScript-only pages; see CrawlOptions.render. */
-  render?: (url: string) => Promise<{ html: string; finalUrl: string } | null>;
+  /** The page reader (crawl4ai); see CrawlOptions.read. */
+  read?: (url: string) => Promise<ReadPage | null>;
   log?: (event: string, detail: Record<string, unknown>) => void;
 }
 
@@ -79,7 +80,7 @@ export class CrawlService {
           startUrl: property.websiteUrl,
           maxPages: Math.min(Math.max(settings.crawlMaxPages, 1), CRAWL_MAX_PAGES_CEILING),
           exclude: settings.crawlExclude,
-          ...(this.options.render ? { render: this.options.render } : {}),
+          ...(this.options.read ? { read: this.options.read } : {}),
           ...(this.options.delayMs !== undefined ? { delayMs: this.options.delayMs } : {}),
           ...(this.options.allowPrivateAddresses ? { allowPrivateAddresses: true } : {}),
         },

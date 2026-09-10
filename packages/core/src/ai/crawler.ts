@@ -3,6 +3,7 @@ import { lookup as dnsLookup } from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
 import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici';
 import { extractPage, type ExtractedPage } from './extract.js';
+import type { ReadPage } from './reader.js';
 
 /**
  * The website crawler: the owner's public pages, found and read.
@@ -41,11 +42,12 @@ export interface CrawlOptions {
    */
   exclude?: string[];
   /**
-   * A browser, for pages that are an empty shell until their JavaScript runs. Called only when
-   * the fetched HTML has next to no text and looks like an application shell; returns the HTML
-   * after rendering, or null when rendering is not available or failed. See `renderer.ts`.
+   * The page reader - a browser and crawl4ai in their own container, see `reader.ts`. When it is
+   * there, every HTML page is read through it: the JavaScript runs, the chrome is dropped, and
+   * the text comes back as markdown with the page's headings. When it is absent, or fails on a
+   * page, the plain fetch and the built-in extraction stand in. Returns null when it could not.
    */
-  render?: (url: string) => Promise<{ html: string; finalUrl: string } | null>;
+  read?: (url: string) => Promise<ReadPage | null>;
   /**
    * Development only: let the crawler reach private addresses (a test site on localhost). The
    * production compose file never sets it, and the config schema defaults it to false.
@@ -66,7 +68,7 @@ export interface CrawledPage extends ExtractedPage {
 }
 
 export interface CrawlSummary {
-  /** Pages that were an application shell and were read through the browser. */
+  /** Pages read through the browser (the reader), rather than the plain fetch. */
   rendered: number;
   /** Distinct URLs discovered (sitemap + links), whether or not fetched. */
   found: number;
@@ -107,8 +109,8 @@ const MAX_REDIRECTS = 3;
 const MAX_SITEMAP_URLS = 2_000;
 const MAX_SITEMAPS = 10;
 const MAX_QUEUE = 5_000;
-/** Below this much extracted text, an app-shell-looking page is worth rendering. */
-const APP_SHELL_MAX_CHARS = 200;
+/** Below this much text a page has nothing to teach; below this much markdown the reader's answer is not trusted over the plain one. */
+const MIN_PAGE_CHARS = 40;
 
 const SKIP_EXTENSIONS = /\.(?:jpe?g|png|gif|webp|svg|ico|bmp|tiff?|mp4|mp3|wav|avi|mov|mkv|webm|zip|gz|tar|rar|7z|pdf|docx?|xlsx?|pptx?|css|js|json|xml|rss|atom|woff2?|ttf|eot|exe|dmg|apk)$/i;
 const TRACKING_PARAMS = /^(?:utm_|fbclid|gclid|mc_|ref$|_ga)/i;
@@ -221,6 +223,8 @@ export async function crawlSite(
       break;
     }
     const url = queue.shift()!;
+    // The plain fetch first: cheap, and it settles the status, the content type, the redirect
+    // and whether the host is turning bots away, before a browser is spent on the page.
     const result = await get(url);
     await sleep(delayMs);
     if ('error' in result) {
@@ -228,17 +232,31 @@ export async function crawlSite(
       if (summary.errors.length < 50) summary.errors.push({ url, reason: result.error });
       continue;
     }
-    if (result.status !== 200) {
+    const challenged = result.status === 200 && looksLikeBotChallenge(result.text);
+    let read: ReadPage | null = null;
+    if (options.read && (result.status === 200 || result.status === 403 || challenged)) {
+      const isHtml = result.contentType.includes('text/html') || result.contentType.includes('application/xhtml');
+      // A host that challenges or refuses the plain fetch may still serve a browser; the reader
+      // is one. Otherwise only pages worth reading are sent to it.
+      if (isHtml || result.status === 403) {
+        read = await options.read(result.finalUrl);
+        if (read && (read.status !== 200 || looksLikeBotChallenge(read.html) || read.markdown.trim().length < MIN_PAGE_CHARS)) {
+          // The browser did no better; fall back to what the plain fetch found.
+          read = read.status === 200 && !looksLikeBotChallenge(read.html) ? read : null;
+        }
+      }
+    }
+    if (result.status !== 200 && !read) {
       summary.failed += 1;
       if (summary.errors.length < 50) summary.errors.push({ url, reason: `HTTP ${result.status}` });
       continue;
     }
     if (url === start) startReachable = true;
-    if (!result.contentType.includes('text/html') && !result.contentType.includes('application/xhtml')) {
+    if (!read && !result.contentType.includes('text/html') && !result.contentType.includes('application/xhtml')) {
       summary.skipped += 1;
       continue;
     }
-    if (looksLikeBotChallenge(result.text)) {
+    if (challenged && !read) {
       summary.failed += 1;
       if (summary.errors.length < 50) summary.errors.push({ url, reason: 'bot verification page' });
       if (url === start) {
@@ -247,26 +265,27 @@ export async function crawlSite(
       }
       continue;
     }
-    const finalUrl = result.finalUrl;
+    const finalUrl = read?.finalUrl && hosts.has(new URL(read.finalUrl).hostname) ? normaliseUrl(read.finalUrl, null) ?? result.finalUrl : result.finalUrl;
     if (delivered.has(finalUrl)) continue;
     delivered.add(finalUrl);
     summary.fetched += 1;
     if (finalUrl !== url) queued.add(finalUrl);
-    let html = result.text;
-    let extracted = extractPage(html, finalUrl);
-    // An application shell: the HTML is a <div id="root"> and a script tag, and the words arrive
-    // when the script runs. When a browser is available it runs the script; otherwise the page is
-    // skipped like any other with nothing to read.
-    if (options.render && (!extracted || extracted.text.length < APP_SHELL_MAX_CHARS) && looksLikeAppShell(html)) {
-      const rendered = await options.render(finalUrl);
-      if (rendered) {
-        html = rendered.html;
-        extracted = extractPage(html, finalUrl);
-        summary.rendered += 1;
-      }
-    }
+    const html = read?.html ?? result.text;
     for (const link of extractLinks(html)) enqueue(link, finalUrl);
-    if (!extracted || extracted.text.length < 40) {
+    for (const link of read?.links ?? []) enqueue(link, finalUrl);
+    let extracted: ExtractedPage | null = null;
+    if (read && read.markdown.trim().length >= MIN_PAGE_CHARS) {
+      summary.rendered += 1;
+      const plain = extractPage(html, finalUrl);
+      extracted = {
+        title: read.title ?? plain?.title ?? finalUrl,
+        description: read.description ?? plain?.description ?? null,
+        text: tidyMarkdown(read.markdown),
+      };
+    } else {
+      extracted = extractPage(html, finalUrl);
+    }
+    if (!extracted || extracted.text.length < MIN_PAGE_CHARS) {
       summary.skipped += 1;
       continue;
     }
@@ -277,6 +296,21 @@ export async function crawlSite(
     summary.stoppedBecause = 'start_unreachable';
   }
   return summary;
+}
+
+/**
+ * The reader's markdown, in the shape the chunker reads: `-` bullets, every heading on a line of
+ * its own with blank lines around it (the chunker takes a heading only as a block by itself),
+ * single blank lines between blocks.
+ */
+export function tidyMarkdown(markdown: string): string {
+  return markdown
+    .replace(/\r\n?/g, '\n')
+    .replace(/^[ \t]*[*+][ \t]+/gm, '- ')
+    .replace(/[ \t]+$/gm, '')
+    .replace(/^(#{1,6}[ \t]+[^\n]+)$/gm, '\n$1\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 // --- URL handling ----------------------------------------------------------------------------------

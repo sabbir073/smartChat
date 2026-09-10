@@ -96,13 +96,13 @@ export const aiEnvSchema = z.object({
   /** Must match the `vector(n)` column in knowledge_chunks. Changing it is a migration and a re-index. */
   AI_EMBED_DIMENSIONS: z.coerce.number().int().min(64).max(4096).default(768),
   AI_LOCAL_PARALLEL: z.coerce.number().int().min(1).max(16).default(2),
-  /** The page renderer for JavaScript-only websites. Empty disables rendering; such pages are skipped. */
-  AI_RENDERER_URL: z
+  /** The page reader (crawl4ai + a browser). Empty disables it: pages are read with the plain fetch and the built-in extraction. */
+  AI_READER_URL: z
     .string()
     .default('')
     .transform((value) => value.trim())
     .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
-  AI_RENDERER_TOKEN: z.string().default(''),
+  AI_READER_TOKEN: z.string().default(''),
   /** Test only: how many milliseconds a "minute" of the assistant's timers is. Leave unset in production. */
   AI_TIMER_MINUTE_MS: z.coerce.number().int().min(1000).max(60_000).default(60_000),
   /** Development only: let the website crawler read private addresses (a test site on localhost). */

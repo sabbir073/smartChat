@@ -365,12 +365,15 @@ Nothing else is needed for local answering. Postgres is built from
 with the AI agent rebuilds and recreates the database container: `docker compose build postgres
 && docker compose up -d postgres`, then `migrate` as usual. The data volume is untouched.
 
-The `renderer` service (Chromium behind one endpoint, from `infrastructure/renderer`) reads
-websites that are empty until their JavaScript runs. It needs `AI_RENDERER_TOKEN` in `.env` - a
-shared secret between the worker and the renderer, any long random string
-(`openssl rand -hex 32`) - and its image is built with the rest (`docker compose build renderer`;
-the base image is ~2 GB on first pull). Set `AI_RENDERER_URL=` (empty) to run without it; such
-pages are then skipped.
+The `crawl4ai` service (crawl4ai and a headless Chromium behind one endpoint, from
+`infrastructure/crawl4ai`) reads websites the way a visitor's browser does and hands the worker
+markdown. It needs `AI_READER_TOKEN` in `.env` - a shared secret between the worker and the
+reader, any long random string (`openssl rand -hex 32`) - and its image is built with the rest
+(`docker compose build crawl4ai`; the first build downloads Chromium, ~1 GB in all). Set
+`AI_READER_URL=` (empty) to run without it; websites are then read with the plain fetch and the
+built-in extraction. Upgrading from the earlier `renderer` service: rename `AI_RENDERER_URL` /
+`AI_RENDERER_TOKEN` to `AI_READER_URL` / `AI_READER_TOKEN` in `.env`, then `docker compose rm -sf
+renderer` and `docker compose up -d crawl4ai`.
 
 The fallback provider is optional and entered in the console → **AI**: choose OpenAI, DeepSeek or Anthropic,
 paste the key (sealed with `SETTINGS_ENCRYPTION_KEY`, like Stripe's), **Test fallback**. The

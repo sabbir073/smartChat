@@ -152,16 +152,15 @@ turns are not decoration: measured on the production model with rules alone, it 
 country it ships to; with the practice turns it got seven of eight right. Budget: ~3,000
 estimated tokens, of which passages take at most 1,600 and history 500.
 
-## The website crawler (`crawler.ts`, `extract.ts`, `crawl.service.ts`)
+## The website crawler (`crawler.ts`, `reader.ts`, `extract.ts`, `crawl.service.ts`)
 
 "Sync website" (and the first switch to an AI mode, and a weekly job) crawls the property's
 `websiteUrl`: `robots.txt` first (honoured, and its `Sitemap:` lines), then the sitemap(s), then
 links found on pages already read, breadth first, until `crawlMaxPages` (default 200, ceiling
-1,000). Each page is reduced to markdown-ish text (Readability for the main content, a
-chrome-stripped body for short pages; `<h1>`…`<h6>` become `#` headings so passages keep their
-section) and stored as a `page` document keyed by URL; unchanged content (same hash) is only
-stamped as seen, so a weekly re-read of an unchanged site embeds nothing. Pages a completed crawl
-did not see are removed. A crawl that reads nothing removes nothing and leaves a sentence in
+1,000). Each page becomes markdown with its headings kept (see the reader, below) and is stored
+as a `page` document keyed by URL; unchanged content (same hash) is only stamped as seen, so a
+weekly re-read of an unchanged site embeds nothing. Pages a completed crawl did not see are
+removed. A crawl that reads nothing removes nothing and leaves a sentence in
 `ai_settings.crawl_error` that the settings page shows.
 
 It is an SSRF target and is built as one: only the property's own host and its `www.` twin, over
@@ -177,15 +176,27 @@ Cloudflare "Just a moment…") are recognised and the crawl stops with an explan
 indexing the challenge page. The crawler does not attempt to pass such challenges; the owner asks
 the host to allow the agent, or types the content into Key facts.
 
-**JavaScript-only pages** (`renderer.ts`, `infrastructure/renderer`). A page whose HTML is an
-application shell - a `<div id="root">` and a script, a "you need to enable JavaScript" notice,
-a body with no words - is sent to the `renderer` container: Chromium behind one endpoint
-(`POST /render {url}`), reached only by the worker with a shared secret (`AI_RENDERER_TOKEN`).
-The browser fetches no images, media or fonts, waits for the network to go quiet, and returns
-the HTML as rendered, which then goes through the same extraction as any page. It applies the
-crawler's address rules on its own side, per request, sub-requests included, so a page cannot
-make the browser reach anything on the private network. Two renders at once, capped at 1.5 GB
-and two cores in production. With `AI_RENDERER_URL` empty such pages are skipped, as before.
+**The page reader** (`reader.ts`, `infrastructure/crawl4ai`). Every HTML page the crawl
+reaches is read through the `crawl4ai` container - [crawl4ai](https://github.com/unclecode/crawl4ai)
+and a headless Chromium behind one endpoint (`POST /read {url}`), reached only by the worker
+with a shared secret (`AI_READER_TOKEN`). It reads the page the way a visitor's browser does:
+the JavaScript runs, overlays and cookie banners are removed, navigation, headers, footers,
+sidebars and forms are dropped, and what is left comes back as markdown - headings, lists and
+tables kept, links and images out of the text - together with the links the rendered page
+carries (so a menu drawn by JavaScript is followed too) and the page's title and description.
+The worker's `tidyMarkdown` puts it in the chunker's shape (`-` bullets, headings on their own
+lines). The plain fetch still goes first, because it is cheap and it settles the status, the
+content type, the redirect and whether the host is turning bots away; a host that challenges or
+refuses the plain fetch is tried once more through the browser, which some hosts let through.
+When the reader is down, or has nothing for a page, the plain HTML goes through the built-in
+extraction (`extract.ts`: Readability for the main content, a chrome-stripped body for short
+pages) exactly as before - so a website is always read, only less well.
+
+The reader fetches no images, media or fonts, and applies the crawler's address rules on its own
+side, per request and per sub-request, so a page cannot make the browser reach anything on the
+private network. Two pages at once (`AI_READER_CONCURRENCY`), 20 s per page, capped at 2 GB and
+two cores in production; `docker compose build crawl4ai` builds it (Python, crawl4ai 0.9.3 and
+one Chromium; ~1 GB). With `AI_READER_URL` empty the crawler runs on the plain fetch alone.
 
 **Pages to skip** (`ai_settings.crawl_exclude`, the "Pages to skip" box): path patterns with `*`
 wildcards. `/blog` is anchored and covers everything beneath it; `/docs/*/draft` is anchored with
@@ -438,7 +449,8 @@ Environment (every Node service; the `ai` container reads the model names too):
 | --- | --- | --- |
 | `AI_LOCAL_URL` | `http://ai:11434` | the local Ollama; empty disables local (fallback only) |
 | `AI_CHAT_MODEL` | `qwen3:1.7b` | pulled and warmed by the `ai` container |
-| `AI_RENDERER_URL` / `AI_RENDERER_TOKEN` | `http://renderer:3000` / — | the page renderer; the token is a shared secret, any long random string |
+| `AI_READER_URL` / `AI_READER_TOKEN` | `http://crawl4ai:3000` / — | the page reader (crawl4ai); the token is a shared secret, any long random string. Empty URL: plain fetch only |
+| `AI_READER_CONCURRENCY` | `2` | pages the reader works on at once |
 | `AI_EMBED_MODEL` | `embeddinggemma` | must match `AI_EMBED_DIMENSIONS` and the column |
 | `AI_EMBED_DIMENSIONS` | `768` | |
 | `AI_LOCAL_PARALLEL` | `2` | `OLLAMA_NUM_PARALLEL`, and the gateway's overflow threshold |
