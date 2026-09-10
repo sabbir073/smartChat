@@ -219,6 +219,8 @@ describe('looksLikeLookup', () => {
     expect(looksLikeLookup('Hello there')).toBe(false);
     expect(looksLikeLookup('Thanks, that is all. Bye!')).toBe(false);
     expect(looksLikeLookup('yes')).toBe(false);
+    expect(looksLikeLookup('Great, thanks, that is all I needed. Bye!')).toBe(false);
+    expect(looksLikeLookup('Hi, do you deliver to Sylhet and how much does it cost for a bike?')).toBe(true);
     expect(looksLikeLookup('How much is delivery to Sylhet?')).toBe(true);
     expect(looksLikeLookup('ভর্তি ফি কত টাকা এবং কখন?')).toBe(true);
   });

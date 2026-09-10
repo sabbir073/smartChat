@@ -64,7 +64,10 @@ const LOOKUP_MIN_WORDS = 4;
 
 export function looksLikeLookup(question: string): boolean {
   const words = question.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
-  return words.length >= LOOKUP_MIN_WORDS && !/^(hi|hello|hey|thanks|thank you|ok|okay|bye|goodbye)\b/i.test(question.trim());
+  if (words.length < LOOKUP_MIN_WORDS) return false;
+  // "Great, thanks, that's all I needed - bye!" is long enough to count and still not a lookup.
+  if (words.length <= 12 && /\b(hi|hello|hey|thanks|thank you|thank|cheers|ok|okay|bye|goodbye|good ?night|welcome)\b/i.test(question)) return false;
+  return true;
 }
 
 export class AiReplyService {
