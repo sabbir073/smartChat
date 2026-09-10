@@ -58,7 +58,14 @@ export type AiReplyOutcome =
 const MAX_HISTORY_MESSAGES = 10;
 const MAX_QUESTION_CHARS = 2_000;
 /** The lookup has taken this long: tell the visitor it is being looked into. */
-const HOLDING_AFTER_MS = 2_500;
+const HOLDING_AFTER_MS = 4_500;
+/** A message with fewer words than this is a greeting, a thanks, a yes - not something to look up. */
+const LOOKUP_MIN_WORDS = 4;
+
+export function looksLikeLookup(question: string): boolean {
+  const words = question.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
+  return words.length >= LOOKUP_MIN_WORDS && !/^(hi|hello|hey|thanks|thank you|ok|okay|bye|goodbye)\b/i.test(question.trim());
+}
 
 export class AiReplyService {
   private readonly clock: Clock;
@@ -166,9 +173,14 @@ export class AiReplyService {
 
     const started = this.clock.timestamp();
     await this.typing(conversation, settings.assistantName, true);
-    // "Give me a moment, I'm checking that for you." Only if the lookup takes longer than a
-    // moment: a greeting answered in a second must not be preceded by a promise to check.
+    const question = message.body.trim().slice(0, MAX_QUESTION_CHARS);
+    // "Give me a moment, I'm checking that for you." Only when it reads as a lookup and the
+    // lookup is taking longer than a moment: a "hello" or a "thanks, bye" is never one, and a
+    // promise to check before "Hello!" would be absurd. Measured on the production CPU a fresh
+    // question takes four to five seconds, so the threshold sits just above that; the typing
+    // indicator covers the rest.
     const holding = setTimeout(() => {
+      if (!looksLikeLookup(question)) return;
       void postBotMessage(this.options.db, this.options.events, {
         conversation,
         assistantName: settings.assistantName,
@@ -178,7 +190,6 @@ export class AiReplyService {
       }).catch((error: unknown) => this.options.log?.('ai.reply.holding_failed', { conversationId: conversation.id, error: String(error) }));
     }, this.options.holdingAfterMs ?? HOLDING_AFTER_MS);
     try {
-      const question = message.body.trim().slice(0, MAX_QUESTION_CHARS);
       const [retrieved, history] = await Promise.all([
         this.options.knowledge.retrieve(input.accountId, input.propertyId, question),
         this.history(conversation.id, message.seq),

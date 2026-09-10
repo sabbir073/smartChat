@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { cleanText, cleanTopic, MAX_REPLY_CHARS, parseReply, parseSuggestions } from './contract.js';
+import { looksLikeLookup } from './reply.service.js';
 
 const options = { passageCount: 3, allowedHosts: ['acmebikes.example'] };
 
@@ -210,5 +211,15 @@ describe('cleanText', () => {
     const out = cleanText(text, []);
     expect(out.length).toBeLessThanOrEqual(MAX_REPLY_CHARS);
     expect(out.endsWith('.')).toBe(true);
+  });
+});
+
+describe('looksLikeLookup', () => {
+  it('treats greetings, thanks and one-word answers as not worth a holding message', () => {
+    expect(looksLikeLookup('Hello there')).toBe(false);
+    expect(looksLikeLookup('Thanks, that is all. Bye!')).toBe(false);
+    expect(looksLikeLookup('yes')).toBe(false);
+    expect(looksLikeLookup('How much is delivery to Sylhet?')).toBe(true);
+    expect(looksLikeLookup('ভর্তি ফি কত টাকা এবং কখন?')).toBe(true);
   });
 });

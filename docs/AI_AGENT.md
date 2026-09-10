@@ -143,6 +143,14 @@ Routing `fallback_only` exists for an operator whose local box is down for maint
 
 ## The prompt (`prompt.ts`)
 
+The system prompt (the rules) and the practice turns name no business; the assistant's name, the
+business and the owner's instructions come after the practice, in the message that introduces
+the real passages. The model server caches the state of a prompt's prefix, and measured on the
+production box a cached prefix costs 0.16 s where a cold one costs 6 s: with the business in the
+system prompt every website had its own prefix and every slot warmed up separately; with it after
+the practice, the ~1,300 tokens of rules and practice are warm for everyone, and a reply pays
+only for its own identity line, passages and conversation.
+
 Rules first and short (a 2B model keeps the beginning of a prompt best), then six *practice
 turns* about a shop that does not exist - an answer that cites its passage, a fact applied with a
 little geography, two tickets, a handoff - then "the practice is over" and the real passages,
@@ -305,10 +313,12 @@ conversation it is can rate, and only a bot message the AI wrote.
 
 ## What the worker does with the signals (`reply.service.ts`)
 
-- **Holding message.** If the model has not answered after 2.5 s (`HOLDING_AFTER_MS`), the
-  visitor gets the owner's *checking* sentence as a bot message (`metadata.kind = 'holding'`),
-  and the answer follows. Measured on the production CPU most answers land under that, so the
-  message appears only when it is needed.
+- **Holding message.** If the model has not answered after 4.5 s (`HOLDING_AFTER_MS`) and the
+  message reads as a lookup (four words or more, not a greeting or a thanks), the visitor gets
+  the owner's *checking* sentence as a bot message (`metadata.kind = 'holding'`), and the
+  answer follows. Measured on the production CPU a fresh question takes four to five seconds
+  with a warm prefix, so the message appears for the slow ones - a cold slot, the fallback, a
+  long passage set - and never before "Hello!".
 - **Urgent.** `urgent: true` sets the conversation's priority to `urgent`, pushes the change to
   every open inbox, and - if the reply did not acknowledge it itself - appends the owner's
   *urgent* sentence.

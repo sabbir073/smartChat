@@ -59,15 +59,27 @@ export const DEFAULT_BUDGET: PromptBudget = {
   historyTokens: 350,
 };
 
-const PRACTICE_TOKENS = 640;
+const PRACTICE_TOKENS = 700;
 
+/**
+ * The prompt's shape, and why.
+ *
+ * The system prompt and the practice turns are the same for every business on the server: the
+ * rules name no business, and the practice shop is invented. That is deliberate. The model server
+ * caches the state of a prompt's prefix, and measured on the production box a cached prefix
+ * costs a fifth of a second where a cold one costs six seconds. With the business's name and
+ * instructions in the system prompt, every property had its own prefix and every slot warmed up
+ * separately; with them after the practice, the ~1,300 tokens of rules and practice are warm for
+ * everyone, and a reply pays only for what is its own: the identity line, the passages, the
+ * conversation.
+ */
 export function buildPrompt(input: PromptInput, budget: PromptBudget = DEFAULT_BUDGET): {
   messages: ChatMessage[];
   passages: PromptPassage[];
   estimatedTokens: number;
 } {
-  const system = systemPrompt(input);
-  const systemTokens = estimateTokens(system);
+  const identity = identityPrompt(input);
+  const systemTokens = estimateTokens(SYSTEM_PROMPT) + estimateTokens(identity);
 
   const passages = fitPassages(input.passages, budget.passageTokens);
   const reference = passages.length > 0 ? renderPassages(passages) : NO_PASSAGES;
@@ -80,11 +92,11 @@ export function buildPrompt(input: PromptInput, budget: PromptBudget = DEFAULT_B
   const history = fitHistory(input.history, Math.max(0, historyBudget));
 
   const messages: ChatMessage[] = [
-    { role: 'system', content: system },
+    { role: 'system', content: SYSTEM_PROMPT },
     ...PRACTICE_TURNS,
     {
       role: 'user',
-      content: `The practice is over. These are the real reference passages; answer from these from now on.\n\n${reference}`,
+      content: `The practice is over. ${identity}\n\nThese are the real reference passages; answer from these from now on.\n\n${reference}`,
     },
     { role: 'assistant', content: practice({ decision: 'answer', text: 'Ready.', sources: [] }) },
   ];
@@ -183,6 +195,15 @@ const PRACTICE_TURNS: ChatMessage[] = [
   { role: 'assistant', content: practice({ decision: 'ticket', text: '', sources: [], topic: 'order status' }) },
   { role: 'user', content: 'Can I talk to a human?' },
   { role: 'assistant', content: practice({ decision: 'human', text: '', sources: [] }) },
+  { role: 'user', content: 'Wait, am I talking to a bot?' },
+  {
+    role: 'assistant',
+    content: practice({
+      decision: 'chat',
+      text: "I'm the automated assistant on this website - a person from the team can take over at any time. What can I help you with?",
+      sources: [],
+    }),
+  },
   { role: 'user', content: 'Great, thanks, that is all I needed. Bye!' },
   {
     role: 'assistant',
@@ -202,9 +223,19 @@ function practice(reply: { decision: string; text: string; sources: number[]; ur
   });
 }
 
-function systemPrompt(input: PromptInput): string {
+/** Who the assistant is for this business. After the practice, so the practice can be shared. */
+function identityPrompt(input: PromptInput): string {
+  const instructions = input.instructions.trim();
+  return (
+    `From now on you are ${input.assistantName}, answering visitors on the website of ${input.businessName}.` +
+    (instructions ? ` About the business, from its owner: ${instructions}` : '')
+  );
+}
+
+/** The rules, the same for every business. Nothing in here names one. */
+const SYSTEM_PROMPT: string = (() => {
   const lines = [
-    `You are ${input.assistantName}, who answers visitors in the live chat on the website of ${input.businessName}. You are warm, quick and helpful, like the best person on a support desk.`,
+    'You answer visitors in the live chat on a business\'s website. You are warm, quick and helpful, like the best person on a support desk. The business, your name and the reference passages are given to you after a short practice.',
     '',
     'Rules:',
     '1. Questions about the business - what it offers, prices, policies, hours, delivery, contact details, how things work here - are answered from the reference passages with decision "answer". Every such fact must come from the passages; you may use general knowledge (geography, language, arithmetic) to apply them - a city inside a country the passages mention is covered.',
@@ -220,12 +251,8 @@ function systemPrompt(input: PromptInput): string {
     '',
     'Reply with a JSON object: {"decision": "answer" | "chat" | "ticket" | "human", "text": string, "sources": number[], "urgent": boolean, "goodbye": boolean, "topic": string}.',
   ];
-  const instructions = input.instructions.trim();
-  if (instructions) {
-    lines.push('', 'About the business, from its owner:', instructions);
-  }
   return lines.join('\n');
-}
+})();
 
 function renderPassages(passages: PromptPassage[]): string {
   const parts = passages.map((p) => {
