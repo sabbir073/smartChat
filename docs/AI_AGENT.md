@@ -15,9 +15,13 @@ to a hosted model the operator configures in the console.
    uploaded, the published help-centre articles and the "key facts" its owner typed in. Nothing
    from the inbox, contacts, tickets or other conversations is ever in the prompt.
 3. **Anything about the business that needs the backend, or that it does not know, becomes a
-   ticket.** It says so in one sentence and shows *Create a ticket* / *Ask something else*. Never
-   a guess. Greetings, thanks, small talk and general questions that are not about the business
-   are answered in the model's own words (`chat`) - "Hello" gets "Hello", not a ticket form.
+   ticket.** It never says "I can't help with that": when a lookup is taking a moment it says
+   so ("Give me a moment, I'm checking that for you..."), and when the content has nothing it
+   says the team will look into it properly and shows *Create a ticket* / *Ask something else*.
+   Never a guess. Greetings, thanks, small talk and general questions that are not about the
+   business are answered in the model's own words (`chat`) - "Hello" gets "Hello", not a ticket
+   form. It hands the visitor the site's own links (a product, a page, an article) when a passage
+   has one; links anywhere else are stripped.
 4. **The owner chooses the mode** per website: *Team* (today's behaviour), *AI when the team is
    offline*, or *AI answers first*. Every website has its own assistant - name, voice, knowledge,
    mode. A person replying or being assigned always takes a conversation over; the AI speaks in
@@ -25,6 +29,17 @@ to a hosted model the operator configures in the console.
 5. **Local first, hosted fallback.** The local model (`ai` container) has priority. The fallback
    (OpenAI, DeepSeek or Anthropic, key in the console - or the account's own key) is used when
    the local model fails, times out, is busy, or has failed repeatedly.
+6. **Discreet, but honest.** The assistant does not announce what it is: no "AI" badge unless the
+   owner turns it on (`showAiBadge`, off by default), no "as an AI" in its replies. Asked
+   directly whether they are talking to a person, it says it is the website's automated
+   assistant and that a person can take over. It will not claim to be a person: the EU AI Act
+   (Art. 50) and California's bot-disclosure law both require that, and a visitor who catches a
+   lie stops trusting every true answer too.
+7. **The model signals; the worker acts.** The model can only *say* that something is urgent, that
+   the visitor is done, or what the topic is. Marking the chat urgent, tagging it, closing it,
+   taking it back from a person who did not turn up - the worker does all of that from the
+   signals and the clock, with the rules re-checked at the moment it acts. Nothing the model emits
+   can reach the backend directly.
 
 ## Architecture
 
@@ -206,7 +221,7 @@ document, its chunks and the object together.
 
 ## The contract (`contract.ts`)
 
-The model must answer `{"decision": "answer"|"chat"|"ticket"|"human", "text": string, "sources": number[]}`.
+The model must answer `{"decision": "answer"|"chat"|"ticket"|"human", "text": string, "sources": number[], "urgent": boolean, "goodbye": boolean, "topic": string}`.
 
 - `answer` must cite at least one passage that was in the prompt; an answer with no valid source
   becomes `ticket` ("what it does not know, it does not guess").
@@ -227,6 +242,14 @@ The model must answer `{"decision": "answer"|"chat"|"ticket"|"human", "text": st
   boundary, and **links are kept only if their host is the website's own** (its URL or one of its
   allowed domains) — a tampered passage cannot send visitors elsewhere.
 - Anything unparseable → `failed` turn, ticket offer posted, nothing retried.
+- The three **signals** are hints, cleaned and bounded: `urgent` and `goodbye` are booleans;
+  `topic` is at most two words, thirty characters, filler ("what", "the") and empty labels
+  ("general", "help") dropped. What the worker does with them is below.
+
+**Suggestions** (`parseSuggestions`) are held to the same standard: an `answer` suggestion must
+cite a passage and contain no invented number or practice fact - a person sends it with one
+click, so a wrong one is worse than in the widget, not better. Failing candidates are dropped, not
+softened; at most three survive, de-duplicated.
 
 ## Retrieval (`knowledge.service.ts`)
 
@@ -269,6 +292,61 @@ written on the turn (`ai_turns.rating`, for analytics) and into the message's me
 widget shows it after a reload and the inbox shows it next to the reply). Only the visitor whose
 conversation it is can rate, and only a bot message the AI wrote.
 
+## What the worker does with the signals (`reply.service.ts`)
+
+- **Holding message.** If the model has not answered after 2.5 s (`HOLDING_AFTER_MS`), the
+  visitor gets the owner's *checking* sentence as a bot message (`metadata.kind = 'holding'`),
+  and the answer follows. Measured on the production CPU most answers land under that, so the
+  message appears only when it is needed.
+- **Urgent.** `urgent: true` sets the conversation's priority to `urgent`, pushes the change to
+  every open inbox, and - if the reply did not acknowledge it itself - appends the owner's
+  *urgent* sentence.
+- **Topic.** The first reply's `topic` becomes a tag on the conversation (unless the team already
+  tagged it, or it has ten), so the inbox can be filtered by what visitors ask about.
+- **Goodbye.** `goodbye: true` arms a one-minute close (below): "oh, one more thing" is common.
+- **Handoff.** With someone online, the chat is assigned and the person gets an **internal
+  note** from the assistant - what the visitor asked, the last few turns - so they do not start
+  by asking "how can I help?". The visitor never sees the note. With nobody online the visitor is
+  told so in the owner's *offline handoff* sentence and offered a ticket, while the assistant
+  keeps helping.
+
+## Keeping time (`lifecycle.service.ts`, job `ai.followup`)
+
+A good support person keeps a rhythm without thinking about it; the assistant keeps the same one
+with three delayed queue jobs. Every timer is a BullMQ job with a delay, carrying the
+conversation's `ai_followup_seq` at the moment it was armed. The counter moves whenever the
+conversation does - a visitor message, a person replying, a takeover, a hand-back, a new timer -
+so a job whose number no longer matches finds the world has moved on and does nothing. The
+conditions are re-checked when the job fires as well (`decideAiReply`, the plan, who has written
+what); the counter is the fast path, the checks are the truth.
+
+| timer | armed | fires | default |
+| --- | --- | --- | --- |
+| `handoff_wait` | after a handoff to a person | the person has written nothing since: the chat is **taken back** - unassigned, un-paused, the owner's *handoff back* sentence posted with a ticket offer (`kind: 'handoff_back'`), `conversation:assigned {by: 'ai', reason: 'no_reply'}` to the inbox | 3 min |
+| `idle_nudge` | after every assistant reply (and a take-back) | the visitor has been silent since: "anything else, or shall I close this?" (`kind: 'idle_nudge'`), `ai_idle_nudged_at` stamped | 5 min |
+| `idle_close` | after the nudge; one minute after a goodbye | still nothing: the owner's *close* sentence (`kind: 'idle_close'`), the conversation closed with a system message ("*Name* ended this chat after the visitor went quiet"), `conversation:closed {closedBy: 'ai'}` | 3 min |
+
+A person who replied keeps the chat (the take-back checks for any agent message after
+`ai_handoff_at`). A visitor who answers the nudge clears `ai_idle_nudged_at` (in
+`insertMessage`) and the close does nothing. Each wait is a setting per website, `0` switches
+that step off; the timers only run where the assistant would answer the next message (never in
+the team mode, never while a person has the chat). `AI_TIMER_MINUTE_MS` shortens a "minute" for
+tests only; the worker warns at boot when it is set.
+
+## Suggestions for the team (`AiReplyService.suggest`, job `ai.suggest`)
+
+When a person is answering - the team mode, a takeover, a pause, the team online in the mixed
+mode - the assistant drafts up to three replies to the visitor's **first** message of the chat:
+one that answers from the content (cited, grounded), one that asks the most useful clarifying
+question, one that acknowledges and reassures. They are stored on the conversation
+(`ai_suggestions`, `ai_suggested_at`), pushed to every open inbox on `conversation:updated`, shown
+as chips above the composer (a click puts one in the box; nothing is sent until the person sends
+it), and cleared by the person's reply. Once per chat, so the inbox is not flooded; the *Suggest
+a reply* button covers the rest. `suggestReplies` per website turns it off. The realtime server
+enqueues the job when it decides not to queue a reply; the worker runs the same check when a
+queued reply turns out to be unwanted (a mode switched a moment ago), so a stale cache ends in
+suggestions rather than silence.
+
 ## Drafts for agents (`AiReplyService.draft`, `POST /conversations/:id/ai/draft`)
 
 "Suggest a reply" in the composer. The same retrieval, prompt and contract as a visitor-facing
@@ -308,16 +386,18 @@ posts "ticket #N is open…" into the chat. The offline-form switch does not gat
 
 | table | purpose |
 | --- | --- |
-| `ai_settings` | per website: `mode`, assistant name, instructions, key facts, offer/handoff texts, loop guard, `crawl_max_pages`, crawl state (`crawl_started_at`, `last_crawled_at`, pages found/indexed, `crawl_error`) |
+| `ai_settings` | per website: `mode`, assistant name, instructions, key facts, the sentences it says (offer, handoff, checking, offline handoff, urgent, handoff back, idle nudge, idle close), the waits (`handoff_wait_minutes`, `idle_nudge_minutes`, `idle_close_minutes`), `show_ai_badge`, `suggest_replies`, loop guard, `crawl_max_pages`, crawl state |
 | `knowledge_documents` | page / article / notes: title, url (unique per website), text, content hash, `indexed_at`, `last_seen_at`, `error` |
 | `knowledge_chunks` | passages: `embedding vector(768)`, generated `search tsvector` |
 | `ai_turns` | every turn: decision, provider, model, `fell_back`, tokens, latency, retrieved and cited chunk ids, error |
-| `conversations` | `ai_reply_count`, `ai_last_reply_at`, `ai_paused_at`, `ai_handoff_at` |
+| `conversations` | `ai_reply_count`, `ai_last_reply_at`, `ai_paused_at`, `ai_handoff_at`, `ai_followup_seq`, `ai_idle_nudged_at`, `ai_suggestions`, `ai_suggested_at` |
 | `plans.ai_replies_per_month` | NULL everywhere (unlimited, by the operator's decision); a cap can be set per plan later |
 | `platform_settings` | `ai.fallback_provider`, `ai.fallback_api_key` (sealed), `ai.fallback_model`, `ai.local_timeout_ms`, `ai.routing` |
 
 Messages the AI writes are `sender_type = bot` with `metadata.source = 'ai'`, `senderName`,
-`sources[]` and optionally `offer`. `toMessageDto` whitelists these into `message.ai`.
+`sources[]` and optionally `offer`, `kind` (`holding`, `handoff_back`, `idle_nudge`,
+`idle_close`) and `badge`. `toMessageDto` whitelists these into `message.ai`; the handover note is
+a `note` from the bot with `metadata.kind = 'handover'`, agents only.
 
 ## Permissions
 
@@ -332,8 +412,14 @@ Messages the AI writes are `sender_type = bot` with `metadata.source = 'ai'`, `s
 Tenant (`authenticateTenant`):
 
 - `GET /properties/:id/ai` — settings, plan, knowledge status, this month's usage.
-- `PATCH /properties/:id/ai` — any of `mode`, `assistantName`, `instructions`, `keyFacts`,
-  `ticketOfferText`, `handoffText`, `maxRepliesPerConversation`. Changing `keyFacts` re-indexes them.
+- `PATCH /properties/:id/ai` — any of `mode`, `assistantName`, `instructions`, `keyFacts`, the
+  sentences (`ticketOfferText`, `handoffText`, `checkingText`, `offlineHandoffText`, `urgentText`,
+  `handoffBackText`, `idleNudgeText`, `idleCloseText`), the waits (`handoffWaitMinutes`,
+  `idleNudgeMinutes`, `idleCloseMinutes`, 0-120), `showAiBadge`, `suggestReplies`,
+  `maxRepliesPerConversation`, `crawlMaxPages`, `crawlExclude`, `productFeedUrl`. Changing
+  `keyFacts` re-indexes them.
+- The conversation DTO carries `ai.suggestions[]` and `ai.suggestedAt` beside `ai.pausedAt`,
+  `ai.handoffAt`, `ai.replyCount`, `ai.lastReplyAt`.
 - `POST /properties/:id/ai/reindex` — "Sync website": crawl the site (one queued job per
   website, de-duplicated) and re-index every article and the key facts (3/hour).
 
@@ -375,20 +461,29 @@ reason).
 
 When the fallback answers, the visitor's recent messages in that chat and the retrieved public
 passages go to the provider; nothing else about the visitor does. The marketing site's privacy and
-terms pages say so, and every AI reply is labelled *AI* in the widget and the inbox.
+terms pages say so. In the inbox every AI reply is labelled *AI*; in the widget the label is the
+owner's choice (`showAiBadge`, off by default), and the assistant answers truthfully when asked
+what it is (rule 6).
 
 ## Verifying it
 
-Unit tests: `packages/core/src/ai/*.test.ts` — the contract (citations, downgrades, link
-stripping, length), the chunker, the prompt budget, the dispatch rules, and the gateway (local
-first, fallback on failure and timeout, breaker, overflow, fallback-only).
+Unit tests: `packages/core/src/ai/*.test.ts` — the contract (citations, downgrades, grounding,
+practice leaks, signals, suggestions, link stripping, length), the chunker, the prompt budget,
+the dispatch rules, the lifecycle (stale timers, nudge, close, take-back, a person who replied,
+a visitor who came back), and the gateway (local first, fallback on failure and timeout,
+breaker, overflow, fallback-only).
 
 End to end (`/tmp/e2e/ai.mjs` against a local API + realtime + worker with an Ollama/OpenAI stub):
 plan gate on Free; sealed fallback key and test; key facts and articles indexed, unpublished,
 re-indexed; an answer with its source and a foreign link stripped; the ticket offer, a ticket
 attached to the chat with the confirmation, AI silent afterwards; handoff assigning an online
-member; mixed mode silent while online; agent takeover; local failure → fallback, local timeout
-(5 s) → fallback, garbage → `failed` + offer; re-index.
+member with a handover note; mixed mode silent while online; agent takeover, hand back, pause,
+feedback; local failure → fallback, local timeout (5 s) → holding message then fallback, garbage
+→ `failed` + offer; suggestions on the first message in the team mode, cleared by the reply;
+holding message, urgent priority, topic tag, honest when asked, the badge on request; goodbye →
+closed a minute later; a quiet visitor nudged, answering cancels the close, quiet again → closed;
+a handoff nobody picked up taken back (and kept by a person who replied) - with
+`AI_TIMER_MINUTE_MS=3000`; own key; re-index.
 
 Live: the same sequence driven through the real widget on getchat.site against the real
 local model.

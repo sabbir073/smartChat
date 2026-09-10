@@ -97,7 +97,7 @@ export function MessageList({
         const showOffer =
           fromAi && message.ai?.offer === 'ticket' && isLast && offer !== undefined && !offer.dismissed;
         // Only what the assistant said in its own words is rated; the offer is the owner's sentence.
-        const canRate = fromAi && !message.ai?.offer && onRate !== undefined && message.delivery !== 'pending';
+        const canRate = fromAi && !message.ai?.offer && !message.ai?.kind && onRate !== undefined && message.delivery !== 'pending';
         const rating = message.ai?.rating;
         return (
           <div
@@ -129,7 +129,7 @@ export function MessageList({
             </div>
             <div className="message-meta">
               {!fromVisitor && message.senderName && <span>{message.senderName}</span>}
-              {fromAi && (
+              {fromAi && message.ai?.badge && (
                 <span className="ai-badge" title="Written by an AI assistant">
                   AI
                 </span>

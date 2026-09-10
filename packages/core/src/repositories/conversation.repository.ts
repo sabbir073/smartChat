@@ -5,7 +5,7 @@ import type {
   Visitor,
   VisitorSession,
 } from '@smartchat/database';
-import { toJson } from '@smartchat/database';
+import { dbNull, toJson } from '@smartchat/database';
 import { clampLimit, type CursorPage, type TenantContext } from '@smartchat/types';
 import { afterCursor, encodeCursor, notDeleted, tenantScope } from './scope.js';
 
@@ -187,10 +187,18 @@ export class ConversationRepository {
             ? {
                 lastVisitorMessageAt: input.now,
                 agentUnreadCount: { increment: 1 },
+                // The visitor spoke: every follow-up timer the assistant had running is stale,
+                // and a "shall I close this?" that was pending is answered.
+                aiFollowupSeq: { increment: 1 },
+                aiIdleNudgedAt: null,
               }
             : {
                 lastAgentMessageAt: input.now,
                 visitorUnreadCount: { increment: 1 },
+                // A person replying cancels the assistant's timers; the assistant's own messages
+                // do not, because it schedules the next one itself.
+                // ... and the suggestions drafted for that reply have done their job.
+                ...(input.senderType === 'agent' ? { aiFollowupSeq: { increment: 1 }, aiSuggestions: dbNull } : {}),
               }),
       },
     });

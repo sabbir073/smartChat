@@ -41,6 +41,17 @@ type Draft = Pick<
   | 'keyFacts'
   | 'ticketOfferText'
   | 'handoffText'
+  | 'checkingText'
+  | 'offlineHandoffText'
+  | 'urgentText'
+  | 'handoffBackText'
+  | 'idleNudgeText'
+  | 'idleCloseText'
+  | 'handoffWaitMinutes'
+  | 'idleNudgeMinutes'
+  | 'idleCloseMinutes'
+  | 'showAiBadge'
+  | 'suggestReplies'
   | 'maxRepliesPerConversation'
   | 'crawlMaxPages'
 > & { crawlExclude: string; productFeedUrl: string };
@@ -83,6 +94,17 @@ export default function AiAgentPage() {
       keyFacts: settings.data.keyFacts,
       ticketOfferText: settings.data.ticketOfferText,
       handoffText: settings.data.handoffText,
+      checkingText: settings.data.checkingText,
+      offlineHandoffText: settings.data.offlineHandoffText,
+      urgentText: settings.data.urgentText,
+      handoffBackText: settings.data.handoffBackText,
+      idleNudgeText: settings.data.idleNudgeText,
+      idleCloseText: settings.data.idleCloseText,
+      handoffWaitMinutes: settings.data.handoffWaitMinutes,
+      idleNudgeMinutes: settings.data.idleNudgeMinutes,
+      idleCloseMinutes: settings.data.idleCloseMinutes,
+      showAiBadge: settings.data.showAiBadge,
+      suggestReplies: settings.data.suggestReplies,
       maxRepliesPerConversation: settings.data.maxRepliesPerConversation,
       crawlMaxPages: settings.data.crawlMaxPages,
       crawlExclude: settings.data.crawlExclude.join('\n'),
@@ -588,6 +610,167 @@ export default function AiAgentPage() {
                 />
               )}
             </Field>
+            <Field
+              label="When a person is asked for but nobody is online"
+              hint="Instead of the handover: the assistant keeps going and offers a ticket."
+              error={errors['offlineHandoffText']}
+            >
+              {({ id: fieldId }) => (
+                <textarea
+                  id={fieldId}
+                  rows={2}
+                  value={draft.offlineHandoffText}
+                  maxLength={500}
+                  onChange={(event) => setDraft({ ...draft, offlineHandoffText: event.target.value })}
+                  className={TEXTAREA}
+                />
+              )}
+            </Field>
+            <div className="grid gap-5 md:grid-cols-2">
+              <Field
+                label="While it is looking something up"
+                hint="Posted only when an answer is taking more than a couple of seconds."
+                error={errors['checkingText']}
+              >
+                {({ id: fieldId }) => (
+                  <textarea
+                    id={fieldId}
+                    rows={2}
+                    value={draft.checkingText}
+                    maxLength={300}
+                    onChange={(event) => setDraft({ ...draft, checkingText: event.target.value })}
+                    className={TEXTAREA}
+                  />
+                )}
+              </Field>
+              <Field
+                label="When a visitor says it is urgent"
+                hint="The chat is marked urgent for your team; this is added if the reply did not already say so."
+                error={errors['urgentText']}
+              >
+                {({ id: fieldId }) => (
+                  <textarea
+                    id={fieldId}
+                    rows={2}
+                    value={draft.urgentText}
+                    maxLength={300}
+                    onChange={(event) => setDraft({ ...draft, urgentText: event.target.value })}
+                    className={TEXTAREA}
+                  />
+                )}
+              </Field>
+            </div>
+            <label className="flex items-start gap-2.5 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={draft.showAiBadge}
+                onChange={(event) => setDraft({ ...draft, showAiBadge: event.target.checked })}
+                className="mt-0.5 size-4 rounded border-border-strong accent-[var(--color-brand)]"
+              />
+              <span>
+                Show an &ldquo;AI&rdquo; mark on the assistant&rsquo;s messages in the chat window
+                <span className="block text-[13px] text-ink-subtle">
+                  Off by default: the assistant does not announce what it is. If a visitor asks directly, it always answers truthfully.
+                </span>
+              </span>
+            </label>
+          </CardBody>
+          <CardFooter>
+            {dirty && <span className="mr-auto text-[13px] text-ink-subtle">Unsaved changes</span>}
+            <Button loading={saving} disabled={!dirty} onClick={() => void save()}>
+              Save
+            </Button>
+          </CardFooter>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Keeping time"
+            description="What the assistant does when a person does not turn up, and when a visitor goes quiet. Set a wait to 0 to switch that step off."
+          />
+          <CardBody className="space-y-5">
+            <div className="grid gap-5 md:grid-cols-[minmax(0,140px)_1fr]">
+              <MinutesField
+                label="Wait for a person"
+                value={draft.handoffWaitMinutes}
+                error={errors['handoffWaitMinutes']}
+                onChange={(value) => setDraft({ ...draft, handoffWaitMinutes: value })}
+              />
+              <Field
+                label="Then it takes the chat back and says"
+                hint="After a handover, if the person has not written anything in that time. The chat is unassigned and the assistant carries on, offering a ticket."
+                error={errors['handoffBackText']}
+              >
+                {({ id: fieldId }) => (
+                  <textarea
+                    id={fieldId}
+                    rows={2}
+                    value={draft.handoffBackText}
+                    maxLength={500}
+                    onChange={(event) => setDraft({ ...draft, handoffBackText: event.target.value })}
+                    className={TEXTAREA}
+                  />
+                )}
+              </Field>
+            </div>
+            <div className="grid gap-5 md:grid-cols-[minmax(0,140px)_1fr]">
+              <MinutesField
+                label="Visitor quiet for"
+                value={draft.idleNudgeMinutes}
+                error={errors['idleNudgeMinutes']}
+                onChange={(value) => setDraft({ ...draft, idleNudgeMinutes: value })}
+              />
+              <Field label="Then it asks" hint="Measured from the assistant's last reply while the visitor says nothing." error={errors['idleNudgeText']}>
+                {({ id: fieldId }) => (
+                  <textarea
+                    id={fieldId}
+                    rows={2}
+                    value={draft.idleNudgeText}
+                    maxLength={500}
+                    onChange={(event) => setDraft({ ...draft, idleNudgeText: event.target.value })}
+                    className={TEXTAREA}
+                  />
+                )}
+              </Field>
+            </div>
+            <div className="grid gap-5 md:grid-cols-[minmax(0,140px)_1fr]">
+              <MinutesField
+                label="Still quiet for"
+                value={draft.idleCloseMinutes}
+                error={errors['idleCloseMinutes']}
+                onChange={(value) => setDraft({ ...draft, idleCloseMinutes: value })}
+              />
+              <Field
+                label="Then it closes the chat and says"
+                hint="Also said a minute after a visitor says goodbye. A visitor can always start a new chat."
+                error={errors['idleCloseText']}
+              >
+                {({ id: fieldId }) => (
+                  <textarea
+                    id={fieldId}
+                    rows={2}
+                    value={draft.idleCloseText}
+                    maxLength={500}
+                    onChange={(event) => setDraft({ ...draft, idleCloseText: event.target.value })}
+                    className={TEXTAREA}
+                  />
+                )}
+              </Field>
+            </div>
+            <label className="flex items-start gap-2.5 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={draft.suggestReplies}
+                onChange={(event) => setDraft({ ...draft, suggestReplies: event.target.checked })}
+                className="mt-0.5 size-4 rounded border-border-strong accent-[var(--color-brand)]"
+              />
+              <span>
+                Suggest replies to your team
+                <span className="block text-[13px] text-ink-subtle">
+                  When a person is handling a chat, the assistant drafts up to three replies to the visitor&rsquo;s first message and shows them above the reply box. Nothing is sent until the person sends it. The &ldquo;Suggest a reply&rdquo; button works at any time.
+                </span>
+              </span>
+            </label>
           </CardBody>
           <CardFooter>
             {dirty && <span className="mr-auto text-[13px] text-ink-subtle">Unsaved changes</span>}
@@ -620,6 +803,38 @@ export default function AiAgentPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+/** A count of minutes, 0 to 120; 0 switches the step off. */
+function MinutesField({
+  label,
+  value,
+  error,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  error?: string | undefined;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <Field label={label} hint="minutes" error={error}>
+      {({ id: fieldId, invalid }) => (
+        <TextInput
+          id={fieldId}
+          type="number"
+          min={0}
+          max={120}
+          invalid={invalid}
+          value={value}
+          onChange={(event) => {
+            const next = Math.floor(Number(event.target.value));
+            onChange(Number.isFinite(next) && next >= 0 ? Math.min(next, 120) : 0);
+          }}
+        />
+      )}
+    </Field>
   );
 }
 

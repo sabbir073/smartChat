@@ -88,6 +88,12 @@ export interface MemberDto {
   joinedAt: string | null;
 }
 
+export interface AiSuggestion {
+  kind: 'answer' | 'clarify' | 'acknowledge';
+  text: string;
+  sources: { title: string; url: string | null }[];
+}
+
 export interface ConversationDto {
   id: string;
   propertyId: string;
@@ -107,7 +113,15 @@ export interface ConversationDto {
    * Optional on the type only so a dashboard deployed a minute ahead of its API renders rather
    * than crashes; the API always sends it.
    */
-  ai?: { replyCount: number; pausedAt: string | null; handoffAt: string | null; lastReplyAt: string | null };
+  ai?: {
+    replyCount: number;
+    pausedAt: string | null;
+    handoffAt: string | null;
+    lastReplyAt: string | null;
+    /** Replies the assistant drafted for the person handling this chat; latest batch only. */
+    suggestions?: AiSuggestion[];
+    suggestedAt?: string | null;
+  };
   /** Answers from the pre-chat or offline form, in the order the customer configured them. */
   preChat: { key: string; value: string }[];
   visitor: {

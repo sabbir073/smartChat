@@ -6,11 +6,13 @@ import { ConversationRepository } from '../repositories/conversation.repository.
 import { agentAvailabilityReader } from '../services/availability.js';
 import { requirePermission } from '../tenancy/context.js';
 import { systemClock, type Clock } from '../time.js';
-import { parseReply, REPLY_SCHEMA } from './contract.js';
-import { decideAiReply, type AiSkipReason } from './dispatch.js';
+import { parseReply, parseSuggestions, REPLY_SCHEMA, SUGGESTIONS_SCHEMA } from './contract.js';
+import { decideAiReply, shouldSuggestReplies, type AiSkipReason } from './dispatch.js';
 import type { AiGateway } from './gateway.js';
 import type { AiProviderKind } from './provider.js';
 import type { KnowledgeService, RetrievedChunk } from './knowledge.service.js';
+import type { LifecycleService } from './lifecycle.service.js';
+import { postBotMessage } from './bot-message.js';
 import { buildPrompt, PRACTICE_PHRASES, type PromptPassage } from './prompt.js';
 
 /**
@@ -31,8 +33,12 @@ export interface AiReplyServiceOptions {
   gateway: AiGateway;
   entitlements: EntitlementService;
   events: EventPublisher;
+  /** The timers: take back, nudge, close. Absent in the API (drafts need none). */
+  lifecycle?: LifecycleService;
   clock?: Clock;
   log?: (event: string, detail: Record<string, unknown>) => void;
+  /** How long the model may take before the visitor is told it is being looked into. */
+  holdingAfterMs?: number;
 }
 
 /** A reply drafted for an agent. `draft` is null when the content does not answer the question. */
@@ -51,6 +57,8 @@ export type AiReplyOutcome =
 
 const MAX_HISTORY_MESSAGES = 10;
 const MAX_QUESTION_CHARS = 2_000;
+/** The lookup has taken this long: tell the visitor it is being looked into. */
+const HOLDING_AFTER_MS = 2_500;
 
 export class AiReplyService {
   private readonly clock: Clock;
@@ -130,6 +138,11 @@ export class AiReplyService {
         });
         return { posted: true, decision: 'ticket', provider: null, fellBack: false, latencyMs: 0 };
       }
+      // The reply was queued on facts that have since changed - a person took over, the mode was
+      // switched. The person answering still gets their suggestions.
+      if (shouldSuggestReplies({ settings, planIncludesAi, conversation })) {
+        await this.suggest({ accountId: input.accountId, conversationId: conversation.id, messageId: message.id });
+      }
       return { posted: false, reason: decision.reason };
     }
     if (!settings) return { posted: false, reason: 'mode_team' };
@@ -153,6 +166,17 @@ export class AiReplyService {
 
     const started = this.clock.timestamp();
     await this.typing(conversation, settings.assistantName, true);
+    // "Give me a moment, I'm checking that for you." Only if the lookup takes longer than a
+    // moment: a greeting answered in a second must not be preceded by a promise to check.
+    const holding = setTimeout(() => {
+      void postBotMessage(this.options.db, this.options.events, {
+        conversation,
+        assistantName: settings.assistantName,
+        body: settings.checkingText,
+        metadata: { kind: 'holding', ...(settings.showAiBadge ? { badge: true } : {}) },
+        now: this.clock.now(),
+      }).catch((error: unknown) => this.options.log?.('ai.reply.holding_failed', { conversationId: conversation.id, error: String(error) }));
+    }, this.options.holdingAfterMs ?? HOLDING_AFTER_MS);
     try {
       const question = message.body.trim().slice(0, MAX_QUESTION_CHARS);
       const [retrieved, history] = await Promise.all([
@@ -165,6 +189,7 @@ export class AiReplyService {
         title: chunk.title,
         heading: chunk.heading,
         text: chunk.text,
+        url: chunk.url,
       }));
       const prompt = buildPrompt({
         assistantName: settings.assistantName,
@@ -182,13 +207,14 @@ export class AiReplyService {
         { messages: prompt.messages, schema: REPLY_SCHEMA, maxTokens: 300, temperature: 0.2 },
         { accountId: input.accountId },
       );
+      clearTimeout(holding);
       const latencyMs = this.clock.timestamp() - started;
 
       const parsed = parseReply(outcome.result.content, {
         passageCount: chunksInPrompt.length,
         allowedHosts: allowedHosts(conversation.property),
         grounding: [
-          ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text]),
+          ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text, chunk.url ?? '']),
           question,
           settings.instructions,
         ],
@@ -211,47 +237,64 @@ export class AiReplyService {
           decision: 'failed',
           error: [turnBase.error, parsed.reason].filter(Boolean).join('; '),
         });
+        await this.options.lifecycle?.afterAssistantReply(conversation, settings);
         return { posted: true, decision: 'failed', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
       }
 
       const { reply } = parsed;
       const note = parsed.downgraded ? [turnBase.error, parsed.downgraded].filter(Boolean).join('; ') : turnBase.error;
 
+      // What the model noticed, acted on here - it has no hands of its own.
+      const urgentNow = reply.urgent && conversation.priority !== 'urgent';
+      if (urgentNow) await this.markUrgent(conversation);
+      if (reply.topic && conversation.aiReplyCount === 0) await this.tag(conversation, reply.topic);
+      const withUrgency = (text: string): string =>
+        urgentNow && !/urgent/i.test(text) ? `${text} ${settings.urgentText}`.trim() : text;
+
       if (reply.decision === 'answer') {
         const cited = reply.sources.map((n) => chunksInPrompt[n - 1]!).filter(Boolean);
-        await this.postAnswer(conversation, settings, message.id, reply.text, cited, chunksInPrompt, {
+        await this.postAnswer(conversation, settings, message.id, withUrgency(reply.text), cited, chunksInPrompt, {
           ...turnBase,
           decision: 'answer',
           error: note,
         });
+        await this.afterReply(conversation, settings, reply.goodbye);
         return { posted: true, decision: 'answer', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
       }
 
       if (reply.decision === 'chat') {
-        await this.post(conversation, settings, message.id, reply.text, { sources: [] }, chunksInPrompt, [], {
+        await this.post(conversation, settings, message.id, withUrgency(reply.text), { sources: [] }, chunksInPrompt, [], {
           ...turnBase,
           decision: 'chat',
           error: note,
         }, true);
+        await this.afterReply(conversation, settings, reply.goodbye);
         return { posted: true, decision: 'chat', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
       }
 
       if (reply.decision === 'human' && agentsOnline) {
-        await this.postHandoff(conversation, settings, message.id, chunksInPrompt, {
+        await this.postHandoff(conversation, settings, message.id, chunksInPrompt, history, question, {
           ...turnBase,
           decision: 'human',
           error: note,
         });
+        await this.options.lifecycle?.afterHandoff(conversation, settings);
         return { posted: true, decision: 'human', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
       }
 
-      await this.postOffer(conversation, settings, message.id, chunksInPrompt, {
-        ...turnBase,
-        decision: reply.decision,
-        error: note,
-      });
+      // A ticket, or a person wanted while nobody is online: the offer, in the owner's words.
+      await this.postOffer(
+        conversation,
+        settings,
+        message.id,
+        chunksInPrompt,
+        { ...turnBase, decision: reply.decision, error: note },
+        withUrgency(reply.decision === 'human' ? settings.offlineHandoffText : settings.ticketOfferText),
+      );
+      await this.options.lifecycle?.afterAssistantReply(conversation, settings);
       return { posted: true, decision: reply.decision, provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
     } catch (error) {
+      clearTimeout(holding);
       const latencyMs = this.clock.timestamp() - started;
       const detail = error instanceof Error ? error.message : String(error);
       this.options.log?.('ai.reply.failed', { conversationId: conversation.id, error: detail });
@@ -266,10 +309,55 @@ export class AiReplyService {
         latencyMs,
         error: error instanceof AppError && error.code === ErrorCode.AI_UNAVAILABLE ? `unavailable: ${detail}` : detail.slice(0, 500),
       });
+      await this.options.lifecycle?.afterAssistantReply(conversation, settings);
       return { posted: true, decision: 'failed', provider: null, fellBack: false, latencyMs };
     } finally {
+      clearTimeout(holding);
       await this.typing(conversation, settings.assistantName, false);
     }
+  }
+
+  /** After a reply: keep time. A goodbye closes soon; anything else waits for the visitor. */
+  private async afterReply(conversation: ConversationRow, settings: AiSetting, goodbye: boolean): Promise<void> {
+    if (!this.options.lifecycle) return;
+    if (goodbye) await this.options.lifecycle.afterGoodbye(conversation);
+    else await this.options.lifecycle.afterAssistantReply(conversation, settings);
+  }
+
+  /** The visitor said it is urgent: the row says so, and every open inbox sees it change. */
+  private async markUrgent(conversation: ConversationRow): Promise<void> {
+    await this.options.db.conversation.update({ where: { id: conversation.id }, data: { priority: 'urgent' } });
+    conversation.priority = 'urgent';
+    await this.publishRow(conversation);
+    this.options.log?.('ai.reply.urgent', { conversationId: conversation.id });
+  }
+
+  /** The first reply names the subject; it becomes a tag unless the team already tagged it. */
+  private async tag(conversation: ConversationRow, topic: string): Promise<void> {
+    if (conversation.tags.length >= 10) return;
+    if (conversation.tags.some((tag) => tag.toLowerCase() === topic)) return;
+    const tags = [...conversation.tags, topic];
+    await this.options.db.conversation.update({ where: { id: conversation.id }, data: { tags } });
+    conversation.tags = tags;
+    await this.publishRow(conversation);
+  }
+
+  private async publishRow(conversation: ConversationRow): Promise<void> {
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_UPDATED,
+      accountId: conversation.accountId,
+      propertyId: conversation.propertyId,
+      conversationId: conversation.id,
+      visitorId: conversation.visitorId,
+      agentsOnly: true,
+      payload: {
+        conversationId: conversation.id,
+        status: conversation.status,
+        priority: conversation.priority,
+        tags: conversation.tags,
+        assignedMemberId: conversation.assignedMemberId,
+      },
+    });
   }
 
   /**
@@ -321,6 +409,7 @@ export class AiReplyService {
       title: chunk.title,
       heading: chunk.heading,
       text: chunk.text,
+      url: chunk.url,
     }));
     const prompt = buildPrompt({
       assistantName,
@@ -356,7 +445,7 @@ export class AiReplyService {
       passageCount: chunksInPrompt.length,
       allowedHosts: allowedHosts(conversation.property),
       grounding: [
-        ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text]),
+        ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text, chunk.url ?? '']),
         question,
         instructions,
       ],
@@ -384,6 +473,138 @@ export class AiReplyService {
       provider: outcome.provider,
       latencyMs,
     };
+  }
+
+  /**
+   * Suggestions for a person: up to three short replies to the visitor's message - one that
+   * answers from the content when it can, one that asks the right clarifying question, one that
+   * acknowledges and reassures. Stored on the conversation and pushed to every open inbox; the
+   * person picks one, edits it, sends it, or ignores them all. Runs on the first visitor message
+   * of a chat a person is handling; the Suggest button covers the rest.
+   */
+  async suggest(input: { accountId: string; conversationId: string; messageId: string }): Promise<{ suggestions: number }> {
+    const { db } = this.options;
+    const [conversation, message] = await Promise.all([
+      db.conversation.findFirst({
+        where: { accountId: input.accountId, id: input.conversationId, deletedAt: null },
+        include: { property: { select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } } } },
+      }),
+      db.message.findFirst({ where: { accountId: input.accountId, id: input.messageId, senderType: 'visitor', deletedAt: null } }),
+    ]);
+    if (!conversation || !message || conversation.status === 'closed') return { suggestions: 0 };
+    const settings = await db.aiSetting.findUnique({
+      where: { accountId_propertyId: { accountId: input.accountId, propertyId: conversation.propertyId } },
+    });
+    if (!settings || !settings.suggestReplies) return { suggestions: 0 };
+    const question = message.body.trim().slice(0, MAX_QUESTION_CHARS);
+    if (!question) return { suggestions: 0 };
+
+    const started = this.clock.timestamp();
+    const [retrieved, history] = await Promise.all([
+      this.options.knowledge.retrieve(input.accountId, conversation.propertyId, question),
+      this.history(conversation.id, message.seq),
+    ]);
+    const passages: PromptPassage[] = retrieved.chunks.map((chunk, i) => ({
+      number: i + 1,
+      title: chunk.title,
+      heading: chunk.heading,
+      text: chunk.text,
+      url: chunk.url,
+    }));
+    const prompt = buildPrompt({
+      assistantName: settings.assistantName,
+      businessName: conversation.property.name,
+      instructions: settings.instructions,
+      passages,
+      history,
+      question,
+    });
+    const chunksInPrompt = retrieved.chunks.slice(0, prompt.passages.length);
+    // The same prompt, a different final instruction: three candidates for a person, not one reply.
+    const messages = [...prompt.messages];
+    const last = messages.pop()!;
+    messages.push({
+      role: 'user',
+      content: `${last.content}\n\nA member of our team will reply to this themselves. Draft up to three short replies they could send, each under 60 words, in the visitor's language: one that answers from the passages if they cover it (cite its passage numbers in "sources"), one that asks the most useful clarifying question, one that acknowledges and reassures. Skip any that would not help.`,
+    });
+
+    let content: string;
+    let provider: AiProviderKind | null = null;
+    let model: string | null = null;
+    let fellBack = false;
+    let promptTokens = 0;
+    let completionTokens = 0;
+    try {
+      const outcome = await this.options.gateway.complete(
+        { messages, schema: SUGGESTIONS_SCHEMA, maxTokens: 400, temperature: 0.4 },
+        { accountId: input.accountId },
+      );
+      content = outcome.result.content;
+      provider = outcome.provider;
+      model = outcome.result.model;
+      fellBack = outcome.fellBack;
+      promptTokens = outcome.result.promptTokens;
+      completionTokens = outcome.result.completionTokens;
+    } catch (error) {
+      this.options.log?.('ai.suggest.failed', { conversationId: conversation.id, error: String(error) });
+      return { suggestions: 0 };
+    }
+    const latencyMs = this.clock.timestamp() - started;
+    const suggestions = parseSuggestions(content, {
+      passageCount: chunksInPrompt.length,
+      allowedHosts: allowedHosts(conversation.property),
+      grounding: [
+        ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text, chunk.url ?? '']),
+        question,
+        settings.instructions,
+      ],
+      practicePhrases: [...PRACTICE_PHRASES],
+    }).map((suggestion) => ({
+      ...suggestion,
+      sources: dedupeSources(suggestion.sources.map((n) => chunksInPrompt[n - 1]!).filter(Boolean)),
+    }));
+
+    const now = this.clock.now();
+    await db.conversation.update({
+      where: { id: conversation.id },
+      data: { aiSuggestions: suggestions, aiSuggestedAt: now },
+    });
+    await db.aiTurn.create({
+      data: {
+        accountId: conversation.accountId,
+        propertyId: conversation.propertyId,
+        conversationId: conversation.id,
+        visitorMessageId: message.id,
+        replyMessageId: null,
+        decision: 'draft',
+        provider,
+        model,
+        fellBack,
+        promptTokens,
+        completionTokens,
+        latencyMs,
+        retrievedChunkIds: chunksInPrompt.map((chunk) => chunk.chunkId),
+        citedChunkIds: [],
+        error: suggestions.length === 0 ? 'no usable suggestions' : null,
+      },
+    });
+    await this.options.events.publish({
+      type: ServerEvent.CONVERSATION_UPDATED,
+      accountId: conversation.accountId,
+      propertyId: conversation.propertyId,
+      conversationId: conversation.id,
+      visitorId: conversation.visitorId,
+      agentsOnly: true,
+      payload: {
+        conversationId: conversation.id,
+        status: conversation.status,
+        priority: conversation.priority,
+        tags: conversation.tags,
+        aiSuggestions: suggestions,
+        aiSuggestedAt: now.toISOString(),
+      },
+    });
+    return { suggestions: suggestions.length };
   }
 
   private async recordDraft(
@@ -488,12 +709,13 @@ export class AiReplyService {
     visitorMessageId: string,
     retrieved: RetrievedChunk[],
     turn: TurnRecord,
+    body: string = settings.ticketOfferText,
   ): Promise<void> {
     await this.post(
       conversation,
       settings,
       visitorMessageId,
-      settings.ticketOfferText,
+      body,
       { sources: [], offer: 'ticket' },
       retrieved,
       [],
@@ -516,10 +738,23 @@ export class AiReplyService {
     settings: AiSetting,
     visitorMessageId: string,
     retrieved: RetrievedChunk[],
+    history: Array<{ role: 'visitor' | 'assistant'; text: string }>,
+    question: string,
     turn: TurnRecord,
   ): Promise<void> {
     const now = this.clock.now();
     const assignee = await this.pickOnlineAgent(conversation.accountId, conversation.propertyId);
+    // A handover note the person reads before their first word: what was asked, what was said.
+    await new ConversationRepository(this.options.db).insertMessage({
+      accountId: conversation.accountId,
+      propertyId: conversation.propertyId,
+      conversationId: conversation.id,
+      senderType: 'bot',
+      type: 'note',
+      body: handoverSummary(settings.assistantName, history, question),
+      metadata: { source: 'ai', senderName: settings.assistantName, kind: 'handover' },
+      now,
+    });
     await this.options.db.conversation.update({
       where: { id: conversation.id },
       data: {
@@ -611,6 +846,7 @@ export class AiReplyService {
           senderName: settings.assistantName,
           sources: info.sources,
           ...(info.offer ? { offer: info.offer } : {}),
+          ...(settings.showAiBadge ? { badge: true } : {}),
         },
         now,
       });
@@ -664,6 +900,8 @@ interface ConversationRow {
   status: 'open' | 'pending' | 'closed';
   priority: string;
   tags: string[];
+  assignedMemberId: string | null;
+  aiReplyCount: number;
   property: { name: string; websiteUrl: string; domains: Array<{ pattern: string }> };
 }
 
@@ -676,6 +914,26 @@ interface TurnRecord {
   completionTokens: number;
   latencyMs: number;
   error: string | null;
+}
+
+/**
+ * The note a person finds when the assistant hands them a chat: the visitor's questions so
+ * far and the assistant's answers, then the message that led here. Built from the transcript,
+ * not the model - instant, and never wrong about what was said.
+ */
+export function handoverSummary(
+  assistantName: string,
+  history: Array<{ role: 'visitor' | 'assistant'; text: string }>,
+  question: string,
+): string {
+  const asked = history.filter((turn) => turn.role === 'visitor').map((turn) => turn.text.trim()).filter(Boolean);
+  const answered = history.filter((turn) => turn.role === 'assistant').map((turn) => turn.text.trim()).filter(Boolean);
+  const clip = (text: string, max = 160): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+  const lines = [`Handover from ${assistantName}.`];
+  if (asked.length > 0) lines.push(`Asked so far: ${asked.slice(-3).map((q) => `"${clip(q)}"`).join(' · ')}`);
+  if (answered.length > 0) lines.push(`Last answer given: "${clip(answered.at(-1)!, 220)}"`);
+  lines.push(`Now: "${clip(question)}" - the visitor asked for a person.`);
+  return lines.join('\n');
 }
 
 function dedupeSources(chunks: RetrievedChunk[]): Array<{ title: string; url: string | null }> {

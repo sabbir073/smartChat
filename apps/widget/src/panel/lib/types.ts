@@ -42,6 +42,9 @@ export interface AiMessageInfo {
   offer?: 'ticket';
   /** The visitor's own thumbs up or down, when given. */
   rating?: 'up' | 'down';
+  /** The owner chose to mark the assistant's replies. Off by default. */
+  badge?: boolean;
+  kind?: string;
 }
 
 /**

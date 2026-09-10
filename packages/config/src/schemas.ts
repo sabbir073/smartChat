@@ -103,6 +103,8 @@ export const aiEnvSchema = z.object({
     .transform((value) => value.trim())
     .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
   AI_RENDERER_TOKEN: z.string().default(''),
+  /** Test only: how many milliseconds a "minute" of the assistant's timers is. Leave unset in production. */
+  AI_TIMER_MINUTE_MS: z.coerce.number().int().min(1000).max(60_000).default(60_000),
   /** Development only: let the website crawler read private addresses (a test site on localhost). */
   AI_CRAWL_ALLOW_PRIVATE: z
     .enum(['true', 'false'])

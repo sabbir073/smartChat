@@ -8,6 +8,7 @@ import {
   CrawlService,
   EntitlementService,
   FeedService,
+  LifecycleService,
   RendererClient,
   KnowledgeFileService,
   GeoService,
@@ -148,14 +149,27 @@ async function main(): Promise<void> {
     url: config.REDIS_URL,
     onError: (error) => logger.error({ err: error, connection: 'events' }, 'redis error'),
   });
+  const events = new RedisEventPublisher(eventRedis, (error) =>
+    logger.error({ err: error }, 'failed to publish domain event'),
+  );
+  const lifecycle = new LifecycleService({
+    db,
+    queue: scheduler,
+    events,
+    entitlements,
+    minuteMs: config.AI_TIMER_MINUTE_MS,
+    log: (event, detail) => logger.info(detail, event),
+  });
+  if (config.AI_TIMER_MINUTE_MS !== 60_000) {
+    logger.warn({ minuteMs: config.AI_TIMER_MINUTE_MS }, 'AI_TIMER_MINUTE_MS is set: the assistant\'s timers run fast (tests only)');
+  }
   const aiReplies = new AiReplyService({
     db,
     knowledge,
     gateway: aiGateway,
     entitlements,
-    events: new RedisEventPublisher(eventRedis, (error) =>
-      logger.error({ err: error }, 'failed to publish domain event'),
-    ),
+    events,
+    lifecycle,
     log: (event, detail) => logger.warn(detail, event),
   });
   const aiSettings = new AiSettingsService({ db, knowledge, queue: scheduler, entitlements });
@@ -205,7 +219,7 @@ async function main(): Promise<void> {
       QueueName.AI,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined, requestId: (job.data as { requestId?: string }).requestId }, () =>
-          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings, crawler, files: aiFiles, queue: scheduler }),
+          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings, crawler, files: aiFiles, lifecycle, queue: scheduler }),
         ),
       // As many as the local model serves at once, plus a little so overflow reaches the
       // fallback rather than queueing here first. Indexing shares the queue and is rare.

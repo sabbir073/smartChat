@@ -161,6 +161,8 @@ GET    /reports/ai?from&to&propertyId   the AI assistant's report
 GET    /account/ai   PUT /account/ai { provider, apiKey?, model?, routing? }   DELETE /account/ai   POST /account/ai/test
 POST   /conversations/:id/ai/resume     POST /conversations/:id/ai/pause
 POST   /conversations/:id/ai/draft      → { draft, sources, reason? }
+       (a conversation's `ai` block also carries `suggestions[]` {kind, text, sources} and `suggestedAt`,
+        drafted for the person answering; pushed on conversation:updated as aiSuggestions/aiSuggestedAt)
 POST   /widget/messages/:id/feedback   { rating: "up" | "down" | null }   (visitor token)
 POST   /properties/:id/ai/reindex
 GET    /properties/:id/ai/files          POST /properties/:id/ai/files/sign { fileName, byteSize }

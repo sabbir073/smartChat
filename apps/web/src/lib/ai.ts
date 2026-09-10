@@ -11,6 +11,24 @@ export interface AiSettingsView {
   keyFacts: string;
   ticketOfferText: string;
   handoffText: string;
+  /** Posted while the model is still thinking, if that takes more than a couple of seconds. */
+  checkingText: string;
+  /** When the visitor asks for a person and nobody is online. */
+  offlineHandoffText: string;
+  /** Appended when the assistant marks a chat urgent and its reply did not say so itself. */
+  urgentText: string;
+  /** When the person a chat was handed to did not reply in time and the assistant took it back. */
+  handoffBackText: string;
+  idleNudgeText: string;
+  idleCloseText: string;
+  /** Minutes a person has to reply after a handoff before the assistant takes the chat back. 0 = never. */
+  handoffWaitMinutes: number;
+  /** Minutes of visitor silence before "anything else, or shall I close this?". 0 = never. */
+  idleNudgeMinutes: number;
+  /** Minutes after the nudge before the chat is closed. 0 = never. */
+  idleCloseMinutes: number;
+  showAiBadge: boolean;
+  suggestReplies: boolean;
   maxRepliesPerConversation: number;
   crawlMaxPages: number;
   crawlExclude: string[];

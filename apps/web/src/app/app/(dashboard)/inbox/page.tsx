@@ -21,7 +21,7 @@ import {
 } from '@/components/inbox/message-thread';
 import { VisitorPanel } from '@/components/inbox/visitor-panel';
 import { Alert, EmptyState, Spinner, cn, useToast } from '@/components/ui';
-import type { ConversationDto, MemberDto, PropertyDto, ShortcutDto } from '@/lib/types';
+import type { AiSuggestion, ConversationDto, MemberDto, PropertyDto, ShortcutDto } from '@/lib/types';
 
 /**
  * The agent inbox.
@@ -343,13 +343,22 @@ export default function InboxPage() {
             ? { pausedAt: payload['aiPausedAt'] as string | null }
             : {}),
           ...(typeof payload?.['aiHandoffAt'] === 'string' ? { handoffAt: payload['aiHandoffAt'] } : {}),
+          // A fresh batch of suggested replies for the person handling the chat.
+          ...(Array.isArray(payload?.['aiSuggestions'])
+            ? { suggestions: payload['aiSuggestions'] as AiSuggestion[], suggestedAt: typeof payload['aiSuggestedAt'] === 'string' ? payload['aiSuggestedAt'] : null }
+            : {}),
         });
         const assigned = payload?.['assignedMemberId'];
+        const priority = payload?.['priority'];
+        const tags = payload?.['tags'];
         const patch = (row: ConversationDto): ConversationDto => ({
           ...row,
           ai: aiPatch(row),
           ...(assigned === null || typeof assigned === 'string' ? { assignedMemberId: assigned } : {}),
           ...(status === 'open' || status === 'pending' || status === 'closed' ? { status } : {}),
+          // The assistant may mark a chat urgent or tag its topic; both travel on the same event.
+          ...(priority === 'low' || priority === 'normal' || priority === 'high' || priority === 'urgent' ? { priority } : {}),
+          ...(Array.isArray(tags) && tags.every((t) => typeof t === 'string') ? { tags: tags as string[] } : {}),
         });
 
         setConversations((current) =>
@@ -563,6 +572,13 @@ export default function InboxPage() {
         delivery: 'pending',
       };
       upsertMessage(optimistic);
+      // The suggested replies were for this moment; once the person has replied they are done.
+      if (!asNote) {
+        const clear = (row: ConversationDto): ConversationDto =>
+          row.id === conversationId && row.ai?.suggestions?.length ? { ...row, ai: { ...row.ai, suggestions: [] } } : row;
+        setConversations((current) => current.map(clear));
+        setSelectedConversation((current) => (current ? clear(current) : current));
+      }
 
       void (async () => {
         try {
@@ -967,6 +983,8 @@ export default function InboxPage() {
                     ? undefined
                     : async () => (await api.post<SuggestedReply>(`/conversations/${selected.id}/ai/draft`)).data
                 }
+                // Drafted when the visitor wrote and a person, not the assistant, is answering.
+                suggestions={aiIncluded && selected.status !== 'closed' ? (selected.ai?.suggestions ?? []) : []}
                 placeholderValues={{
                   'visitor.name': selected.visitor.name,
                   'visitor.email': selected.visitor.email,

@@ -36,7 +36,19 @@ export interface ConversationDto {
    * The AI agent's part in this conversation: how many replies it gave, when a person took over
    * (null while the AI may still answer), and when it asked for a person while the team was online.
    */
-  ai: { replyCount: number; pausedAt: string | null; handoffAt: string | null; lastReplyAt: string | null };
+  ai: {
+    replyCount: number;
+    pausedAt: string | null;
+    handoffAt: string | null;
+    lastReplyAt: string | null;
+    /**
+     * Reply suggestions drafted for the person handling the chat, most recent batch only. Each
+     * was held to the assistant's own standard (cited, grounded) before it was stored; the
+     * person still reads it before sending.
+     */
+    suggestions: AiSuggestionDto[];
+    suggestedAt: string | null;
+  };
   /**
    * What the pre-chat or offline form collected, as a list so the order the customer configured
    * is the order the agent reads. Values are whatever the visitor typed - claims, never
@@ -76,6 +88,35 @@ export interface ConversationDto {
   } | null;
 }
 
+export interface AiSuggestionDto {
+  kind: 'answer' | 'clarify' | 'acknowledge';
+  text: string;
+  sources: { title: string; url: string | null }[];
+}
+
+const SUGGESTION_KINDS = new Set(['answer', 'clarify', 'acknowledge']);
+
+/** The stored suggestions, checked field by field - a column is not a contract. */
+export function toAiSuggestions(value: unknown): AiSuggestionDto[] {
+  if (!Array.isArray(value)) return [];
+  const out: AiSuggestionDto[] = [];
+  for (const entry of value) {
+    if (!entry || typeof entry !== 'object') continue;
+    const { kind, text, sources } = entry as Record<string, unknown>;
+    if (typeof kind !== 'string' || !SUGGESTION_KINDS.has(kind) || typeof text !== 'string' || !text) continue;
+    out.push({
+      kind: kind as AiSuggestionDto['kind'],
+      text,
+      sources: Array.isArray(sources)
+        ? sources
+            .filter((s): s is { title: string; url?: unknown } => !!s && typeof s === 'object' && typeof (s as { title?: unknown }).title === 'string')
+            .map((s) => ({ title: s.title, url: typeof s.url === 'string' ? s.url : null }))
+        : [],
+    });
+  }
+  return out;
+}
+
 /** Flatten the stored JSON, dropping anything that is not a plain string. */
 function toPreChatEntries(value: unknown): { key: string; value: string }[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
@@ -105,6 +146,8 @@ export function toConversationDto(row: ConversationWithVisitor): ConversationDto
       pausedAt: row.aiPausedAt?.toISOString() ?? null,
       handoffAt: row.aiHandoffAt?.toISOString() ?? null,
       lastReplyAt: row.aiLastReplyAt?.toISOString() ?? null,
+      suggestions: toAiSuggestions(row.aiSuggestions),
+      suggestedAt: row.aiSuggestedAt?.toISOString() ?? null,
     },
     preChat: toPreChatEntries(row.preChatData),
     visitor: {

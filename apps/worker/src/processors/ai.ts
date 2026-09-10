@@ -2,11 +2,14 @@ import type { Job } from 'bullmq';
 import {
   AiJob,
   type AiExtractFilePayload,
+  type AiFollowupPayload,
+  type LifecycleService,
   type AiIndexDocumentPayload,
   type AiReindexPropertyPayload,
   type AiReplyPayload,
   type AiReplyService,
   type AiSettingsService,
+  type AiSuggestPayload,
   type CrawlService,
   type KnowledgeFileService,
   type KnowledgeService,
@@ -29,6 +32,7 @@ export interface AiDeps {
   settings: AiSettingsService;
   crawler: CrawlService;
   files: KnowledgeFileService;
+  lifecycle: LifecycleService;
   queue: QueueProducer;
 }
 
@@ -81,6 +85,19 @@ export async function processAiJob(job: Job, logger: Logger, deps: AiDeps): Prom
       const started = Date.now();
       const result = await deps.files.extract(payload.accountId, payload.fileId);
       logger.info({ fileId: payload.fileId, chunks: result.chunks, ms: Date.now() - started }, 'knowledge file indexed');
+      return;
+    }
+    case AiJob.FOLLOWUP: {
+      const payload = job.data as AiFollowupPayload;
+      const outcome = await deps.lifecycle.run(payload);
+      logger.info({ conversationId: payload.conversationId, kind: payload.kind, ...outcome }, outcome.acted ? 'ai follow-up acted' : 'ai follow-up skipped');
+      return;
+    }
+    case AiJob.SUGGEST: {
+      const payload = job.data as AiSuggestPayload;
+      const started = Date.now();
+      const outcome = await deps.replies.suggest(payload);
+      logger.info({ conversationId: payload.conversationId, ...outcome, jobMs: Date.now() - started }, 'ai suggestions drafted');
       return;
     }
     case AiJob.RECRAWL_DUE: {

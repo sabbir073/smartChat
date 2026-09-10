@@ -60,6 +60,29 @@ export function decideAiReply(facts: AiDispatchFacts): AiDispatchDecision {
   return { reply: true };
 }
 
+/**
+ * When the assistant will not answer, should it draft replies for the person who will?
+ *
+ * On the first visitor message of a chat a person handles (the team mode, a takeover, a pause,
+ * the team being online), and only once per chat - after that the Suggest button is theirs.
+ * Asked by the realtime server when it decides not to queue a reply, and again by the worker
+ * when a queued reply turns out to be unwanted, so a settings change the realtime cache has not
+ * seen yet still ends in suggestions rather than silence.
+ */
+export function shouldSuggestReplies(facts: {
+  settings: Pick<AiSetting, 'suggestReplies'> | null;
+  planIncludesAi: boolean;
+  conversation: { status: string; channel: string; aiSuggestedAt: Date | null };
+}): boolean {
+  return (
+    facts.planIncludesAi &&
+    !!facts.settings?.suggestReplies &&
+    facts.conversation.status !== 'closed' &&
+    facts.conversation.channel === 'widget' &&
+    !facts.conversation.aiSuggestedAt
+  );
+}
+
 export interface AiDispatchServiceOptions {
   db: Database;
   entitlements: EntitlementService;
@@ -114,7 +137,7 @@ export class AiDispatchService {
   }): Promise<AiDispatchDecision | null> {
     try {
       const settings = await this.settingsFor(input.accountId, input.propertyId);
-      if (!settings || settings.mode === 'team') return { reply: false, reason: 'mode_team' };
+      if (!settings) return { reply: false, reason: 'mode_team' };
 
       const [planIncludesAi, agentsOnline, conversation] = await Promise.all([
         this.options.entitlements.hasFeature(input.accountId, 'aiAgent'),
@@ -127,13 +150,23 @@ export class AiDispatchService {
             assignedMemberId: true,
             aiPausedAt: true,
             aiReplyCount: true,
+            aiSuggestedAt: true,
           },
         }),
       ]);
       if (!conversation) return null;
 
-      const decision = decideAiReply({ settings, planIncludesAi, agentsOnline, conversation });
-      if (!decision.reply) return decision;
+      const decision = settings.mode === 'team' ? { reply: false as const, reason: 'mode_team' as const } : decideAiReply({ settings, planIncludesAi, agentsOnline, conversation });
+      if (!decision.reply) {
+        if (shouldSuggestReplies({ settings, planIncludesAi, conversation })) {
+          await this.options.queue.enqueue(
+            AiJob.SUGGEST,
+            { accountId: input.accountId, conversationId: input.conversationId, messageId: input.messageId },
+            { attempts: 1, jobId: `ai-suggest-${input.conversationId}` },
+          );
+        }
+        return decision;
+      }
 
       await this.options.queue.enqueue(
         AiJob.REPLY,

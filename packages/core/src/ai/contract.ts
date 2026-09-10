@@ -22,14 +22,22 @@ export const REPLY_SCHEMA: Record<string, unknown> = {
     decision: { type: 'string', enum: ['answer', 'chat', 'ticket', 'human'] },
     text: { type: 'string' },
     sources: { type: 'array', items: { type: 'integer' } },
+    /** What the model noticed, for the worker to act on. It cannot act itself. */
+    urgent: { type: 'boolean' },
+    goodbye: { type: 'boolean' },
+    /** One or two words naming what the visitor is asking about, for the conversation's tags. */
+    topic: { type: 'string' },
   },
-  required: ['decision', 'text', 'sources'],
+  required: ['decision', 'text', 'sources', 'urgent', 'goodbye', 'topic'],
 };
 
 const replySchema = z.object({
   decision: z.enum(['answer', 'chat', 'ticket', 'human']),
   text: z.string(),
   sources: z.array(z.number().int()).default([]),
+  urgent: z.boolean().default(false),
+  goodbye: z.boolean().default(false),
+  topic: z.string().default(''),
 });
 
 export interface ModelReply {
@@ -37,6 +45,11 @@ export interface ModelReply {
   text: string;
   /** Passage numbers as the prompt numbered them (1-based), validated against what was shown. */
   sources: number[];
+  /** The visitor said it is urgent, or that they are done. Signals for the worker, never actions. */
+  urgent: boolean;
+  goodbye: boolean;
+  /** A short label for the subject, cleaned: lower case, letters and spaces, at most 30 characters. Empty when none. */
+  topic: string;
 }
 
 export const MAX_REPLY_CHARS = 1_200;
@@ -121,10 +134,35 @@ export function parseReply(raw: string, options: NormaliseOptions): ParseSuccess
   }
   return {
     ok: true,
-    reply: { decision, text, sources: decision === 'answer' ? sources : [] },
+    reply: {
+      decision,
+      text,
+      sources: decision === 'answer' ? sources : [],
+      urgent: result.data.urgent,
+      goodbye: result.data.goodbye,
+      topic: cleanTopic(result.data.topic),
+    },
     ...(downgraded ? { downgraded } : {}),
   };
 }
+
+/** A tag, not a sentence: lower case, letters, digits and spaces, two words at most, 30 characters. */
+export function cleanTopic(raw: string): string {
+  const words = raw
+    .toLowerCase()
+    .replace(/[^\p{L}\p{M}\p{N}\s-]/gu, ' ')
+    .split(/\s+/)
+    .filter((word) => word && !FILLER_WORDS.has(word))
+    .slice(0, 2);
+  const topic = words.join(' ').slice(0, 30).trim();
+  return GENERIC_TOPICS.has(topic) ? '' : topic;
+}
+
+/** Labels that say nothing. */
+const GENERIC_TOPICS = new Set(['', 'general', 'other', 'question', 'help', 'support', 'chat', 'greeting', 'none', 'misc', 'unknown', 'inquiry', 'enquiry']);
+
+/** Words a model sometimes copies from the question into the label ("what warranty", "the fees"). */
+const FILLER_WORDS = new Set(['what', 'which', 'how', 'when', 'where', 'why', 'who', 'the', 'a', 'an', 'my', 'your', 'our', 'about', 'of', 'is', 'are', 'do', 'does', 'can', 'i', 'you', 'we']);
 
 /**
  * Numbers in `text` that appear in none of the `sources`.
@@ -222,3 +260,78 @@ export function cleanText(text: string, allowedHosts: string[]): string {
   }
   return out;
 }
+
+// --- suggestions for a person ----------------------------------------------------------------
+
+/** Up to three candidate replies for the person handling a chat. */
+export const SUGGESTIONS_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    suggestions: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['answer', 'clarify', 'acknowledge'] },
+          text: { type: 'string' },
+          sources: { type: 'array', items: { type: 'integer' } },
+        },
+        required: ['kind', 'text', 'sources'],
+      },
+    },
+  },
+  required: ['suggestions'],
+};
+
+const suggestionsSchema = z.object({
+  suggestions: z
+    .array(
+      z.object({
+        kind: z.enum(['answer', 'clarify', 'acknowledge']),
+        text: z.string(),
+        sources: z.array(z.number().int()).default([]),
+      }),
+    )
+    .default([]),
+});
+
+export interface ReplySuggestion {
+  kind: 'answer' | 'clarify' | 'acknowledge';
+  text: string;
+  /** Passage numbers, validated. Only an `answer` carries any. */
+  sources: number[];
+}
+
+/**
+ * Suggestions are held to the same standard as an answer the assistant would post itself: an
+ * "answer" must cite a passage and contain no invented number or practice fact - a person will
+ * send it with one click, so a wrong one is worse here than in the widget, not better. Anything
+ * that fails is dropped rather than downgraded; the other suggestions stand.
+ */
+export function parseSuggestions(raw: string, options: NormaliseOptions): ReplySuggestion[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(extractJson(raw));
+  } catch {
+    return [];
+  }
+  const result = suggestionsSchema.safeParse(parsed);
+  if (!result.success) return [];
+  const out: ReplySuggestion[] = [];
+  const seen = new Set<string>();
+  for (const candidate of result.data.suggestions) {
+    const text = cleanText(candidate.text, options.allowedHosts);
+    if (!text || seen.has(text.toLowerCase())) continue;
+    const sources = [...new Set(candidate.sources)].filter((n) => n >= 1 && n <= options.passageCount);
+    if (options.practicePhrases && leakedPractice(text, options.practicePhrases, options.grounding ?? [])) continue;
+    if (candidate.kind === 'answer') {
+      if (sources.length === 0) continue;
+      if (options.grounding && inventedNumbers(text, options.grounding).length > 0) continue;
+    }
+    seen.add(text.toLowerCase());
+    out.push({ kind: candidate.kind, text, sources: candidate.kind === 'answer' ? sources : [] });
+    if (out.length === 3) break;
+  }
+  return out;
+}
+

@@ -24,3 +24,5 @@ export * from './account-ai.service.js';
 export * from './feed.js';
 export * from './feed.service.js';
 export * from './renderer.js';
+export * from './lifecycle.service.js';
+export * from './bot-message.js';

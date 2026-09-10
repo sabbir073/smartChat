@@ -35,6 +35,17 @@ export interface AiSettingsView {
   keyFacts: string;
   ticketOfferText: string;
   handoffText: string;
+  checkingText: string;
+  offlineHandoffText: string;
+  urgentText: string;
+  handoffBackText: string;
+  idleNudgeText: string;
+  idleCloseText: string;
+  handoffWaitMinutes: number;
+  idleNudgeMinutes: number;
+  idleCloseMinutes: number;
+  showAiBadge: boolean;
+  suggestReplies: boolean;
   maxRepliesPerConversation: number;
   crawlMaxPages: number;
   crawlExclude: string[];
@@ -74,17 +85,41 @@ export const DEFAULT_AI_SETTINGS: {
   keyFacts: string;
   ticketOfferText: string;
   handoffText: string;
+  checkingText: string;
+  offlineHandoffText: string;
+  urgentText: string;
+  handoffBackText: string;
+  idleNudgeText: string;
+  idleCloseText: string;
+  handoffWaitMinutes: number;
+  idleNudgeMinutes: number;
+  idleCloseMinutes: number;
+  showAiBadge: boolean;
+  suggestReplies: boolean;
   maxRepliesPerConversation: number;
   crawlMaxPages: number;
   crawlExclude: string[];
 } = {
   mode: 'team',
-  assistantName: 'AI assistant',
+  assistantName: 'Assistant',
   instructions: '',
   keyFacts: '',
   ticketOfferText:
-    "I can't help with that from here, but our team can. Would you like me to open a support ticket so they can follow up by email?",
+    "I've checked our information and I don't have a definite answer on that. Let me create a ticket so a team member can look into it properly and get back to you by email.",
   handoffText: "I'm passing this to a member of our team - they'll pick it up right here in a moment.",
+  checkingText: "Give me a moment, I'm checking that for you...",
+  offlineHandoffText:
+    "Our team isn't online right now. I can open a ticket so they follow up by email, and I'm happy to keep helping you here in the meantime.",
+  urgentText: "I've marked this as urgent so the team sees it first.",
+  handoffBackText:
+    "It looks like our team member isn't available right now. I can keep helping you here, or open a ticket so they follow up by email - which would you prefer?",
+  idleNudgeText: "I haven't heard from you for a little while - is there anything else I can help with, or shall I close this chat?",
+  idleCloseText: "Thanks for chatting with us today - I'll close this chat for now. Come back any time, we're always happy to help. Goodbye!",
+  handoffWaitMinutes: 3,
+  idleNudgeMinutes: 5,
+  idleCloseMinutes: 3,
+  showAiBadge: false,
+  suggestReplies: true,
   maxRepliesPerConversation: 50,
   crawlMaxPages: 200,
   crawlExclude: [],
@@ -132,6 +167,17 @@ export class AiSettingsService {
       ...(input.keyFacts !== undefined ? { keyFacts: input.keyFacts } : {}),
       ...(input.ticketOfferText !== undefined ? { ticketOfferText: input.ticketOfferText } : {}),
       ...(input.handoffText !== undefined ? { handoffText: input.handoffText } : {}),
+      ...(input.checkingText !== undefined ? { checkingText: input.checkingText } : {}),
+      ...(input.offlineHandoffText !== undefined ? { offlineHandoffText: input.offlineHandoffText } : {}),
+      ...(input.urgentText !== undefined ? { urgentText: input.urgentText } : {}),
+      ...(input.handoffBackText !== undefined ? { handoffBackText: input.handoffBackText } : {}),
+      ...(input.idleNudgeText !== undefined ? { idleNudgeText: input.idleNudgeText } : {}),
+      ...(input.idleCloseText !== undefined ? { idleCloseText: input.idleCloseText } : {}),
+      ...(input.handoffWaitMinutes !== undefined ? { handoffWaitMinutes: input.handoffWaitMinutes } : {}),
+      ...(input.idleNudgeMinutes !== undefined ? { idleNudgeMinutes: input.idleNudgeMinutes } : {}),
+      ...(input.idleCloseMinutes !== undefined ? { idleCloseMinutes: input.idleCloseMinutes } : {}),
+      ...(input.showAiBadge !== undefined ? { showAiBadge: input.showAiBadge } : {}),
+      ...(input.suggestReplies !== undefined ? { suggestReplies: input.suggestReplies } : {}),
       ...(input.maxRepliesPerConversation !== undefined
         ? { maxRepliesPerConversation: input.maxRepliesPerConversation }
         : {}),
@@ -320,6 +366,17 @@ export class AiSettingsService {
       keyFacts: settings?.keyFacts ?? DEFAULT_AI_SETTINGS.keyFacts,
       ticketOfferText: settings?.ticketOfferText ?? DEFAULT_AI_SETTINGS.ticketOfferText,
       handoffText: settings?.handoffText ?? DEFAULT_AI_SETTINGS.handoffText,
+      checkingText: settings?.checkingText ?? DEFAULT_AI_SETTINGS.checkingText,
+      offlineHandoffText: settings?.offlineHandoffText ?? DEFAULT_AI_SETTINGS.offlineHandoffText,
+      urgentText: settings?.urgentText ?? DEFAULT_AI_SETTINGS.urgentText,
+      handoffBackText: settings?.handoffBackText ?? DEFAULT_AI_SETTINGS.handoffBackText,
+      idleNudgeText: settings?.idleNudgeText ?? DEFAULT_AI_SETTINGS.idleNudgeText,
+      idleCloseText: settings?.idleCloseText ?? DEFAULT_AI_SETTINGS.idleCloseText,
+      handoffWaitMinutes: settings?.handoffWaitMinutes ?? DEFAULT_AI_SETTINGS.handoffWaitMinutes,
+      idleNudgeMinutes: settings?.idleNudgeMinutes ?? DEFAULT_AI_SETTINGS.idleNudgeMinutes,
+      idleCloseMinutes: settings?.idleCloseMinutes ?? DEFAULT_AI_SETTINGS.idleCloseMinutes,
+      showAiBadge: settings?.showAiBadge ?? DEFAULT_AI_SETTINGS.showAiBadge,
+      suggestReplies: settings?.suggestReplies ?? DEFAULT_AI_SETTINGS.suggestReplies,
       maxRepliesPerConversation:
         settings?.maxRepliesPerConversation ?? DEFAULT_AI_SETTINGS.maxRepliesPerConversation,
       crawlMaxPages: settings?.crawlMaxPages ?? DEFAULT_AI_SETTINGS.crawlMaxPages,

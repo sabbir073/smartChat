@@ -30,6 +30,18 @@ export const updateAiSettingsSchema = z
     keyFacts: z.string().trim().max(20_000).optional(),
     ticketOfferText: z.string().trim().min(10).max(500).optional(),
     handoffText: z.string().trim().min(10).max(500).optional(),
+    checkingText: z.string().trim().min(5).max(300).optional(),
+    offlineHandoffText: z.string().trim().min(10).max(500).optional(),
+    urgentText: z.string().trim().min(5).max(300).optional(),
+    handoffBackText: z.string().trim().min(10).max(500).optional(),
+    idleNudgeText: z.string().trim().min(10).max(500).optional(),
+    idleCloseText: z.string().trim().min(10).max(500).optional(),
+    /** Minutes. 0 turns the step off. */
+    handoffWaitMinutes: z.number().int().min(0).max(120).optional(),
+    idleNudgeMinutes: z.number().int().min(0).max(120).optional(),
+    idleCloseMinutes: z.number().int().min(0).max(120).optional(),
+    showAiBadge: z.boolean().optional(),
+    suggestReplies: z.boolean().optional(),
     maxRepliesPerConversation: z.number().int().min(1).max(500).optional(),
     /** How many pages one website sync reads. */
     crawlMaxPages: z.number().int().min(1).max(1_000).optional(),

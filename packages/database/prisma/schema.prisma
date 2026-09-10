@@ -865,13 +865,21 @@ model Conversation {
   // --- the AI agent ----------------------------------------------------------
   /// How many times the AI has answered here. Bounded by the property's setting so a visitor is
   /// never kept in a loop with a machine.
-  aiReplyCount  Int       @default(0) @map("ai_reply_count")
-  aiLastReplyAt DateTime? @map("ai_last_reply_at") @db.Timestamptz(6)
+  aiReplyCount   Int       @default(0) @map("ai_reply_count")
+  aiLastReplyAt  DateTime? @map("ai_last_reply_at") @db.Timestamptz(6)
   /// Set the moment a person replies or takes the assignment. The AI never speaks in this
   /// conversation again, whatever the mode says.
-  aiPausedAt    DateTime? @map("ai_paused_at") @db.Timestamptz(6)
+  aiPausedAt     DateTime? @map("ai_paused_at") @db.Timestamptz(6)
   /// The AI decided a person is needed while the team was online. The inbox shows it as waiting.
-  aiHandoffAt   DateTime? @map("ai_handoff_at") @db.Timestamptz(6)
+  aiHandoffAt    DateTime? @map("ai_handoff_at") @db.Timestamptz(6)
+  /// Bumped whenever the conversation moves (a message, a takeover, a hand-back). A follow-up
+  /// timer carries the value it was scheduled with and does nothing if it has changed since.
+  aiFollowupSeq  Int       @default(0) @map("ai_followup_seq")
+  /// When the assistant asked "shall I close this chat?". Cleared by the visitor's next message.
+  aiIdleNudgedAt DateTime? @map("ai_idle_nudged_at") @db.Timestamptz(6)
+  /// Reply suggestions drafted for the person handling this chat, and when. Replaced by the next set.
+  aiSuggestions  Json?     @map("ai_suggestions")
+  aiSuggestedAt  DateTime? @map("ai_suggested_at") @db.Timestamptz(6)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2102,21 +2110,43 @@ model AiSetting {
   accountId  String @map("account_id") @db.Uuid
   propertyId String @map("property_id") @db.Uuid
 
-  mode                      AiMode @default(team)
+  mode               AiMode @default(team)
   /// What the widget calls it. Public by nature - it is the sender name on every reply.
-  assistantName             String @default("AI assistant") @map("assistant_name")
+  assistantName      String @default("AI assistant") @map("assistant_name")
   /// A short description of the business and how to speak, in the owner's words. Goes into the
   /// system prompt as-is, so it is bounded and never contains anything secret.
-  instructions              String @default("")
+  instructions       String @default("")
   /// Opening hours, phone numbers, addresses - facts the owner would rather type than have the
   /// crawler guess. Indexed as the `notes` document and always searched first.
-  keyFacts                  String @default("") @map("key_facts")
+  keyFacts           String @default("") @map("key_facts")
   /// Said when the AI cannot help, before the ticket offer.
-  ticketOfferText           String @default("I can't help with that from here, but our team can. Would you like me to open a support ticket so they can follow up by email?") @map("ticket_offer_text")
+  ticketOfferText    String @default("I've checked our information and I don't have a definite answer on that. Let me create a ticket so a team member can look into it properly and get back to you by email.") @map("ticket_offer_text")
   /// Said when the AI hands a conversation to a person who is online.
-  handoffText               String @default("I'm passing this to a member of our team - they'll pick it up right here in a moment.") @map("handoff_text")
+  handoffText        String @default("I'm passing this to a member of our team - they'll pick it up right here in a moment.") @map("handoff_text")
+  /// Said while the assistant is still looking, if the answer takes more than a moment.
+  checkingText       String @default("Give me a moment, I'm checking that for you...") @map("checking_text")
+  /// Said when the visitor asks for a person and nobody on the team is online.
+  offlineHandoffText String @default("Our team isn't online right now. I can open a ticket so they follow up by email, and I'm happy to keep helping you here in the meantime.") @map("offline_handoff_text")
+  /// Said when the assistant marks a conversation as urgent.
+  urgentText         String @default("I've marked this as urgent so the team sees it first.") @map("urgent_text")
+
+  // --- the conversation's rhythm: taking back, nudging, closing ---------------
+  /// After a handoff, minutes the assignee has to reply before the assistant takes the chat back. 0 = never.
+  handoffWaitMinutes        Int     @default(3) @map("handoff_wait_minutes")
+  handoffBackText           String  @default("It looks like our team member isn't available right now. I can keep helping you here, or open a ticket so they follow up by email - which would you prefer?") @map("handoff_back_text")
+  /// Minutes of visitor silence before the assistant asks whether to close. 0 = never.
+  idleNudgeMinutes          Int     @default(5) @map("idle_nudge_minutes")
+  idleNudgeText             String  @default("I haven't heard from you for a little while - is there anything else I can help with, or shall I close this chat?") @map("idle_nudge_text")
+  /// Minutes after the nudge before the assistant closes the chat.
+  idleCloseMinutes          Int     @default(3) @map("idle_close_minutes")
+  idleCloseText             String  @default("Thanks for chatting with us today - I'll close this chat for now. Come back any time, we're always happy to help. Goodbye!") @map("idle_close_text")
+  /// Whether the widget marks the assistant's replies as AI. Off by default: it speaks under its
+  /// own name, and says what it is when a visitor asks.
+  showAiBadge               Boolean @default(false) @map("show_ai_badge")
+  /// Whether the assistant drafts reply suggestions for people handling a chat.
+  suggestReplies            Boolean @default(true) @map("suggest_replies")
   /// After this many AI replies in one conversation the AI stops and offers a ticket. A loop guard.
-  maxRepliesPerConversation Int    @default(50) @map("max_replies_per_conversation")
+  maxRepliesPerConversation Int     @default(50) @map("max_replies_per_conversation")
 
   // --- the website crawl -----------------------------------------------------
   /// The most pages one crawl reads. The owner can raise it; the operator's ceiling is in code.

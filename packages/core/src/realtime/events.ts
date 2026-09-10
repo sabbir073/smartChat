@@ -53,6 +53,10 @@ export interface AiMessageInfo {
   offer?: 'ticket';
   /** The visitor's thumbs up or down, when given. */
   rating?: 'up' | 'down';
+  /** Show the small "AI" mark in the widget. Off unless the owner turned it on. */
+  badge?: boolean;
+  /** What kind of message, beyond a reply: the holding line, a nudge, a hand-back, the close. */
+  kind?: string;
 }
 
 /** Narrow a stored metadata bag to the AI-message shape, or nothing if it is not one. */
@@ -74,6 +78,8 @@ function readAiInfo(message: MessageMaybeWithSender): AiMessageInfo | undefined 
     sources,
     ...(raw['offer'] === 'ticket' ? { offer: 'ticket' as const } : {}),
     ...(raw['rating'] === 'up' || raw['rating'] === 'down' ? { rating: raw['rating'] } : {}),
+    ...(raw['badge'] === true ? { badge: true } : {}),
+    ...(typeof raw['kind'] === 'string' ? { kind: raw['kind'] } : {}),
   };
 }
 

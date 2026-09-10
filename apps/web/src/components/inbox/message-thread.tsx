@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEven
 import { MESSAGE_MAX_LENGTH, expandShortcut } from '@smartchat/validation';
 import { cn } from '@/components/ui';
 import type { AgentMessage } from '@/lib/realtime';
-import type { ShortcutDto } from '@/lib/types';
+import type { AiSuggestion, ShortcutDto } from '@/lib/types';
 import { ShortcutPicker, readShortcutQuery } from './shortcut-picker';
 import { AttachmentCard, formatBytes } from './attachment';
 
@@ -232,6 +232,7 @@ export function AgentComposer({
   onAttach,
   maxBytes = 26_214_400,
   onSuggest,
+  suggestions = [],
 }: {
   disabled: boolean;
   disabledReason?: string;
@@ -240,6 +241,11 @@ export function AgentComposer({
    * lands in the box for the agent to edit; nothing is sent by this.
    */
   onSuggest?: (() => Promise<SuggestedReply>) | undefined;
+  /**
+   * Replies the assistant drafted on its own when the visitor wrote, for the person to pick from.
+   * A click puts one in the box; nothing is sent until the person sends it.
+   */
+  suggestions?: AiSuggestion[];
   onSend: (body: string, asNote: boolean) => void;
   onTyping: (typing: boolean) => void;
   /** Saved replies this agent may insert. Empty is a valid state, not an error. */
@@ -461,6 +467,36 @@ export function AgentComposer({
         <p className="mb-2 text-[12.5px] text-danger" role="alert">
           {fileError}
         </p>
+      )}
+      {/* What the assistant would say, offered rather than sent. Hidden while the box has text
+          in it so a half-written reply is never covered, and while writing a note. */}
+      {suggestions.length > 0 && !asNote && !disabled && value.trim() === '' && (
+        <div className="mb-2 flex flex-wrap items-center gap-1.5" role="group" aria-label="Suggested replies">
+          <span className="text-[11.5px] font-medium uppercase tracking-wide text-ink-subtle">✦ Suggested</span>
+          {suggestions.map((candidate, index) => (
+            <button
+              key={`${index}-${candidate.text.slice(0, 24)}`}
+              type="button"
+              onClick={() => {
+                setValue(candidate.text);
+                setToken(null);
+                const from = candidate.sources.map((s) => s.title).join(', ');
+                setSuggestion({
+                  note: from ? `From ${from}. Read it, edit it, then send.` : 'Drafted by the assistant. Read it, edit it, then send.',
+                  tone: 'ok',
+                });
+                textarea.current?.focus();
+              }}
+              title={candidate.text}
+              className="max-w-full truncate rounded-full border border-border bg-surface-raised px-2.5 py-1 text-left text-[12.5px] text-ink transition-colors hover:border-brand hover:bg-brand-soft"
+            >
+              <span className="mr-1 text-ink-subtle">
+                {candidate.kind === 'answer' ? 'Answer' : candidate.kind === 'clarify' ? 'Ask' : 'Reassure'}
+              </span>
+              {candidate.text}
+            </button>
+          ))}
+        </div>
       )}
       {/* Its own line only when it has something extra to say. Two segmented buttons did not need
           34px of vertical space to themselves. */}

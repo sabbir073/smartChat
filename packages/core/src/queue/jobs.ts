@@ -57,6 +57,10 @@ export const AiJob = {
   /** Crawl one property's website and index it. Minutes long; one at a time per property. */
   CRAWL_PROPERTY: 'ai.crawl_property',
   EXTRACT_FILE: 'ai.extract_file',
+  /** A delayed follow-up in one conversation: take back after a handoff, nudge, close. */
+  FOLLOWUP: 'ai.followup',
+  /** Reply suggestions for the person handling a chat. */
+  SUGGEST: 'ai.suggest',
   /** Daily: queue a crawl for every AI-enabled website not read in the last week. */
   RECRAWL_DUE: 'ai.recrawl_due',
 } as const;
@@ -83,6 +87,23 @@ export interface AiReindexPropertyPayload {
 export interface AiExtractFilePayload {
   accountId: string;
   fileId: string;
+}
+
+export type AiFollowupKind = 'handoff_wait' | 'idle_nudge' | 'idle_close';
+
+export interface AiFollowupPayload {
+  accountId: string;
+  conversationId: string;
+  kind: AiFollowupKind;
+  /** The conversation's `aiFollowupSeq` when this was scheduled; a different value means stale. */
+  seq: number;
+}
+
+export interface AiSuggestPayload {
+  accountId: string;
+  conversationId: string;
+  /** The visitor message the suggestions answer. */
+  messageId: string;
 }
 
 export interface SendEmailPayload {
@@ -136,6 +157,8 @@ export type JobPayloadMap = {
   [AiJob.REINDEX_PROPERTY]: AiReindexPropertyPayload;
   [AiJob.CRAWL_PROPERTY]: AiReindexPropertyPayload;
   [AiJob.EXTRACT_FILE]: AiExtractFilePayload;
+  [AiJob.FOLLOWUP]: AiFollowupPayload;
+  [AiJob.SUGGEST]: AiSuggestPayload;
   [AiJob.RECRAWL_DUE]: Record<string, never>;
 };
 
