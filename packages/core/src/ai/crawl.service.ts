@@ -129,7 +129,8 @@ export class CrawlService {
         crawlError: outcome.error,
       },
     });
-    this.options.log?.('ai.crawl.done', { propertyId, ...outcome });
+    // The first few page failures by name: "failed: 4" on its own has cost an afternoon.
+    this.options.log?.('ai.crawl.done', { propertyId, ...outcome, errors: summary?.errors.slice(0, 5) ?? [] });
     if (this.options.feed) {
       outcome.feed = await this.options.feed.syncFeed(accountId, propertyId);
     }

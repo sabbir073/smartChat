@@ -275,8 +275,11 @@ export async function crawlSite(
     delivered.add(finalUrl);
     summary.fetched += 1;
     if (finalUrl !== url) queued.add(finalUrl);
+    // Links from both copies of the page: the browser's (menus drawn by JavaScript) and the
+    // plain fetch's (a browser document that came back cut short still has none).
     const html = read?.html ?? result.text;
     for (const link of extractLinks(html)) enqueue(link, finalUrl);
+    if (read && result.status === 200) for (const link of extractLinks(result.text)) enqueue(link, finalUrl);
     for (const link of read?.links ?? []) enqueue(link, finalUrl);
     let extracted: ExtractedPage | null = null;
     if (read && read.markdown.trim().length >= MIN_PAGE_CHARS) {
