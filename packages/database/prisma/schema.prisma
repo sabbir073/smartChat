@@ -2138,6 +2138,10 @@ model AiSetting {
   handoffText        String @default("I'm passing this to a member of our team - they'll pick it up right here in a moment.") @map("handoff_text")
   /// Said while the assistant is still looking, if the answer takes more than a moment.
   checkingText       String @default("Give me a moment, I'm checking that for you...") @map("checking_text")
+  /// The earliest the line above may be said, in seconds. 0 = never say it. It is a floor, not a
+  /// schedule: the assistant also waits until the answer is slower than this website's own normal
+  /// reply, so on a slow site the line stays rare instead of preceding every answer.
+  checkingAfterSeconds Int  @default(10) @map("checking_after_seconds")
   /// Said when the visitor asks for a person and nobody on the team is online.
   offlineHandoffText String @default("Our team isn't online right now. I can open a ticket so they follow up by email, and I'm happy to keep helping you here in the meantime.") @map("offline_handoff_text")
   /// Said when the assistant marks a conversation as urgent.

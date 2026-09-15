@@ -37,6 +37,8 @@ export const updateAiSettingsSchema = z
     idleNudgeText: z.string().trim().min(10).max(500).optional(),
     idleCloseText: z.string().trim().min(10).max(500).optional(),
     /** Minutes. 0 turns the step off. */
+    /** 0 = never say "give me a moment"; otherwise the earliest it may be said. */
+    checkingAfterSeconds: z.number().int().min(0).max(120).optional(),
     handoffWaitMinutes: z.number().int().min(0).max(120).optional(),
     idleNudgeMinutes: z.number().int().min(0).max(120).optional(),
     idleCloseMinutes: z.number().int().min(0).max(120).optional(),

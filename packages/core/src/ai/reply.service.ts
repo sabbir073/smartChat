@@ -38,7 +38,10 @@ export interface AiReplyServiceOptions {
   lifecycle?: LifecycleService;
   clock?: Clock;
   log?: (event: string, detail: Record<string, unknown>) => void;
-  /** How long the model may take before the visitor is told it is being looked into. */
+  /**
+   * Overrides the whole "give me a moment" calculation with a fixed wait. Tests only - in
+   * production the wait comes from the website's setting and its own recent replies.
+   */
   holdingAfterMs?: number;
 }
 
@@ -58,10 +61,50 @@ export type AiReplyOutcome =
 
 const MAX_HISTORY_MESSAGES = 10;
 const MAX_QUESTION_CHARS = 2_000;
-/** The lookup has taken this long: tell the visitor it is being looked into. */
-const HOLDING_AFTER_MS = 4_500;
+/**
+ * The floor for "give me a moment" when a website has no setting of its own (a row written before
+ * the column existed). Ten seconds, not the four and a half it used to be: a real answer on the
+ * production CPU takes about six and a half, so the old constant put the line in front of
+ * almost every answer instead of in front of the slow ones.
+ */
+const DEFAULT_CHECKING_AFTER_SECONDS = 10;
+/**
+ * How much slower than this website's own normal reply an answer must be before the visitor is
+ * told it is being looked into. The normal is the 80th percentile of its recent replies, so this
+ * is "slower than four replies in five, and then some".
+ */
+const SLOWER_THAN_USUAL_MS = 2_000;
+/** Recent turns to judge "usual" from, and how few is too few to judge at all. */
+const LATENCY_SAMPLE = 40;
+const LATENCY_MIN_SAMPLE = 8;
+/** How long a website's measured "usual" is reused before it is measured again. */
+const LATENCY_CACHE_MS = 5 * 60 * 1_000;
 /** A message with fewer words than this is a greeting, a thanks, a yes - not something to look up. */
 const LOOKUP_MIN_WORDS = 4;
+
+/**
+ * What a reply usually costs here, from a sample of recent ones: the 80th percentile, or null
+ * while there are too few to have an opinion. Exported for the tests; the service caches it.
+ */
+export function usualFrom(latencies: number[]): number | null {
+  if (latencies.length < LATENCY_MIN_SAMPLE) return null;
+  const sorted = [...latencies].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.8))] ?? null;
+}
+
+/**
+ * When - if ever - to say "give me a moment", given the owner's floor and what a reply usually
+ * costs on this website. Null means "say nothing".
+ *
+ * The floor is absolute: nothing is said before it. Above it, the line waits until the answer is
+ * slower than four replies in five *and then some*, so a site whose answers simply take a while
+ * does not announce every one of them.
+ */
+export function checkingDelay(input: { afterSeconds: number; usualReplyMs: number | null }): number | null {
+  if (input.afterSeconds <= 0) return null;
+  const floor = input.afterSeconds * 1_000;
+  return input.usualReplyMs === null ? floor : Math.max(floor, input.usualReplyMs + SLOWER_THAN_USUAL_MS);
+}
 
 export function looksLikeLookup(question: string): boolean {
   const words = question.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
@@ -74,10 +117,64 @@ export function looksLikeLookup(question: string): boolean {
 export class AiReplyService {
   private readonly clock: Clock;
   private readonly hasAvailableAgent: (accountId: string) => Promise<boolean>;
+  /** Per property: what a reply usually costs, and when that was last worked out. */
+  private readonly usualLatency = new Map<string, { ms: number | null; at: number }>();
 
   constructor(private readonly options: AiReplyServiceOptions) {
     this.clock = options.clock ?? systemClock;
     this.hasAvailableAgent = agentAvailabilityReader(options.db);
+  }
+
+  /**
+   * How long to wait before telling the visitor their question is being looked into.
+   *
+   * Two rules, and the later of the two wins:
+   *
+   * 1. The owner's floor (`checkingAfterSeconds`; 0 switches the line off entirely). Nothing is
+   *    ever said before it.
+   * 2. Slower than this website's own normal - the 80th percentile of its recent replies plus a
+   *    couple of seconds. A site whose answers take six seconds should not announce itself at six
+   *    seconds; that is just how long it takes there, and saying so every time is noise.
+   *
+   * The second rule is what this used to lack. The threshold was a constant of 4.5 s, set from a
+   * measurement that had drifted: the median answer on the production machine takes 6.4 s, so
+   * sixteen of seventeen answers were preceded by "give me a moment", which is not a courtesy any
+   * more, it is a tic.
+   */
+  private async checkingDelayMs(propertyId: string, settings: { checkingAfterSeconds?: number | null }): Promise<number | null> {
+    if (this.options.holdingAfterMs !== undefined) return this.options.holdingAfterMs;
+    return checkingDelay({
+      afterSeconds: settings.checkingAfterSeconds ?? DEFAULT_CHECKING_AFTER_SECONDS,
+      usualReplyMs: await this.usualReplyMs(propertyId),
+    });
+  }
+
+  /**
+   * The 80th percentile of this website's recent replies, or null while there are too few to say.
+   *
+   * Cached for five minutes per property: this runs on the path a visitor is waiting on, and the
+   * answer moves at the speed of a machine's load, not a keystroke. A failure is cached as "no
+   * idea", which falls back to the owner's floor - the reply must never fail over this.
+   */
+  private async usualReplyMs(propertyId: string): Promise<number | null> {
+    const now = this.clock.timestamp();
+    const cached = this.usualLatency.get(propertyId);
+    if (cached && now - cached.at < LATENCY_CACHE_MS) return cached.ms;
+
+    let ms: number | null = null;
+    try {
+      const rows = await this.options.db.aiTurn.findMany({
+        where: { propertyId, latencyMs: { gt: 0 }, decision: { in: ['answer', 'chat', 'ticket', 'human'] } },
+        orderBy: { createdAt: 'desc' },
+        select: { latencyMs: true },
+        take: LATENCY_SAMPLE,
+      });
+      ms = usualFrom(rows.map((row) => row.latencyMs));
+    } catch (error) {
+      this.options.log?.('ai.reply.latency_unknown', { propertyId, error: String(error) });
+    }
+    this.usualLatency.set(propertyId, { ms, at: now });
+    return ms;
   }
 
   async reply(input: {
@@ -178,21 +275,31 @@ export class AiReplyService {
     const started = this.clock.timestamp();
     await this.typing(conversation, settings.assistantName, true);
     const question = message.body.trim().slice(0, MAX_QUESTION_CHARS);
-    // "Give me a moment, I'm checking that for you." Only when it reads as a lookup and the
-    // lookup is taking longer than a moment: a "hello" or a "thanks, bye" is never one, and a
-    // promise to check before "Hello!" would be absurd. Measured on the production CPU a fresh
-    // question takes four to five seconds, so the threshold sits just above that; the typing
-    // indicator covers the rest.
-    const holding = setTimeout(() => {
-      if (!looksLikeLookup(question)) return;
-      void postBotMessage(this.options.db, this.options.events, {
-        conversation,
-        assistantName: settings.assistantName,
-        body: settings.checkingText,
-        metadata: { kind: 'holding', ...(settings.showAiBadge ? { badge: true } : {}) },
-        now: this.clock.now(),
-      }).catch((error: unknown) => this.options.log?.('ai.reply.holding_failed', { conversationId: conversation.id, error: String(error) }));
-    }, this.options.holdingAfterMs ?? HOLDING_AFTER_MS);
+    /**
+     * "Give me a moment, I'm checking that for you."
+     *
+     * Three things have to be true before it is said: the message reads as something to look up
+     * (a "hello" or a "thanks, bye" never is, and promising to check before "Hello!" would be
+     * absurd), the owner has not switched the line off, and the answer is taking longer than it
+     * usually does here - see `checkingDelayMs`. Otherwise the typing indicator carries the wait,
+     * which is what it is for.
+     */
+    const delayMs = looksLikeLookup(question) ? await this.checkingDelayMs(input.propertyId, settings) : null;
+    const holding =
+      delayMs === null
+        ? null
+        : setTimeout(() => {
+            void postBotMessage(this.options.db, this.options.events, {
+              conversation,
+              assistantName: settings.assistantName,
+              body: settings.checkingText,
+              metadata: { kind: 'holding', ...(settings.showAiBadge ? { badge: true } : {}) },
+              now: this.clock.now(),
+            }).catch((error: unknown) => this.options.log?.('ai.reply.holding_failed', { conversationId: conversation.id, error: String(error) }));
+          }, delayMs);
+    const stopHolding = () => {
+      if (holding) clearTimeout(holding);
+    };
     try {
       const [retrieved, history] = await Promise.all([
         this.options.knowledge.retrieve(input.accountId, input.propertyId, question),
@@ -222,7 +329,7 @@ export class AiReplyService {
         { messages: prompt.messages, schema: REPLY_SCHEMA, maxTokens: 300, temperature: 0.2 },
         { accountId: input.accountId },
       );
-      clearTimeout(holding);
+      stopHolding();
       const latencyMs = this.clock.timestamp() - started;
 
       const parsed = parseReply(outcome.result.content, {
@@ -309,7 +416,7 @@ export class AiReplyService {
       await this.options.lifecycle?.afterAssistantReply(conversation, settings);
       return { posted: true, decision: reply.decision, provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
     } catch (error) {
-      clearTimeout(holding);
+      stopHolding();
       const latencyMs = this.clock.timestamp() - started;
       const detail = error instanceof Error ? error.message : String(error);
       this.options.log?.('ai.reply.failed', { conversationId: conversation.id, error: detail });
@@ -327,7 +434,7 @@ export class AiReplyService {
       await this.options.lifecycle?.afterAssistantReply(conversation, settings);
       return { posted: true, decision: 'failed', provider: null, fellBack: false, latencyMs };
     } finally {
-      clearTimeout(holding);
+      stopHolding();
       await this.typing(conversation, settings.assistantName, false);
     }
   }

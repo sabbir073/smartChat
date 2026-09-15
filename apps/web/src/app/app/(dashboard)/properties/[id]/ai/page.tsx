@@ -50,6 +50,7 @@ type Draft = Pick<
   | 'ticketOfferText'
   | 'handoffText'
   | 'checkingText'
+  | 'checkingAfterSeconds'
   | 'offlineHandoffText'
   | 'urgentText'
   | 'handoffBackText'
@@ -115,6 +116,7 @@ export default function AiAgentPage() {
       ticketOfferText: settings.data.ticketOfferText,
       handoffText: settings.data.handoffText,
       checkingText: settings.data.checkingText,
+      checkingAfterSeconds: settings.data.checkingAfterSeconds,
       offlineHandoffText: settings.data.offlineHandoffText,
       urgentText: settings.data.urgentText,
       handoffBackText: settings.data.handoffBackText,
@@ -853,22 +855,45 @@ export default function AiAgentPage() {
               )}
             </Field>
             <div className="grid gap-5 md:grid-cols-2">
-              <Field
-                label="While it is looking something up"
-                hint="Posted only when an answer is taking more than a couple of seconds."
-                error={errors['checkingText']}
-              >
-                {({ id: fieldId }) => (
-                  <textarea
-                    id={fieldId}
-                    rows={2}
-                    value={draft.checkingText}
-                    maxLength={300}
-                    onChange={(event) => setDraft({ ...draft, checkingText: event.target.value })}
-                    className={TEXTAREA}
-                  />
-                )}
-              </Field>
+              <div className="space-y-2">
+                <Field
+                  label="While it is looking something up"
+                  hint="Said only when an answer is taking longer than this website's answers usually take - not before every one of them."
+                  error={errors['checkingText']}
+                >
+                  {({ id: fieldId }) => (
+                    <textarea
+                      id={fieldId}
+                      rows={2}
+                      value={draft.checkingText}
+                      maxLength={300}
+                      onChange={(event) => setDraft({ ...draft, checkingText: event.target.value })}
+                      className={TEXTAREA}
+                    />
+                  )}
+                </Field>
+                <Field
+                  label="Not before"
+                  hint="Seconds. 0 never says it at all - the typing dots carry the wait."
+                  error={errors['checkingAfterSeconds']}
+                >
+                  {({ id: fieldId, invalid }) => (
+                    <TextInput
+                      id={fieldId}
+                      type="number"
+                      min={0}
+                      max={120}
+                      invalid={invalid}
+                      value={draft.checkingAfterSeconds}
+                      onChange={(event) => {
+                        const next = Math.floor(Number(event.target.value));
+                        setDraft({ ...draft, checkingAfterSeconds: Number.isFinite(next) && next >= 0 ? Math.min(next, 120) : 0 });
+                      }}
+                      className="max-w-[8rem]"
+                    />
+                  )}
+                </Field>
+              </div>
               <Field
                 label="When a visitor says it is urgent"
                 hint="The chat is marked urgent for your team; this is added if the reply did not already say so."

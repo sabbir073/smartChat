@@ -41,6 +41,7 @@ export interface AiSettingsView {
   handoffBackText: string;
   idleNudgeText: string;
   idleCloseText: string;
+  checkingAfterSeconds: number;
   handoffWaitMinutes: number;
   idleNudgeMinutes: number;
   idleCloseMinutes: number;
@@ -93,6 +94,7 @@ export const DEFAULT_AI_SETTINGS: {
   handoffBackText: string;
   idleNudgeText: string;
   idleCloseText: string;
+  checkingAfterSeconds: number;
   handoffWaitMinutes: number;
   idleNudgeMinutes: number;
   idleCloseMinutes: number;
@@ -117,6 +119,7 @@ export const DEFAULT_AI_SETTINGS: {
     "It looks like our team member isn't available right now. I can keep helping you here, or open a ticket so they follow up by email - which would you prefer?",
   idleNudgeText: "I haven't heard from you for a little while - is there anything else I can help with, or shall I close this chat?",
   idleCloseText: "Thanks for chatting with us today - I'll close this chat for now. Come back any time, we're always happy to help. Goodbye!",
+  checkingAfterSeconds: 10,
   handoffWaitMinutes: 3,
   idleNudgeMinutes: 5,
   idleCloseMinutes: 3,
@@ -175,6 +178,7 @@ export class AiSettingsService {
       ...(input.handoffBackText !== undefined ? { handoffBackText: input.handoffBackText } : {}),
       ...(input.idleNudgeText !== undefined ? { idleNudgeText: input.idleNudgeText } : {}),
       ...(input.idleCloseText !== undefined ? { idleCloseText: input.idleCloseText } : {}),
+      ...(input.checkingAfterSeconds !== undefined ? { checkingAfterSeconds: input.checkingAfterSeconds } : {}),
       ...(input.handoffWaitMinutes !== undefined ? { handoffWaitMinutes: input.handoffWaitMinutes } : {}),
       ...(input.idleNudgeMinutes !== undefined ? { idleNudgeMinutes: input.idleNudgeMinutes } : {}),
       ...(input.idleCloseMinutes !== undefined ? { idleCloseMinutes: input.idleCloseMinutes } : {}),
@@ -374,6 +378,7 @@ export class AiSettingsService {
       handoffBackText: settings?.handoffBackText ?? DEFAULT_AI_SETTINGS.handoffBackText,
       idleNudgeText: settings?.idleNudgeText ?? DEFAULT_AI_SETTINGS.idleNudgeText,
       idleCloseText: settings?.idleCloseText ?? DEFAULT_AI_SETTINGS.idleCloseText,
+      checkingAfterSeconds: settings?.checkingAfterSeconds ?? DEFAULT_AI_SETTINGS.checkingAfterSeconds,
       handoffWaitMinutes: settings?.handoffWaitMinutes ?? DEFAULT_AI_SETTINGS.handoffWaitMinutes,
       idleNudgeMinutes: settings?.idleNudgeMinutes ?? DEFAULT_AI_SETTINGS.idleNudgeMinutes,
       idleCloseMinutes: settings?.idleCloseMinutes ?? DEFAULT_AI_SETTINGS.idleCloseMinutes,

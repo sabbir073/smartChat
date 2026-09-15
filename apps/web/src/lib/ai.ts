@@ -11,8 +11,10 @@ export interface AiSettingsView {
   keyFacts: string;
   ticketOfferText: string;
   handoffText: string;
-  /** Posted while the model is still thinking, if that takes more than a couple of seconds. */
+  /** Said while the model is still thinking, if it is taking longer than this site's usual. */
   checkingText: string;
+  /** Seconds before `checkingText` may be said at all; 0 never says it. */
+  checkingAfterSeconds: number;
   /** When the visitor asks for a person and nobody is online. */
   offlineHandoffText: string;
   /** Appended when the assistant marks a chat urgent and its reply did not say so itself. */

@@ -15,8 +15,8 @@ to a hosted model the operator configures in the console.
    uploaded, the published help-centre articles and the "key facts" its owner typed in. Nothing
    from the inbox, contacts, tickets or other conversations is ever in the prompt.
 3. **Anything about the business that needs the backend, or that it does not know, becomes a
-   ticket.** It never says "I can't help with that": when a lookup is taking a moment it says
-   so ("Give me a moment, I'm checking that for you..."), and when the content has nothing it
+   ticket.** It never says "I can't help with that": when a lookup is taking unusually long it
+   says so ("Give me a moment, I'm checking that for you..."), and when the content has nothing it
    says the team will look into it properly and shows *Create a ticket* / *Ask something else*.
    Never a guess. Greetings, thanks, small talk and general questions that are not about the
    business are answered in the model's own words (`chat`) - "Hello" gets "Hello", not a ticket
@@ -356,12 +356,22 @@ conversation it is can rate, and only a bot message the AI wrote.
 
 ## What the worker does with the signals (`reply.service.ts`)
 
-- **Holding message.** If the model has not answered after 4.5 s (`HOLDING_AFTER_MS`) and the
-  message reads as a lookup (four words or more, not a greeting or a thanks), the visitor gets
-  the owner's *checking* sentence as a bot message (`metadata.kind = 'holding'`), and the
-  answer follows. Measured on the production CPU a fresh question takes four to five seconds
-  with a warm prefix, so the message appears for the slow ones - a cold slot, the fallback, a
-  long passage set - and never before "Hello!".
+- **Holding message.** "Give me a moment, I'm checking that for you." Three things must be true
+  before it is said: the message reads as a lookup (four words or more, not a greeting or a
+  thanks), the owner has not switched it off (`checkingAfterSeconds = 0`), and the answer is
+  taking longer than answers on *this website* usually take. It is a bot message with
+  `metadata.kind = 'holding'`, and the answer follows it.
+
+  The last of those three is the whole point, and it was missing until 2026-09-15. The wait used
+  to be a constant 4.5 s, set from a measurement that had drifted: the median `answer` turn on the
+  production machine takes **6.4 s** (p90 8.1 s), so the line went out in front of sixteen of
+  seventeen answers. An owner described it, fairly, as boring noise. The wait is now
+  `max(checkingAfterSeconds, p80 of the last 40 replies + 2 s)` — the setting is a floor, never a
+  schedule, and on a site whose answers simply take a while the line waits longer still rather
+  than announcing every one of them. The percentile is read from `ai_turns` and cached for five
+  minutes per website; with fewer than eight recent replies to judge by, the floor stands alone.
+  On the live numbers that is zero holding messages for ordinary answers, and one only when
+  something is genuinely slow — a cold slot, the fallback provider, a long passage set.
 - **Urgent.** `urgent: true` sets the conversation's priority to `urgent`, pushes the change to
   every open inbox, and - if the reply did not acknowledge it itself - appends the owner's
   *urgent* sentence.
@@ -450,7 +460,7 @@ posts "ticket #N is open…" into the chat. The offline-form switch does not gat
 
 | table | purpose |
 | --- | --- |
-| `ai_settings` | per website: `mode`, assistant name, instructions, key facts, the sentences it says (offer, handoff, checking, offline handoff, urgent, handoff back, idle nudge, idle close), the waits (`handoff_wait_minutes`, `idle_nudge_minutes`, `idle_close_minutes`), `show_ai_badge`, `suggest_replies`, loop guard, `crawl_max_pages`, crawl state |
+| `ai_settings` | per website: `mode`, assistant name, instructions, key facts, the sentences it says (offer, handoff, checking, offline handoff, urgent, handoff back, idle nudge, idle close), the waits (`checking_after_seconds`, `handoff_wait_minutes`, `idle_nudge_minutes`, `idle_close_minutes`), `show_ai_badge`, `suggest_replies`, loop guard, `crawl_max_pages`, crawl state |
 | `knowledge_documents` | page / link / article / notes / file / product: title, url (unique per website), text, content hash, `indexed_at`, `last_seen_at`, `error` |
 | `knowledge_chunks` | passages: `embedding vector(768)`, generated `search tsvector` |
 | `ai_turns` | every turn: decision, provider, model, `fell_back`, tokens, latency, retrieved and cited chunk ids, error |
@@ -478,8 +488,8 @@ Tenant (`authenticateTenant`):
 - `GET /properties/:id/ai` — settings, plan, knowledge status, this month's usage.
 - `PATCH /properties/:id/ai` — any of `mode`, `assistantName`, `instructions`, `keyFacts`, the
   sentences (`ticketOfferText`, `handoffText`, `checkingText`, `offlineHandoffText`, `urgentText`,
-  `handoffBackText`, `idleNudgeText`, `idleCloseText`), the waits (`handoffWaitMinutes`,
-  `idleNudgeMinutes`, `idleCloseMinutes`, 0-120), `showAiBadge`, `suggestReplies`,
+  `handoffBackText`, `idleNudgeText`, `idleCloseText`), the waits (`checkingAfterSeconds`,
+  `handoffWaitMinutes`, `idleNudgeMinutes`, `idleCloseMinutes`, 0-120), `showAiBadge`, `suggestReplies`,
   `maxRepliesPerConversation`, `crawlMaxPages`, `crawlExclude`, `productFeedUrl`. Changing
   `keyFacts` re-indexes them.
 - The conversation DTO carries `ai.suggestions[]` and `ai.suggestedAt` beside `ai.pausedAt`,
