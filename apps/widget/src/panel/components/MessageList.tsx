@@ -1,7 +1,7 @@
-import { useEffect, useRef } from 'react';
 import type { PanelMessage } from '../lib/types.js';
 import { AttachmentBubble, UploadingBubble } from './Attachment.js';
 import { splitLinks } from '../lib/linkify.js';
+import { useStickToBottom } from '../lib/stick-to-bottom.js';
 
 /**
  * The visitor-facing wording for a system message.
@@ -51,31 +51,17 @@ export function MessageList({
   /** Thumbs up or down on an AI answer. Absent in previews. */
   onRate?: ((messageId: string, rating: 'up' | 'down' | null) => void) | undefined;
 }) {
-  const bottom = useRef<HTMLDivElement>(null);
-  const container = useRef<HTMLDivElement>(null);
-  const stickToBottom = useRef(true);
-
   /**
-   * Follow new messages, but only when the visitor is already at the bottom.
-   *
-   * Yanking somebody back down while they are reading earlier messages is one of the most
-   * irritating things a chat widget can do.
+   * Follow new messages, but only when the visitor is already at the bottom - yanking somebody
+   * back down while they are reading earlier messages is one of the most irritating things a chat
+   * widget can do, and never following at all is the other one.
    */
-  useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
-    stickToBottom.current = distance < 80;
-  }, [messages.length]);
-
-  useEffect(() => {
-    if (stickToBottom.current) {
-      bottom.current?.scrollIntoView({ behavior: messages.length > 1 ? 'smooth' : 'auto' });
-    }
-  }, [messages, agentTyping]);
+  const { containerRef, hasNew, jumpToLatest } = useStickToBottom<HTMLDivElement>(
+    `${messages.length}:${messages[messages.length - 1]?.id ?? ''}:${agentTyping}`,
+  );
 
   return (
-    <div className="body" ref={container} role="log" aria-live="polite" aria-label="Conversation">
+    <div className="body" ref={containerRef} role="log" aria-live="polite" aria-label="Conversation">
       {welcome && <div className="bubble bubble-agent">{welcome}</div>}
 
       {messages.map((message) => {
@@ -210,7 +196,14 @@ export function MessageList({
         </div>
       )}
 
-      <div ref={bottom} />
+      {hasNew && (
+        <button type="button" className="jump-latest" onClick={jumpToLatest}>
+          New messages
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+            <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+      )}
     </div>
   );
 }

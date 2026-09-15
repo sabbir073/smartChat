@@ -5,6 +5,7 @@ import {
   type AiFollowupPayload,
   type LifecycleService,
   type AiIndexDocumentPayload,
+  type AiReadLinkPayload,
   type AiReindexPropertyPayload,
   type AiReplyPayload,
   type AiReplyService,
@@ -13,6 +14,7 @@ import {
   type CrawlService,
   type KnowledgeFileService,
   type KnowledgeService,
+  type KnowledgeSourceService,
   type QueueProducer,
 } from '@smartchat/core';
 import type { Logger } from '@smartchat/logger';
@@ -32,6 +34,7 @@ export interface AiDeps {
   settings: AiSettingsService;
   crawler: CrawlService;
   files: KnowledgeFileService;
+  sources: KnowledgeSourceService;
   lifecycle: LifecycleService;
   queue: QueueProducer;
 }
@@ -65,6 +68,20 @@ export async function processAiJob(job: Job, logger: Logger, deps: AiDeps): Prom
     case AiJob.REMOVE_DOCUMENT: {
       const payload = job.data as AiIndexDocumentPayload;
       await deps.knowledge.deleteDocument(payload.accountId, payload.documentId);
+      return;
+    }
+    /**
+     * One page the owner pasted. The service records its own failures on the document - the
+     * address is on their settings page waiting for an answer - so this job succeeds either way
+     * rather than retrying a 404 five times over ten minutes.
+     */
+    case AiJob.READ_LINK: {
+      const payload = job.data as AiReadLinkPayload;
+      const outcome = await deps.sources.readLink(payload.accountId, payload.propertyId, payload.documentId);
+      logger.info(
+        { propertyId: payload.propertyId, documentId: payload.documentId, ...outcome },
+        outcome.indexed ? 'added page indexed' : 'added page could not be read',
+      );
       return;
     }
     case AiJob.REINDEX_PROPERTY: {

@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 export function PanelHeader({
   title,
   subtitle,
@@ -25,10 +27,25 @@ export function PanelHeader({
     .map((part) => part.charAt(0).toUpperCase())
     .join('');
 
+  /**
+   * A picture that does not arrive shows initials, not a torn page.
+   *
+   * The picture is served from the API, a different origin to this panel and to the website
+   * around it, so there are several ways for it to fail that have nothing to do with the person
+   * having uploaded one. Whatever the reason, two letters are a better answer than a broken
+   * image in the header of a chat window on somebody's shop front.
+   */
+  const [broken, setBroken] = useState(false);
+  useEffect(() => setBroken(false), [avatarUrl]);
+
   return (
     <header className="header">
       <div className="header-avatar" aria-hidden="true">
-        {avatarUrl ? <img src={avatarUrl} alt="" /> : initials}
+        {avatarUrl && !broken ? (
+          <img src={avatarUrl} alt="" onError={() => setBroken(true)} />
+        ) : (
+          initials
+        )}
       </div>
 
       <div className="header-text">

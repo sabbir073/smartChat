@@ -59,6 +59,18 @@ export interface VisitorPresenceSnapshot {
   visitors: { visitorId: string; url: string | null; title: string | null; updatedAt: number }[];
 }
 
+/** A colleague with a conversation open, as the gateway reports them. */
+export interface ConversationViewer {
+  memberId: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
+export interface ConversationViewers {
+  conversationId: string;
+  viewers: ConversationViewer[];
+}
+
 export interface AgentClientHandlers {
   onState(state: AgentConnectionState): void;
   /**
@@ -78,6 +90,18 @@ export interface AgentClientHandlers {
     url?: string | null;
     title?: string | null;
   }): void;
+  /**
+   * Who on the team has a conversation open, whenever that changes - and again on every gateway
+   * heartbeat, which is what lets the inbox drop a colleague whose browser died without saying
+   * goodbye. The list is authoritative: it replaces whatever was shown for that conversation.
+   */
+  onViewers(payload: ConversationViewers): void;
+  /**
+   * The whole picture, on subscribing and on every reconnect. It replaces what the inbox is
+   * showing rather than merging into it: a conversation somebody left while this dashboard was
+   * disconnected is absent from the snapshot, and merging would keep their name on screen.
+   */
+  onViewersSnapshot(snapshot: ConversationViewers[]): void;
 }
 
 interface Ack<T> {
@@ -170,6 +194,12 @@ export class AgentRealtimeClient {
         this.handlers.onVisitorPresence(payload),
     );
 
+    socket.on(ServerEvent.CONVERSATION_VIEWERS, (payload: ConversationViewers) => {
+      if (payload?.conversationId) {
+        this.handlers.onViewers({ conversationId: payload.conversationId, viewers: payload.viewers ?? [] });
+      }
+    });
+
     for (const event of [
       ServerEvent.CONVERSATION_CREATED,
       ServerEvent.CONVERSATION_UPDATED,
@@ -225,9 +255,11 @@ export class AgentRealtimeClient {
     const result = await this.emit<{
       subscribed: string[];
       presence: VisitorPresenceSnapshot[];
+      viewers: ConversationViewers[];
     }>(AgentClientEvent.INBOX_SUBSCRIBE, { propertyIds });
 
     this.handlers.onPresenceSnapshot(result.presence ?? []);
+    this.handlers.onViewersSnapshot(result.viewers ?? []);
   }
 
   async openConversation(conversationId: string): Promise<AgentMessage[]> {

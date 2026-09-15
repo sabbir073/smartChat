@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth-context';
 import { PageHeader } from '@/components/layout/page-header';
 import {
   Alert,
+  Avatar,
   Badge,
   Button,
   Card,
@@ -25,14 +26,6 @@ const ROLES = ['owner', 'admin', 'manager', 'agent'] as const;
 type BaseRole = (typeof ROLES)[number];
 
 const ROLE_TONE: Record<string, 'brand' | 'neutral'> = { owner: 'brand', admin: 'brand' };
-
-function initials(name: string): string {
-  return name
-    .split(' ')
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('');
-}
 
 export default function TeamPage() {
   const { activeAccount, user, can } = useAuth();
@@ -236,13 +229,7 @@ export default function TeamPage() {
                   className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
                 >
                   <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-[12px] font-semibold text-brand">
-                      {member.avatarUrl ? (
-                        <img src={member.avatarUrl} alt="" className="size-full object-cover" />
-                      ) : (
-                        initials(member.displayName ?? member.name)
-                      )}
-                    </span>
+                    <Avatar name={member.displayName ?? member.name} url={member.avatarUrl} size={36} />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ink">
                         {member.displayName ?? member.name}

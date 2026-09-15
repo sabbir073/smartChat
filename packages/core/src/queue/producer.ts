@@ -29,6 +29,7 @@ const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'ai.reindex_property': QueueName.AI,
   'ai.crawl_property': QueueName.AI,
   'ai.extract_file': QueueName.AI,
+  'ai.read_link': QueueName.AI,
   'ai.followup': QueueName.AI,
   'ai.suggest': QueueName.AI,
   'ai.recrawl_due': QueueName.AI,

@@ -43,6 +43,8 @@ export default function PropertyDetailPage() {
   const [domain, setDomain] = useState('');
   const [domainError, setDomainError] = useState<string | null>(null);
   const [supportEmailError, setSupportEmailError] = useState<string | null>(null);
+  const [supportEmail, setSupportEmail] = useState<string | null>(null);
+  const [savingSupportEmail, setSavingSupportEmail] = useState(false);
   const [addingDomain, setAddingDomain] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -130,20 +132,30 @@ export default function PropertyDetailPage() {
   /**
    * Where a customer's reply to a ticket email should land.
    *
-   * Saved on blur rather than behind a Save button, like the other single settings on this page.
-   * The empty string is a real choice - it means "no monitored mailbox" - so it is sent as null
-   * rather than skipped.
+   * Behind a Save button rather than saved on blur. Blur-saving looked tidy and left people with
+   * no idea whether their address had been kept - there was nothing to press and nothing that
+   * said "saved" unless you happened to catch the toast. The empty string is a real choice here
+   * - it means "no monitored mailbox" - so it is sent as null rather than skipped.
    */
-  async function saveSupportEmail(value: string) {
-    const next = value.trim() === '' ? null : value.trim();
-    if (next === (property.data?.supportEmail ?? null)) return;
+  async function saveSupportEmail(event: FormEvent) {
+    event.preventDefault();
+    const typed = (supportEmail ?? property.data?.supportEmail ?? '').trim();
+    const next = typed === '' ? null : typed;
     setSupportEmailError(null);
+    setSavingSupportEmail(true);
     try {
       await api.patch(`/properties/${id}`, { supportEmail: next });
+      // Kept, not cleared back to the loaded value: `reload()` only starts a refetch, so dropping
+      // the typed value here would show the *old* address again until that request came back -
+      // and go on showing it if the request failed, contradicting the toast. Once the refetch
+      // lands the two agree and the button disables itself.
+      setSupportEmail(next ?? '');
       property.reload();
       toast.success(next ? 'Reply address saved' : 'Reply address cleared');
     } catch (error) {
       setSupportEmailError(error instanceof ApiError ? error.message : 'Could not save that.');
+    } finally {
+      setSavingSupportEmail(false);
     }
   }
 
@@ -342,29 +354,48 @@ export default function PropertyDetailPage() {
             title="Ticket replies"
             description="Where a customer's reply to a ticket email goes. SmartChat does not receive mail, so this is your own mailbox."
           />
-          <CardBody>
-            <Field
-              label="Reply-to address"
-              error={supportEmailError ?? undefined}
-              hint={
-                data.supportEmail
-                  ? 'Ticket emails tell the customer they can reply, and their reply goes here.'
-                  : 'With no address, ticket emails say plainly that the mailbox is not monitored. A reply-to nobody reads is worse than none.'
-              }
-            >
-              {({ id: fieldId, describedBy, invalid }) => (
-                <TextInput
-                  id={fieldId}
-                  type="email"
-                  aria-describedby={describedBy}
-                  invalid={invalid}
-                  defaultValue={data.supportEmail ?? ''}
-                  placeholder="support@yourcompany.com"
-                  onBlur={(event) => void saveSupportEmail(event.target.value)}
-                />
+          <form onSubmit={saveSupportEmail}>
+            <CardBody>
+              <Field
+                label="Reply-to address"
+                error={supportEmailError ?? undefined}
+                hint={
+                  data.supportEmail
+                    ? 'Ticket emails tell the customer they can reply, and their reply goes here.'
+                    : 'With no address, ticket emails say plainly that the mailbox is not monitored. A reply-to nobody reads is worse than none.'
+                }
+              >
+                {({ id: fieldId, describedBy, invalid }) => (
+                  <TextInput
+                    id={fieldId}
+                    type="email"
+                    aria-describedby={describedBy}
+                    invalid={invalid}
+                    value={supportEmail ?? data.supportEmail ?? ''}
+                    onChange={(event) => setSupportEmail(event.target.value)}
+                    placeholder="support@yourcompany.com"
+                  />
+                )}
+              </Field>
+            </CardBody>
+            <CardFooter>
+              {/* Clearing it is a decision too, so the sentence that says how to make it sits
+                  next to the button that makes it. */}
+              {(data.supportEmail ?? '') !== '' && (
+                <span className="mr-auto text-[12px] text-ink-subtle">
+                  Empty the box and save to remove it.
+                </span>
               )}
-            </Field>
-          </CardBody>
+              <Button
+                type="submit"
+                size="sm"
+                loading={savingSupportEmail}
+                disabled={supportEmail === null || supportEmail.trim() === (data.supportEmail ?? '')}
+              >
+                Save reply-to address
+              </Button>
+            </CardFooter>
+          </form>
         </Card>
 
         <Card className="border-danger/30">

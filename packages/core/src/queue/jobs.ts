@@ -59,6 +59,8 @@ export const AiJob = {
   /** Crawl one property's website and index it. Minutes long; one at a time per property. */
   CRAWL_PROPERTY: 'ai.crawl_property',
   EXTRACT_FILE: 'ai.extract_file',
+  /** Read one page the owner pasted the address of, and index it. */
+  READ_LINK: 'ai.read_link',
   /** A delayed follow-up in one conversation: take back after a handoff, nudge, close. */
   FOLLOWUP: 'ai.followup',
   /** Reply suggestions for the person handling a chat. */
@@ -89,6 +91,13 @@ export interface AiReindexPropertyPayload {
 export interface AiExtractFilePayload {
   accountId: string;
   fileId: string;
+}
+
+/** One page the owner pasted: the document was created before the job, so it has an id already. */
+export interface AiReadLinkPayload {
+  accountId: string;
+  propertyId: string;
+  documentId: string;
 }
 
 export type AiFollowupKind = 'handoff_wait' | 'idle_nudge' | 'idle_close';
@@ -160,6 +169,7 @@ export type JobPayloadMap = {
   [AiJob.REINDEX_PROPERTY]: AiReindexPropertyPayload;
   [AiJob.CRAWL_PROPERTY]: AiReindexPropertyPayload;
   [AiJob.EXTRACT_FILE]: AiExtractFilePayload;
+  [AiJob.READ_LINK]: AiReadLinkPayload;
   [AiJob.FOLLOWUP]: AiFollowupPayload;
   [AiJob.SUGGEST]: AiSuggestPayload;
   [AiJob.RECRAWL_DUE]: Record<string, never>;

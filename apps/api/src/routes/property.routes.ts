@@ -2,7 +2,10 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
   addDomainSchema,
+  addKnowledgeLinksSchema,
   createPropertySchema,
+  forgetKnowledgeSchema,
+  knowledgeLinkParamSchema,
   listPropertiesSchema,
   aiFileParamSchema,
   signKnowledgeFileSchema,
@@ -179,5 +182,37 @@ export async function propertyRoutes(app: FastifyInstance, container: Container)
     const { id, fileId } = parseParams(aiFileParamSchema, request.params);
     await container.aiFiles.remove(tenant, id, fileId);
     return noContent(reply);
+  });
+
+  // Individual pages the owner pastes: any address, on their site or anybody's, read once and
+  // kept until they remove it. The website crawl never touches these.
+  app.get('/properties/:id/ai/links', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id } = parseParams(idParam, request.params);
+    return ok(reply, await container.aiSources.listLinks(tenant, id));
+  });
+
+  app.post('/properties/:id/ai/links', async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'aiReindex', `account:${tenant.accountId}`);
+    const { id } = parseParams(idParam, request.params);
+    const input = parseBody(addKnowledgeLinksSchema, request.body);
+    return ok(reply, await container.aiSources.addLinks(tenant, id, input.urls));
+  });
+
+  app.delete('/properties/:id/ai/links/:linkId', async (request, reply) => {
+    const tenant = requireTenant(request);
+    const { id, linkId } = parseParams(knowledgeLinkParamSchema, request.params);
+    await container.aiSources.removeLink(tenant, id, linkId);
+    return noContent(reply);
+  });
+
+  /** Forget one source entirely: the website, the added pages, the feed, or the key facts. */
+  app.post('/properties/:id/ai/forget', async (request, reply) => {
+    const tenant = requireTenant(request);
+    await app.rateLimit(request, 'mutation', `account:${tenant.accountId}`);
+    const { id } = parseParams(idParam, request.params);
+    const input = parseBody(forgetKnowledgeSchema, request.body);
+    return ok(reply, await container.aiSources.forget(tenant, id, input.source));
   });
 }

@@ -226,6 +226,48 @@ may not). Unchanged products (same hash) cost nothing; products the feed no long
 removed when a read completes; a read that fails removes nothing and leaves the reason on the
 settings row. Removing the address removes the products.
 
+## Pages the owner adds (`sources.service.ts`, job `ai.read_link`)
+
+The crawl answers "learn my site". This answers "also learn *this* page": addresses pasted into
+the AI settings page, one per line, up to 25 at a time and 100 per website. Any site - one page
+of their own the crawl cannot reach, a supplier's spec sheet, a partner's terms.
+
+Each address is checked before anything is queued (http(s), no port, no credentials, nothing that
+is plainly local) and becomes a `link` document straight away with an empty body, so the settings
+page can show it as *reading…* rather than nothing. The worker's `ai.read_link` job reads it with
+`readOnePage` - the same plain-fetch-then-browser path a crawled page gets, with the same SSRF
+rules - indexes it, and on failure writes the sentence onto the document instead of failing the
+job: a 404 retried five times helps nobody, and the owner is looking at that address waiting to
+be told. It is stored under the address that was typed, not the one it redirected to, so pasting
+it again re-reads the same document rather than making a second one.
+
+`link` is a kind of its own, and that is the point. The crawl deletes every `page` it no longer
+finds, so an added page stored as one would vanish on the first sync after the site stopped
+linking to it - or immediately, if it is on somebody else's domain. `syncPage` therefore leaves a
+`link` alone exactly as it leaves a `product` alone, and `prunePages` only ever touches `page`.
+
+A single page fetched once, at a person's explicit request, does not consult `robots.txt`: that
+file governs crawling, and this is the owner saying "read this one", the same way they could open
+it and paste the text. The crawl itself still obeys it.
+
+## Forgetting a source (`KnowledgeSourceService.forget`)
+
+`POST /properties/:id/ai/forget { source }` removes everything the assistant learned from one
+source, with its bookkeeping, because an assistant that has read something wrong or out of date
+can only be corrected by that something ceasing to exist:
+
+| source | what goes |
+| --- | --- |
+| `website` | every `page` document, and the crawl counters and `last_crawled_at` with them |
+| `links` | every `link` document - the pasted addresses are not kept anywhere else |
+| `feed` | every `product` document, **and** `product_feed_url`, so the next sync does not bring them back |
+| `keyFacts` | the `notes` document and the `key_facts` text |
+
+Chunks go with their documents (`ON DELETE CASCADE`), so the assistant stops answering from them
+immediately. Files are not a target here: each one has its own Remove, which also deletes the
+stored object. Every reset is audited (`ai.knowledge.forgotten`), and the dashboard asks first -
+the key facts in particular exist nowhere else.
+
 ## Files (`files.service.ts`, `extract-file.ts`)
 
 A PDF price list, a DOCX prospectus, a text or Markdown file - up to 10 MB each, fifty a
@@ -409,7 +451,7 @@ posts "ticket #N is open…" into the chat. The offline-form switch does not gat
 | table | purpose |
 | --- | --- |
 | `ai_settings` | per website: `mode`, assistant name, instructions, key facts, the sentences it says (offer, handoff, checking, offline handoff, urgent, handoff back, idle nudge, idle close), the waits (`handoff_wait_minutes`, `idle_nudge_minutes`, `idle_close_minutes`), `show_ai_badge`, `suggest_replies`, loop guard, `crawl_max_pages`, crawl state |
-| `knowledge_documents` | page / article / notes: title, url (unique per website), text, content hash, `indexed_at`, `last_seen_at`, `error` |
+| `knowledge_documents` | page / link / article / notes / file / product: title, url (unique per website), text, content hash, `indexed_at`, `last_seen_at`, `error` |
 | `knowledge_chunks` | passages: `embedding vector(768)`, generated `search tsvector` |
 | `ai_turns` | every turn: decision, provider, model, `fell_back`, tokens, latency, retrieved and cited chunk ids, error |
 | `conversations` | `ai_reply_count`, `ai_last_reply_at`, `ai_paused_at`, `ai_handoff_at`, `ai_followup_seq`, `ai_idle_nudged_at`, `ai_suggestions`, `ai_suggested_at` |
@@ -444,6 +486,12 @@ Tenant (`authenticateTenant`):
   `ai.handoffAt`, `ai.replyCount`, `ai.lastReplyAt`.
 - `POST /properties/:id/ai/reindex` — "Sync website": crawl the site (one queued job per
   website, de-duplicated) and re-index every article and the key facts (3/hour).
+- `GET /properties/:id/ai/links` — the pages the owner pasted, with `status`
+  (`reading`/`ready`/`failed`), the reason when it failed, and the passage count.
+- `POST /properties/:id/ai/links { urls }` — `urls` is free text, split on whitespace and commas;
+  answers `{ queued, rejected: [{ url, reason }], links }` (3/hour, the reindex bucket).
+- `DELETE /properties/:id/ai/links/:linkId` — remove one.
+- `POST /properties/:id/ai/forget { source }` — `website` | `links` | `feed` | `keyFacts`.
 
 Widget: `POST /widget/offline-message` accepts an optional `conversationId` (see the ticket flow).
 

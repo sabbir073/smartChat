@@ -26,6 +26,16 @@ import { ackError, ackOk, parsePayload, respond, type AckCallback } from '../lib
 interface AgentSocketData {
   context: TenantContext;
   propertyIds: string[];
+  /** How this member is shown to their colleagues when they have a conversation open. */
+  identity: { memberId: string; name: string; avatarUrl: string | null };
+  /** The conversation this socket currently has open, if any. */
+  viewing: { conversationId: string; propertyId: string } | null;
+  /**
+   * What the agent last *asked* for, recorded the moment the event arrives rather than when its
+   * database work finishes. Two clicks in a row, or a click and a Back, race otherwise: the
+   * handlers are async and nothing makes them finish in the order they started.
+   */
+  intent: { conversationId: string; at: number } | null;
 }
 
 type AgentSocket = Socket & { data: AgentSocketData };
@@ -64,7 +74,13 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
           status: 'active',
           account: { deletedAt: null, status: 'active' },
         },
-        include: { role: true, properties: { select: { propertyId: true } } },
+        include: {
+          role: true,
+          properties: { select: { propertyId: true } },
+          // Shown to colleagues in the inbox as "who is on this chat". A display name set on the
+          // membership wins over the account name, the same rule the visitor's window follows.
+          user: { select: { name: true, avatarUrl: true } },
+        },
       });
 
       // A membership that has been disabled, removed, or whose account was suspended since the
@@ -105,6 +121,13 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
       data.propertyIds = membership.restrictedToProperties
         ? membership.properties.map((entry) => entry.propertyId)
         : [];
+      data.identity = {
+        memberId: membership.id,
+        name: membership.displayName ?? membership.user.name,
+        avatarUrl: membership.user.avatarUrl,
+      };
+      data.viewing = null;
+      data.intent = null;
       next();
     } catch (error) {
       logger.error({ err: error }, 'agent handshake failed');
@@ -171,7 +194,117 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
       }
     };
 
-    heartbeat = setInterval(touch, PRESENCE_HEARTBEAT_SECONDS * 1000);
+    // --- who has this conversation open -------------------------------------
+
+    /**
+     * Ticks once per open, so two requests made inside the same millisecond still differ. The
+     * value itself means nothing; only "is this still the one the agent asked for" does.
+     */
+    let viewSequence = 0;
+
+    /**
+     * Tell the property's inbox who is on a conversation.
+     *
+     * The list is read back from Redis rather than kept in memory, because the answer spans every
+     * gateway instance and every tab: two people on two machines are two sockets that know
+     * nothing about each other. Deduplicated by member, so one person with the same chat open in
+     * two tabs is named once.
+     *
+     * It goes to the property's room, not the account's: an agent restricted to one website has
+     * no business being told that a conversation id they cannot open is being read.
+     */
+    const announceViewers = async (target: { conversationId: string; propertyId: string }): Promise<void> => {
+      try {
+        const all = await presence.listViewers(context.accountId);
+        const byMember = new Map<string, { memberId: string; name: string; avatarUrl: string | null }>();
+        for (const viewer of all) {
+          if (viewer.conversationId !== target.conversationId) continue;
+          // One entry per person, whatever the number of tabs they have it open in.
+          if (!byMember.has(viewer.memberId)) {
+            byMember.set(viewer.memberId, { memberId: viewer.memberId, name: viewer.name, avatarUrl: viewer.avatarUrl });
+          }
+        }
+        const viewers = [...byMember.values()];
+        namespace.to(room.property(target.propertyId)).emit(ServerEvent.CONVERSATION_VIEWERS, {
+          conversationId: target.conversationId,
+          viewers,
+        });
+      } catch (error) {
+        logger.error({ err: error }, 'could not announce conversation viewers');
+      }
+    };
+
+    /**
+     * Open a conversation as a viewer, leaving whichever one was open before.
+     *
+     * Both conversations are announced: the one being left has one fewer name on it, and saying
+     * so is the entire point - a name that stays after the person has moved on is worse than no
+     * name at all.
+     */
+    const startViewing = async (conversationId: string, propertyId: string, asked: number): Promise<void> => {
+      const data = (socket as AgentSocket).data;
+      // The agent has moved on - to another conversation, or back to the list - while this open
+      // was still loading. Whatever they asked for last is the truth; this answer is stale.
+      if (data.intent?.at !== asked) return;
+      const previous = data.viewing;
+      if (previous?.conversationId === conversationId) return;
+      data.viewing = { conversationId, propertyId };
+      await presence
+        .setViewer(context.accountId, socket.id, { conversationId, propertyId, ...data.identity })
+        .catch((error: unknown) => logger.error({ err: error }, 'viewer write failed'));
+      if (previous) await announceViewers(previous);
+      await announceViewers({ conversationId, propertyId });
+    };
+
+    const stopViewing = async (conversationId?: string): Promise<void> => {
+      const data = (socket as AgentSocket).data;
+      // Cancel any open still in flight first. Without this, closing a conversation whose history
+      // has not arrived yet leaves the agent advertised on it for as long as their socket lives:
+      // the close finds nothing to clear, and the open writes the entry a moment later.
+      if (!conversationId || data.intent?.conversationId === conversationId) data.intent = null;
+      const previous = data.viewing;
+      if (!previous) return;
+      if (conversationId && previous.conversationId !== conversationId) return;
+      data.viewing = null;
+      await presence
+        .clearViewer(context.accountId, socket.id)
+        .catch((error: unknown) => logger.error({ err: error }, 'viewer clear failed'));
+      await announceViewers(previous);
+    };
+
+    /**
+     * The conversation's website, checked against this agent's scope.
+     *
+     * Returns null when the conversation is not theirs to see, so a viewer entry can never be
+     * written for a conversation the caller could not open.
+     */
+    const propertyOf = async (conversationId: string): Promise<string | null> => {
+      const conversation = await db.conversation.findFirst({
+        where: { id: conversationId, accountId: context.accountId },
+        select: { propertyId: true },
+      });
+      if (!conversation) return null;
+      const allowed = (socket as AgentSocket).data.propertyIds;
+      if (allowed.length > 0 && !allowed.includes(conversation.propertyId)) return null;
+      return conversation.propertyId;
+    };
+
+    /**
+     * The heartbeat keeps both kinds of presence alive, and repeats the viewer list.
+     *
+     * Repeating it is what lets a dashboard forget a viewer whose browser died: the entry expires
+     * from Redis on its own, and the next heartbeat from anybody else publishes a list without
+     * it. Without the repeat, the last list ever sent would be the one that stayed on screen.
+     */
+    heartbeat = setInterval(() => {
+      void touch();
+      const viewing = (socket as AgentSocket).data.viewing;
+      if (!viewing) return;
+      void presence
+        .touchViewer(context.accountId, socket.id)
+        .catch((error: unknown) => logger.error({ err: error }, 'viewer refresh failed'));
+      void announceViewers(viewing);
+    }, PRESENCE_HEARTBEAT_SECONDS * 1000);
 
     // Reads the chosen status, writes presence, and announces - in that order, so nothing is
     // published from the placeholder value above.
@@ -195,12 +328,28 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
             payload,
           );
 
-          // Property rooms are filtered through the membership's own scope, so asking to watch a
-          // property this agent is not assigned to simply does not join that room.
-          const allowed = (socket as AgentSocket).data.propertyIds;
+          /**
+           * Property rooms are filtered twice, and the first filter is the one that matters.
+           *
+           * The membership's own scope only narrows *within* the account: an unrestricted member
+           * has an empty scope list, which used to mean "join whatever you asked for". A property
+           * id is not a secret - it is in a dashboard URL - so that let a member of one account
+           * join a room belonging to another and receive its conversation events, its visitor
+           * presence and, since this batch, the names and pictures of its team. So the ids are
+           * checked against the account first, and the member's scope second.
+           */
           const requested = input.propertyIds ?? [];
-          const target =
-            allowed.length > 0 ? requested.filter((id) => allowed.includes(id)) : requested;
+          const ours =
+            requested.length === 0
+              ? []
+              : (
+                  await db.property.findMany({
+                    where: { accountId: context.accountId, id: { in: requested }, deletedAt: null },
+                    select: { id: true },
+                  })
+                ).map((property) => property.id);
+          const allowed = (socket as AgentSocket).data.propertyIds;
+          const target = allowed.length > 0 ? ours.filter((id) => allowed.includes(id)) : ours;
 
           for (const propertyId of target) {
             await socket.join(room.property(propertyId));
@@ -213,7 +362,31 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
             })),
           );
 
-          respond(callback, ackOk({ subscribed: target, presence: visitors }));
+          /**
+           * Who is on what, as of this moment.
+           *
+           * Without a snapshot the inbox would only learn about a colleague when they next opened
+           * or left a conversation, so an agent who arrived second would see an empty list for up
+           * to a heartbeat and think nobody was there.
+           */
+          const watching = new Set(target);
+          const seen = new Set<string>();
+          const byConversation = new Map<string, Array<{ memberId: string; name: string; avatarUrl: string | null }>>();
+          for (const viewer of await presence.listViewers(context.accountId)) {
+            if (!watching.has(viewer.propertyId)) continue;
+            const key = `${viewer.conversationId}:${viewer.memberId}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const list = byConversation.get(viewer.conversationId) ?? [];
+            list.push({ memberId: viewer.memberId, name: viewer.name, avatarUrl: viewer.avatarUrl });
+            byConversation.set(viewer.conversationId, list);
+          }
+          const viewers = [...byConversation.entries()].map(([conversationId, list]) => ({
+            conversationId,
+            viewers: list,
+          }));
+
+          respond(callback, ackOk({ subscribed: target, presence: visitors, viewers }));
         } catch (error) {
           respond(callback, ackError(error));
         }
@@ -229,11 +402,19 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
             listMessagesSchema.extend({ conversationId: z.string().uuid() }),
             payload,
           );
+          // Claimed here, before the first await, so that whichever request was made last wins
+          // however the database chooses to answer them.
+          const asked = Date.now() + viewSequence++;
+          (socket as AgentSocket).data.intent = { conversationId: input.conversationId, at: asked };
           const messages = await conversations.agentHistory(context, input.conversationId, {
             beforeSeq: input.beforeSeq,
             limit: input.limit,
           });
           await socket.join(room.conversation(input.conversationId));
+          // After the history call, which is what authorises the read: a viewer entry is never
+          // written for a conversation this agent could not have opened.
+          const propertyId = await propertyOf(input.conversationId);
+          if (propertyId) await startViewing(input.conversationId, propertyId, asked);
           respond(callback, ackOk({ messages }));
         } catch (error) {
           respond(callback, ackError(error));
@@ -243,7 +424,9 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
 
     socket.on(AgentClientEvent.CONVERSATION_CLOSE_VIEW, (payload: unknown) => {
       const parsed = z.object({ conversationId: z.string().uuid() }).safeParse(payload);
-      if (parsed.success) void socket.leave(room.conversation(parsed.data.conversationId));
+      if (!parsed.success) return;
+      void socket.leave(room.conversation(parsed.data.conversationId));
+      void stopViewing(parsed.data.conversationId);
     });
 
     // --- reply and note -----------------------------------------------------
@@ -363,6 +546,8 @@ export function registerAgentNamespace(namespace: Namespace, container: Realtime
 
     socket.on('disconnect', (reason) => {
       if (heartbeat) clearInterval(heartbeat);
+      // The tab is gone, so whatever it had open is no longer being read by anybody in it.
+      void stopViewing();
       void presence.setAgentOffline(context.accountId, memberId).catch(() => undefined);
       namespace.to(room.account(context.accountId)).emit(ServerEvent.PRESENCE_AGENT, {
         memberId,

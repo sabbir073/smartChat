@@ -9,6 +9,7 @@ import {
   ulid,
   type AgentConnectionState,
   type AgentMessage,
+  type ConversationViewer,
 } from '@/lib/realtime';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { ConversationHeader } from '@/components/inbox/conversation-header';
@@ -23,6 +24,13 @@ import { VisitorPanel } from '@/components/inbox/visitor-panel';
 import { Alert, EmptyState, Spinner, cn, useToast } from '@/components/ui';
 import type { AiSuggestion, ConversationDto, MemberDto, PropertyDto, ShortcutDto } from '@/lib/types';
 import { armChimeOnGesture, playChime } from '@/lib/chime';
+
+/**
+ * How long a colleague stays on screen as "on this chat" without being heard from again. The
+ * gateway repeats the list every PRESENCE_HEARTBEAT_SECONDS (20) and its entries live for
+ * PRESENCE_TTL_SECONDS (45), so ninety seconds is comfortably past both.
+ */
+const VIEWER_STALE_MS = 90_000;
 
 /**
  * The agent inbox.
@@ -95,6 +103,15 @@ export default function InboxPage() {
     Record<string, { url: string; title: string | null }>
   >({});
   const [typingIn, setTypingIn] = useState<Set<string>>(new Set());
+  /**
+   * Who on the team has each conversation open, with the moment we last heard so.
+   *
+   * The timestamp is not decoration. The gateway repeats the list on its heartbeat, so a viewer
+   * who is really there is refreshed every twenty seconds; one whose browser was closed without
+   * warning stops being refreshed and is dropped below, rather than sitting on everyone else's
+   * screen as a colleague who is not actually reading anything.
+   */
+  const [viewers, setViewers] = useState<Record<string, { at: number; list: ConversationViewer[] }>>({});
 
   const clientRef = useRef<AgentRealtimeClient | null>(null);
   const selectedRef = useRef<string | null>(null);
@@ -333,6 +350,27 @@ export default function InboxPage() {
         }
       },
 
+      onViewers: ({ conversationId, viewers: list }) => {
+        setViewers((current) => {
+          if (list.length === 0) {
+            if (!current[conversationId]) return current;
+            const next = { ...current };
+            delete next[conversationId];
+            return next;
+          }
+          return { ...current, [conversationId]: { at: Date.now(), list } };
+        });
+      },
+
+      onViewersSnapshot: (snapshot) => {
+        const now = Date.now();
+        const next: Record<string, { at: number; list: ConversationViewer[] }> = {};
+        for (const entry of snapshot) {
+          if (entry.viewers.length > 0) next[entry.conversationId] = { at: now, list: entry.viewers };
+        }
+        setViewers(next);
+      },
+
       onPresenceSnapshot: (snapshot) => {
         const online = new Set<string>();
         const pages: Record<string, { url: string; title: string | null }> = {};
@@ -510,6 +548,18 @@ export default function InboxPage() {
 
   // --- actions ------------------------------------------------------------
 
+  /**
+   * Stop reading whatever is open.
+   *
+   * Told to the gateway as well as forgotten locally, because a colleague's inbox is showing this
+   * agent's name on that conversation and has no other way to learn they have gone back to the
+   * list.
+   */
+  const closeSelected = useCallback(() => {
+    const previous = selectedRef.current;
+    if (previous) clientRef.current?.closeConversation(previous);
+  }, []);
+
   const openConversation = useCallback(async (conversation: ConversationDto) => {
     const previous = selectedRef.current;
     if (previous && previous !== conversation.id) {
@@ -601,6 +651,26 @@ export default function InboxPage() {
       document.title = base;
     };
   }, [unreadTotal]);
+
+  /**
+   * Forget viewers nobody has confirmed lately.
+   *
+   * The gateway refreshes a live viewer every twenty seconds and its Redis entry lives for
+   * forty-five, so anything unheard-of for a minute and a half belongs to a browser that is gone.
+   * Nothing else would ever remove it: the socket that would have said goodbye is the one that
+   * died.
+   */
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setViewers((current) => {
+        const cutoff = Date.now() - VIEWER_STALE_MS;
+        const live = Object.entries(current).filter(([, entry]) => entry.at >= cutoff);
+        if (live.length === Object.keys(current).length) return current;
+        return Object.fromEntries(live);
+      });
+    }, 10_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const deepLinked = useRef(false);
   useEffect(() => {
@@ -916,6 +986,7 @@ export default function InboxPage() {
             knownTags={knownTags}
             resultCount={listLoading ? null : conversations.length}
             onChange={(next) => {
+              closeSelected();
               setSelectedId(null);
               setSelectedConversation(null);
               selectedRef.current = null;
@@ -968,6 +1039,7 @@ export default function InboxPage() {
                 selectedId={selectedId}
                 onlineVisitors={onlineVisitors}
                 visitorPages={visitorPages}
+                viewers={viewers}
                 onSelect={(conversation) => void openConversation(conversation)}
               />
               {cursor && (
@@ -1014,6 +1086,7 @@ export default function InboxPage() {
                 onPriority={setPriority}
                 onTags={setTags}
                 onBack={() => {
+                  closeSelected();
                   setSelectedId(null);
                   setSelectedConversation(null);
                   selectedRef.current = null;
@@ -1033,6 +1106,16 @@ export default function InboxPage() {
                 </div>
               ) : (
                 <MessageThread
+                  /**
+                   * A transcript per conversation, not one transcript reused.
+                   *
+                   * Where the reader is in a conversation - scrolled up reading history, or at
+                   * the bottom following it - belongs to that conversation. Without the key,
+                   * switching to a conversation already in the cache renders it in the same DOM
+                   * node at the previous one's scroll position, with the previous one's idea of
+                   * whether to follow.
+                   */
+                  key={selected.id}
                   messages={thread}
                   visitorTyping={typingIn.has(selected.id)}
                   visitorName={selected.visitor.name ?? 'The visitor'}

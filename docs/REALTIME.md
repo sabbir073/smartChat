@@ -44,13 +44,13 @@ Client → server (`/visitor`):
 `page:view`, `sync:since`
 
 Client → server (`/agent`):
-`inbox:subscribe`, `conversation:open`, `message:send`, `note:add`, `typing:start`, `typing:stop`,
-`message:read`, `presence:set`, `sync:since`
+`inbox:subscribe`, `conversation:open`, `conversation:close_view`, `message:send`, `note:add`,
+`typing:start`, `typing:stop`, `message:read`, `presence:set`, `sync:since`
 
 Server → client:
 `message:new`, `conversation:created`, `conversation:updated`, `conversation:assigned`,
-`conversation:closed`, `typing`, `presence:agent`, `presence:visitor`,
-`presence:agents_available`
+`conversation:closed`, `conversation:presenter`, `conversation:viewers`, `typing`,
+`presence:agent`, `presence:visitor`, `presence:agents_available`
 
 That list is exactly `ServerEvent`, and every member of it is emitted somewhere. It used to name
 four more — `message:ack`, `message:updated`, `visitor:updated` and `error` — none of which the
@@ -96,6 +96,30 @@ already connected would never receive one. So `inbox:subscribe` answers with the
 view of every subscribed property, and the dashboard treats that answer as the complete truth for
 those properties. See ADR-022.
 
+## 5b. Who has a conversation open
+
+The inbox shows, under each row, which people on the team currently have that conversation open —
+everybody sees it, including themselves. It answers the question two agents ask each other in chat
+all day: *are you on this one?*
+
+- `conversation:open` writes `presence:viewer:<accountId>:<socketId>` and announces the
+  conversation's viewers to `prop:<propertyId>`; `conversation:close_view` and a disconnect clear
+  it and announce again. A socket has **one** viewer entry, so opening a second conversation is
+  leaving the first, and both are announced.
+- The key is per **socket**, not per member: an agent with two tabs open on the same conversation
+  is listed once (the list is deduplicated by member) and closing one tab does not remove them.
+- `inbox:subscribe` answers with the current viewers for the subscribed properties, for the same
+  reason it answers with visitor presence: somebody who opens the inbox second would otherwise see
+  nobody until the next change.
+- The gateway heartbeat (20 s) refreshes the entry and **re-announces** the list. That is what lets
+  a dashboard drop a colleague whose browser died: the Redis entry expires after 45 s, and the
+  dashboard also forgets any list it has not heard about for 90 s. A tab closed normally
+  disappears immediately; one that crashed disappears within about a minute.
+- It goes to the property room rather than the account room, so an agent restricted to one website
+  is not told that a conversation they cannot open is being read.
+- Nothing is published while the assistant is handling a conversation on its own, because the AI
+  does not hold a socket — an empty list is exactly right.
+
 ## 6. Reconnect and resync
 
 On reconnect the client sends `sync:since { conversationId, lastSeq }`. The server replays every
@@ -116,6 +140,7 @@ Redis keys with TTL, refreshed by heartbeat:
 ```
 presence:agent:<accountId>:<userId>   → status, updatedAt   TTL 45 s
 presence:visitor:<propertyId>:<id>    → url, title, updatedAt TTL 45 s
+presence:viewer:<accountId>:<socketId> → conversationId, propertyId, member, name, avatar TTL 45 s
 typing:<conversationId>:<actorId>     → 1                    TTL 6 s
 ```
 Presence is deliberately not in Postgres: it is ephemeral, high-write and worthless after a restart.

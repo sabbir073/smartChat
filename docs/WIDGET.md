@@ -97,7 +97,11 @@ a picture URL, nothing else) with the session and the resume, and pushes
 hand-back or AI handoff changes it, so the picture swaps live. A member's picture is uploaded in
 Settings → Profile (`POST /auth/profile/avatar/sign` → PUT → `confirm`), verified by its bytes,
 and served at a public, immutable address (`GET /avatars/:userId/:avatarId`). With no picture the
-initials of the person shown stand in; `appearance.avatarUrl` is the fallback picture.
+initials of the person shown stand in - and so they do when a picture *fails to load*, which is
+worth saying because the two policies that stop it are easy to forget: the panel's own CSP (built
+in `widget-entrypoint.sh`) and the dashboard's (built in `middleware.ts`) must both name the API
+origin under `img-src`, since that is where pictures are served from. `appearance.avatarUrl` is
+the fallback picture.
 
 ## 5b. The proactive greeting
 
@@ -124,6 +128,17 @@ unlocks it. While the tab is hidden, the inbox posts a desktop notification that
 conversation and puts the unread count in the tab title; the loader flashes the host page's
 title and, if `behaviour.browserNotifications` is on and the visitor granted it (asked after
 their first message), a notification that opens the window.
+
+## 5d. Following the conversation
+
+The transcript sticks to its newest line while the visitor is at the bottom - including while
+somebody is typing - and stays exactly where they put it once they scroll up, with a "New
+messages" button to come back. The subtlety is in `stick-to-bottom.ts`: whether to follow is
+decided from the visitor's **own scrolling**, not measured after a new message has been added.
+Measured afterwards, a message taller than the threshold looks identical to a reader who has
+scrolled away, and the window stops following precisely when there is most to read. A
+`ResizeObserver` covers heights that change without a new message - a picture finishing loading,
+a bubble rewrapping. The dashboard's transcript uses the same hook, for the same reason.
 
 ## 6. Domain security
 

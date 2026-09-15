@@ -8,6 +8,7 @@ import { PageHeader } from '@/components/layout/page-header';
 import { OwnAiKeyCard } from '@/components/settings/own-ai-key';
 import {
   Alert,
+  Avatar,
   Badge,
   Button,
   Card,
@@ -246,17 +247,7 @@ export default function SettingsPage() {
           <form onSubmit={saveProfile}>
             <CardBody className="space-y-4">
               <div className="flex items-center gap-4">
-                <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-brand-soft text-lg font-semibold text-brand">
-                  {user?.avatarUrl ? (
-                    <img src={user.avatarUrl} alt="" className="size-full object-cover" />
-                  ) : (
-                    (user?.name ?? '?')
-                      .split(' ')
-                      .slice(0, 2)
-                      .map((part) => part.charAt(0).toUpperCase())
-                      .join('')
-                  )}
-                </span>
+                <Avatar name={user?.name} url={user?.avatarUrl} size={64} />
                 <div className="space-y-1.5">
                   <p className="text-sm font-medium text-ink">Profile picture</p>
                   <p className="text-[13px] text-ink-subtle">

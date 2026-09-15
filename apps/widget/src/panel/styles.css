@@ -176,6 +176,38 @@ button:disabled {
   gap: 12px;
 }
 
+/*
+ * "New messages", for a visitor who has scrolled up.
+ *
+ * Sticky rather than absolutely positioned: the body is the scrolling element and has no
+ * positioned ancestor of its own, and a sticky child needs neither. `align-self: center` keeps it
+ * off the bubbles on both sides.
+ */
+.jump-latest {
+  position: sticky;
+  bottom: 4px;
+  align-self: center;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: -8px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sc-primary);
+  color: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.22);
+}
+
+.jump-latest:hover {
+  filter: brightness(1.06);
+}
+
 .bubble {
   max-width: 84%;
   padding: 10px 13px;

@@ -38,6 +38,11 @@ export const ServerEvent = {
   CONVERSATION_CLOSED: 'conversation:closed',
   /** Who the visitor's window shows - the assigned person, or the owner. Sent to the visitor. */
   CONVERSATION_PRESENTER: 'conversation:presenter',
+  /**
+   * Who from the team has this conversation open right now. Sent to the property's agents, never
+   * to a visitor: it is the inbox's answer to "is somebody already on this one?".
+   */
+  CONVERSATION_VIEWERS: 'conversation:viewers',
   TYPING: 'typing',
   PRESENCE_AGENT: 'presence:agent',
   PRESENCE_VISITOR: 'presence:visitor',
@@ -75,6 +80,12 @@ export const presenceKey = {
   visitor: (propertyId: string, visitorId: string) => `presence:visitor:${propertyId}:${visitorId}`,
   visitorSet: (propertyId: string) => `presence:visitors:${propertyId}`,
   typing: (conversationId: string, actorId: string) => `typing:${conversationId}:${actorId}`,
+  /**
+   * One key per open socket, not per member: an agent with the inbox open in two tabs closes one
+   * of them without disappearing from the conversation the other one is still showing.
+   */
+  viewer: (accountId: string, socketId: string) => `presence:viewer:${accountId}:${socketId}`,
+  viewerSet: (accountId: string) => `presence:viewers:${accountId}`,
   ticket: (ticketId: string) => `rt:ticket:${ticketId}`,
 } as const;
 

@@ -15,12 +15,20 @@ import {
   CardFooter,
   CardHeader,
   Field,
+  Modal,
   TextInput,
   cn,
   useToast,
 } from '@/components/ui';
 import type { PropertyDto } from '@/lib/types';
-import { AI_MODES, type AiMode, type AiSettingsView, type KnowledgeFileView } from '@/lib/ai';
+import {
+  AI_MODES,
+  type AiMode,
+  type AiSettingsView,
+  type ForgettableSource,
+  type KnowledgeFileView,
+  type KnowledgeLinkView,
+} from '@/lib/ai';
 
 /**
  * The AI agent, per website.
@@ -77,6 +85,11 @@ export default function AiAgentPage() {
     [id],
   );
 
+  const links = useResource<KnowledgeLinkView[]>(
+    (signal) => api.get<KnowledgeLinkView[]>(`/properties/${id}/ai/links`, { signal }).then((r) => r.data),
+    [id],
+  );
+
   const [draft, setDraft] = useState<Draft | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -85,6 +98,13 @@ export default function AiAgentPage() {
   const [uploading, setUploading] = useState<string | null>(null);
   const [removingFile, setRemovingFile] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [linkInput, setLinkInput] = useState('');
+  const [addingLinks, setAddingLinks] = useState(false);
+  const [removingLink, setRemovingLink] = useState<string | null>(null);
+  const [rejectedLinks, setRejectedLinks] = useState<Array<{ url: string; reason: string }>>([]);
+  /** Which "forget this" has been pressed but not yet confirmed, and which is running. */
+  const [confirmForget, setConfirmForget] = useState<ForgettableSource | null>(null);
+  const [forgetting, setForgetting] = useState<ForgettableSource | null>(null);
 
   useEffect(() => {
     if (!settings.data) return;
@@ -121,6 +141,17 @@ export default function AiAgentPage() {
     }, 2500);
     return () => window.clearTimeout(timer);
   }, [files, files.data, settings]);
+
+  // A pasted page the worker is still reading: poll until it is indexed or has failed, the same
+  // way an uploaded file is watched.
+  useEffect(() => {
+    if (!links.data?.some((link) => link.status === 'reading')) return;
+    const timer = window.setTimeout(() => {
+      links.reload();
+      settings.reload();
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [links, links.data, settings]);
 
   // While the index is catching up or the site is being read, poll: the owner has just pressed
   // the button and wants to see the count climb.
@@ -201,6 +232,74 @@ export default function AiAgentPage() {
       toast.error(error instanceof ApiError ? error.message : 'Could not start the sync.');
     } finally {
       setReindexing(false);
+    }
+  }
+
+  /**
+   * "Learn these pages": one address or fifty, pasted however they came.
+   *
+   * The box is not cleared on failure. If some addresses were refused, the ones that were kept
+   * are already showing in the list below and the reasons are shown against the rest, which is
+   * only useful while the text is still there to fix.
+   */
+  async function addLinks() {
+    const typed = linkInput.trim();
+    if (!typed) return;
+    setAddingLinks(true);
+    try {
+      const result = await api.post<{ queued: number; rejected: Array<{ url: string; reason: string }> }>(
+        `/properties/${id}/ai/links`,
+        { urls: typed },
+      );
+      setRejectedLinks(result.data.rejected);
+      if (result.data.queued > 0) {
+        setLinkInput('');
+        toast.success(
+          result.data.queued === 1 ? 'Reading that page now…' : `Reading ${result.data.queued} pages now…`,
+        );
+      } else if (result.data.rejected.length > 0) {
+        toast.error('None of those addresses could be used.');
+      }
+      links.reload();
+      settings.reload();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not add those pages.');
+    } finally {
+      setAddingLinks(false);
+    }
+  }
+
+  async function removeLink(link: KnowledgeLinkView) {
+    setRemovingLink(link.id);
+    try {
+      await api.delete(`/properties/${id}/ai/links/${link.id}`);
+      toast.success('Page removed.');
+      links.reload();
+      settings.reload();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not remove that page.');
+    } finally {
+      setRemovingLink(null);
+    }
+  }
+
+  /** Forget a whole source. Confirmed first: nothing here comes back on its own. */
+  async function forget(source: ForgettableSource) {
+    setForgetting(source);
+    try {
+      const result = await api.post<{ removed: number }>(`/properties/${id}/ai/forget`, { source });
+      toast.success(
+        result.data.removed > 0
+          ? `Forgotten. ${result.data.removed} ${result.data.removed === 1 ? 'passage source' : 'sources'} removed from the index.`
+          : 'Forgotten. There was nothing indexed from that source.',
+      );
+      setConfirmForget(null);
+      links.reload();
+      settings.reload();
+    } catch (error) {
+      toast.error(error instanceof ApiError ? error.message : 'Could not clear that.');
+    } finally {
+      setForgetting(null);
     }
   }
 
@@ -379,6 +478,114 @@ export default function AiAgentPage() {
               )}
             </Field>
           </CardBody>
+          <CardFooter>
+            <span className="mr-auto text-[13px] text-ink-subtle">
+              Pages the sync has read stay in the index until the next sync replaces them.
+            </span>
+            <Button
+              size="sm"
+              variant="secondary"
+              disabled={view.website.syncing}
+              onClick={() => setConfirmForget('website')}
+            >
+              Forget the website pages
+            </Button>
+          </CardFooter>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Pages you add"
+            description="Any address, read once and kept: a page on this site, a page on another site of yours, a supplier's spec sheet. A website sync never removes these - only you do."
+          />
+          <CardBody className="space-y-5">
+            <Field
+              label="Page addresses"
+              hint="One per line, up to 25 at a time. Paste an address again to re-read a page that has changed."
+            >
+              {({ id: fieldId }) => (
+                <textarea
+                  id={fieldId}
+                  rows={3}
+                  value={linkInput}
+                  onChange={(event) => setLinkInput(event.target.value)}
+                  className={cn(TEXTAREA, 'font-mono text-[13px]')}
+                  placeholder={'https://example.com/pricing\nhttps://example.com/delivery'}
+                  spellCheck={false}
+                />
+              )}
+            </Field>
+
+            {rejectedLinks.length > 0 && (
+              <Alert tone="warning" title="Some addresses were not added">
+                <ul className="mt-1 list-disc pl-5">
+                  {rejectedLinks.map((entry) => (
+                    <li key={entry.url}>
+                      <span className="break-all font-medium">{entry.url}</span>: {entry.reason}
+                    </li>
+                  ))}
+                </ul>
+              </Alert>
+            )}
+
+            {links.error ? (
+              <p className="text-sm text-danger">{links.error.message}</p>
+            ) : links.data && links.data.length > 0 ? (
+              <ul className="divide-y divide-border border-t border-border">
+                {links.data.map((link) => (
+                  <li key={link.id} className="flex flex-wrap items-center gap-3 py-3 text-sm">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate font-medium text-ink">{link.title || link.url}</p>
+                      <p className="break-all text-[13px] text-ink-subtle">{link.url}</p>
+                      {link.status === 'ready' && (
+                        <p className="text-[13px] text-ink-subtle">
+                          {link.chunks} passage{link.chunks === 1 ? '' : 's'} · added{' '}
+                          {new Date(link.addedAt).toLocaleDateString()}
+                        </p>
+                      )}
+                      {link.status === 'failed' && link.error && (
+                        <p className="mt-1 text-[13px] text-danger">{link.error}</p>
+                      )}
+                    </div>
+                    <Badge
+                      tone={link.status === 'ready' ? 'success' : link.status === 'failed' ? 'danger' : 'neutral'}
+                      dot={link.status === 'reading'}
+                    >
+                      {link.status === 'ready' ? 'Indexed' : link.status === 'failed' ? 'Failed' : 'Reading…'}
+                    </Badge>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      loading={removingLink === link.id}
+                      onClick={() => void removeLink(link)}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-ink-muted">
+                No added pages yet. This is the place for a page the sync cannot reach, or one that
+                lives somewhere else entirely.
+              </p>
+            )}
+          </CardBody>
+          <CardFooter>
+            {(links.data?.length ?? 0) > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="mr-auto"
+                onClick={() => setConfirmForget('links')}
+              >
+                Forget all added pages
+              </Button>
+            )}
+            <Button size="sm" loading={addingLinks} disabled={linkInput.trim() === ''} onClick={() => void addLinks()}>
+              Learn these pages
+            </Button>
+          </CardFooter>
         </Card>
 
         <Card>
@@ -410,6 +617,17 @@ export default function AiAgentPage() {
               )}
             </Field>
           </CardBody>
+          {(view.feed.url || view.knowledge.products > 0) && (
+            <CardFooter>
+              <span className="mr-auto text-[13px] text-ink-subtle">
+                Forgetting the feed removes its address too, so the next sync does not bring the
+                products back.
+              </span>
+              <Button size="sm" variant="secondary" onClick={() => setConfirmForget('feed')}>
+                Forget the feed
+              </Button>
+            </CardFooter>
+          )}
         </Card>
 
         <Card>
@@ -479,8 +697,9 @@ export default function AiAgentPage() {
             description="Facts you type, and your help centre. Anything it cannot find in any of this becomes a ticket for your team."
           />
           <CardBody className="space-y-5">
-            <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
+            <dl className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3 xl:grid-cols-5">
               <Stat label="Help-centre articles" value={String(view.knowledge.articles)} hint="Published ones are indexed automatically." />
+              <Stat label="Added pages" value={String(view.knowledge.links)} hint="Addresses you pasted in yourself." />
               <Stat label="Passages indexed" value={String(view.knowledge.chunks)} hint="Across the website, products, files, articles and key facts." />
               <Stat
                 label="Last indexed"
@@ -532,6 +751,13 @@ export default function AiAgentPage() {
               </Link>
             </p>
           </CardBody>
+          {view.keyFacts.trim() !== '' && (
+            <CardFooter>
+              <Button size="sm" variant="secondary" onClick={() => setConfirmForget('keyFacts')}>
+                Clear the key facts
+              </Button>
+            </CardFooter>
+          )}
         </Card>
 
         <Card>
@@ -802,9 +1028,72 @@ export default function AiAgentPage() {
           </CardBody>
         </Card>
       </div>
+
+      <Modal
+        open={confirmForget !== null}
+        onClose={() => setConfirmForget(null)}
+        title={confirmForget ? FORGET_COPY[confirmForget].title : ''}
+        description={confirmForget ? FORGET_COPY[confirmForget].description : ''}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setConfirmForget(null)}>
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              loading={forgetting !== null}
+              onClick={() => confirmForget && void forget(confirmForget)}
+            >
+              {confirmForget ? FORGET_COPY[confirmForget].confirm : 'Forget'}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-ink-muted">
+          {confirmForget ? FORGET_COPY[confirmForget].detail : ''}
+        </p>
+      </Modal>
     </>
   );
 }
+
+/**
+ * What each "forget this" says before it happens.
+ *
+ * Written out rather than generated, because the honest sentence is different every time: one of
+ * these can be undone with a button on the same page, one cannot be undone at all, and one takes
+ * a saved setting with it.
+ */
+const FORGET_COPY: Record<ForgettableSource, { title: string; description: string; confirm: string; detail: string }> = {
+  website: {
+    title: 'Forget the website pages?',
+    description: 'Everything the assistant learned from reading your site.',
+    confirm: 'Forget the pages',
+    detail:
+      'The pages are removed from the index, so the assistant stops answering from them straight away. Press Sync website to read the site again whenever you like - nothing on your website itself is touched.',
+  },
+  links: {
+    title: 'Forget all added pages?',
+    description: 'Every address you pasted, and what was read from it.',
+    confirm: 'Forget the pages',
+    detail:
+      'The list is emptied and those passages leave the index. The addresses are not kept anywhere else, so you would need to paste them again.',
+  },
+  feed: {
+    title: 'Forget the product feed?',
+    description: 'The products, and the feed address with them.',
+    confirm: 'Forget the feed',
+    detail:
+      'Every product from the feed leaves the index, and the feed address is cleared so the next website sync does not read it again. Add the address back whenever you want the products returned.',
+  },
+  keyFacts: {
+    title: 'Clear the key facts?',
+    description: 'The facts you typed, and the passage they became.',
+    confirm: 'Clear the key facts',
+    detail:
+      'This is text only you have: it is not read from anywhere and cannot be recovered from the website. Copy it somewhere first if there is any chance you will want it back.',
+  },
+};
 
 /** A count of minutes, 0 to 120; 0 switches the step off. */
 function MinutesField({

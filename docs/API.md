@@ -169,6 +169,9 @@ POST   /widget/messages/:id/feedback   { rating: "up" | "down" | null }   (visit
 POST   /properties/:id/ai/reindex
 GET    /properties/:id/ai/files          POST /properties/:id/ai/files/sign { fileName, byteSize }
 POST   /properties/:id/ai/files/:fileId/confirm   DELETE /properties/:id/ai/files/:fileId
+GET    /properties/:id/ai/links          POST /properties/:id/ai/links { urls }   (pages pasted by hand)
+DELETE /properties/:id/ai/links/:linkId
+POST   /properties/:id/ai/forget      { source: "website" | "links" | "feed" | "keyFacts" }
 POST   /widget/offline-message        { values, conversationId? }  (conversationId: the ticket the AI offered)
 
 # billing (see BILLING.md; every route here works on a locked account)

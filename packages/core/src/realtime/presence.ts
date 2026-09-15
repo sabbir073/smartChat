@@ -27,6 +27,15 @@ export interface VisitorPresence {
   updatedAt: number;
 }
 
+/** One member with one conversation open, as one socket sees it. */
+export interface ConversationViewer {
+  conversationId: string;
+  propertyId: string;
+  memberId: string;
+  name: string;
+  avatarUrl: string | null;
+}
+
 export class PresenceService {
   constructor(private readonly redis: RedisClient) {}
 
@@ -158,6 +167,73 @@ export class PresenceService {
       await this.redis.srem(presenceKey.visitorSet(propertyId), ...stale).catch(() => undefined);
     }
     return present;
+  }
+
+  // --- who has a conversation open ------------------------------------------
+
+  /**
+   * This socket is looking at this conversation.
+   *
+   * One key per socket, overwritten rather than added to, because a dashboard shows one
+   * conversation at a time: opening a second one is leaving the first. The key expires on the
+   * same TTL as agent presence and is refreshed by the same heartbeat, so a tab that dies without
+   * saying goodbye stops being a viewer within a minute instead of forever.
+   */
+  async setViewer(accountId: string, socketId: string, viewer: ConversationViewer): Promise<void> {
+    await this.redis
+      .multi()
+      .set(presenceKey.viewer(accountId, socketId), JSON.stringify(viewer), 'EX', PRESENCE_TTL_SECONDS)
+      .sadd(presenceKey.viewerSet(accountId), socketId)
+      .exec();
+  }
+
+  /** Keep this socket's viewer entry alive. Called on the agent heartbeat. */
+  async touchViewer(accountId: string, socketId: string): Promise<void> {
+    await this.redis.expire(presenceKey.viewer(accountId, socketId), PRESENCE_TTL_SECONDS);
+  }
+
+  async clearViewer(accountId: string, socketId: string): Promise<void> {
+    await this.redis
+      .multi()
+      .del(presenceKey.viewer(accountId, socketId))
+      .srem(presenceKey.viewerSet(accountId), socketId)
+      .exec();
+  }
+
+  /**
+   * Everyone in this account with a conversation open, one entry per socket.
+   *
+   * Entries whose key has expired are pruned from the index as they are found, the same way agent
+   * presence does it, so a crashed gateway cannot leave a name on somebody's screen for good.
+   */
+  async listViewers(accountId: string): Promise<ConversationViewer[]> {
+    const socketIds = await this.redis.smembers(presenceKey.viewerSet(accountId));
+    if (socketIds.length === 0) return [];
+
+    const values = await this.redis.mget(
+      socketIds.map((socketId) => presenceKey.viewer(accountId, socketId)),
+    );
+
+    const viewers: ConversationViewer[] = [];
+    const stale: string[] = [];
+
+    socketIds.forEach((socketId, index) => {
+      const raw = values[index];
+      if (!raw) {
+        stale.push(socketId);
+        return;
+      }
+      try {
+        viewers.push(JSON.parse(raw) as ConversationViewer);
+      } catch {
+        stale.push(socketId);
+      }
+    });
+
+    if (stale.length > 0) {
+      await this.redis.srem(presenceKey.viewerSet(accountId), ...stale).catch(() => undefined);
+    }
+    return viewers;
   }
 
   // --- typing ---------------------------------------------------------------

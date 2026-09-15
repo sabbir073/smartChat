@@ -68,6 +68,8 @@ export interface AiSettingsView {
     pages: number;
     files: number;
     products: number;
+    /** Pages the owner added by pasting an address, rather than ones the crawl found. */
+    links: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;
@@ -408,6 +410,7 @@ export class AiSettingsService {
         pages: knowledge.pages,
         files: knowledge.files,
         products: knowledge.products,
+        links: knowledge.links,
         chunks: knowledge.chunks,
         articles,
         lastIndexedAt: knowledge.lastIndexedAt?.toISOString() ?? null,

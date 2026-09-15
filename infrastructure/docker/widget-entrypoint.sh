@@ -63,7 +63,9 @@ case "$API" in
 esac
 
 connect_src="'self' ${API} ${api_ws} ${REALTIME} ${realtime_ws}"
-img_src="'self' data: blob:"
+# The API is an image source as well as a data one: it serves the team's profile pictures, which
+# the chat header shows. Without it the header renders a broken image on every customer site.
+img_src="'self' data: blob: ${API}"
 if [ -n "$STORAGE" ]; then
   connect_src="${connect_src} ${STORAGE}"
   img_src="${img_src} ${STORAGE}"

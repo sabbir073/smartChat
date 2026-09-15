@@ -28,6 +28,9 @@ const require = createRequire(new URL('../apps/web/package.json', import.meta.ur
 const { io } = require('socket.io-client');
 
 const API = process.env.SMOKE_API_URL ?? 'http://localhost:3001';
+/** The operator, used here only to put the two test accounts on a plan that has every feature. */
+const ADMIN_EMAIL = process.env.SUPERADMIN_EMAIL ?? 'admin@smartchat.local';
+const ADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD ?? 'ChangeMe!SuperAdmin1';
 const REALTIME = process.env.SMOKE_REALTIME_URL ?? 'http://localhost:3002';
 const ORIGIN = 'http://localhost:3004';
 
@@ -200,6 +203,32 @@ async function visitorSocket(token) {
   });
 }
 
+/**
+ * Put an account on the top plan.
+ *
+ * Registration lands on Free, where API keys and webhooks are refused - and those are two of the
+ * resources this suite exists to prove are isolated. Without this the suite stopped building its
+ * fixtures and every cross-tenant check went unrun, which is the worst way for a security test to
+ * fail: silently, and looking like an environment problem.
+ */
+async function upgrade(accountId) {
+  const operator = new Http('operator');
+  const signedIn = await operator.call('POST', '/platform/auth/login', {
+    email: ADMIN_EMAIL,
+    password: ADMIN_PASSWORD,
+  });
+  if (signedIn.status !== 200) {
+    throw new Error(`the operator could not sign in (${signedIn.status}); set SUPERADMIN_EMAIL/PASSWORD`);
+  }
+  const applied = await operator.call('PUT', `/platform/accounts/${accountId}/plan`, {
+    planKey: 'growth',
+    note: 'isolation suite fixture',
+  });
+  if (applied.status !== 200) {
+    throw new Error(`could not put the account on a plan: ${applied.status} ${JSON.stringify(applied.body?.error)}`);
+  }
+}
+
 /** Build a complete account: website, conversation, contact, ticket, article, key, webhook. */
 async function buildAccount(label, stamp) {
   const client = new Http(label);
@@ -212,6 +241,9 @@ async function buildAccount(label, stamp) {
     locale: 'en',
     acceptTerms: true,
   });
+
+  const account = await client.call('GET', '/account');
+  await upgrade(account.body.data.account.id);
 
   const site = await client.call('POST', '/properties', {
     name: `${label} site`,
@@ -692,6 +724,54 @@ async function main() {
     nonsenseId.status === 422,
     `got ${nonsenseId.status}`,
   );
+
+  section("The gateway's rooms are not open to the other account either");
+  {
+    /**
+     * A property id is not a secret - it is in a dashboard URL - so "knowing one" must not be
+     * enough to watch it. The subscription answers with the rooms it actually joined, and B asking
+     * for A's website must come back with none of it: those rooms carry A's conversations, A's
+     * visitors and the names and pictures of A's team.
+     */
+    const ticket = await b.client.call('POST', '/realtime/ticket');
+    const socket = await new Promise((resolve, reject) => {
+      const s = io(`${REALTIME}/agent`, {
+        transports: ['websocket'],
+        auth: { ticket: ticket.body.data.ticket },
+        reconnection: false,
+        timeout: 10_000,
+      });
+      s.once('connect', () => resolve(s));
+      s.once('connect_error', reject);
+    });
+    try {
+      const subscribed = await emit(socket, 'inbox:subscribe', {
+        propertyIds: [a.property.id, b.property.id],
+      });
+      check(
+        "subscribing to the other account's website joins nothing of theirs",
+        !subscribed.subscribed.includes(a.property.id),
+        JSON.stringify(subscribed.subscribed),
+      );
+      check(
+        'and the agent still watches their own',
+        subscribed.subscribed.includes(b.property.id),
+        JSON.stringify(subscribed.subscribed),
+      );
+
+      const opened = await emitOutcome(socket, 'conversation:open', {
+        conversationId: a.conversationId,
+        limit: 10,
+      });
+      check(
+        "opening the other account's conversation over the socket is refused",
+        opened.ok === false,
+        JSON.stringify(opened).slice(0, 200),
+      );
+    } finally {
+      socket.close();
+    }
+  }
 
   section('Signed out is signed out');
   const anonymous = new Http('anonymous');

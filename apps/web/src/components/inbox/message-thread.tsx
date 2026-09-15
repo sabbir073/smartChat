@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useStickToBottom } from '@/lib/stick-to-bottom';
 import { MESSAGE_MAX_LENGTH, expandShortcut } from '@smartchat/validation';
 import { cn } from '@/components/ui';
 import type { AgentMessage } from '@/lib/realtime';
@@ -48,23 +49,18 @@ export function MessageThread({
   visitorTyping: boolean;
   visitorName: string;
 }) {
-  const bottom = useRef<HTMLDivElement>(null);
-  const container = useRef<HTMLDivElement>(null);
-  const stick = useRef(true);
-
-  useEffect(() => {
-    const element = container.current;
-    if (!element) return;
-    stick.current = element.scrollHeight - element.scrollTop - element.clientHeight < 120;
-  }, [messages.length]);
-
-  useEffect(() => {
-    if (stick.current) bottom.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, visitorTyping]);
+  /**
+   * Follow the conversation while the agent is at the bottom of it, and leave them alone while
+   * they are reading further up. See `useStickToBottom` for why this is not measured after the
+   * message has already been added to the page.
+   */
+  const { containerRef, hasNew, jumpToLatest } = useStickToBottom<HTMLDivElement>(
+    `${messages.length}:${messages[messages.length - 1]?.id ?? ''}:${visitorTyping}`,
+  );
 
   return (
     <div
-      ref={container}
+      ref={containerRef}
       /**
        * The one region that grows. `min-h-0` lets it shrink inside a flex column - without it a
        * flex child refuses to go below its content height and the scrolling lands somewhere else -
@@ -204,7 +200,20 @@ export function MessageThread({
         </div>
       )}
 
-      <div ref={bottom} />
+      {hasNew && (
+        <div className="sticky bottom-1 z-10 flex justify-center">
+          <button
+            type="button"
+            onClick={jumpToLatest}
+            className="inline-flex items-center gap-1.5 rounded-full bg-brand px-3 py-1.5 text-[12px] font-semibold text-ink-inverted shadow-lg transition-colors hover:bg-brand-hover"
+          >
+            New messages
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+              <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }

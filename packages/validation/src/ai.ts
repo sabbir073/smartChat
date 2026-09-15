@@ -73,6 +73,39 @@ export const signKnowledgeFileSchema = z.object({
 });
 export type SignKnowledgeFileInput = z.infer<typeof signKnowledgeFileSchema>;
 
+/**
+ * Pages to learn, pasted into a box.
+ *
+ * Taken as free text and split here rather than as an array, because what a person has in their
+ * hand is a list they copied from somewhere - one per line, or separated by commas, or with a
+ * stray blank line in the middle. Splitting it in the browser and again in a test is two places
+ * to get it wrong; the server does it once. Each address is checked properly by the service.
+ */
+export const addKnowledgeLinksSchema = z.object({
+  urls: z
+    .string()
+    .trim()
+    .min(1, 'Paste at least one address.')
+    .max(8_000)
+    .transform((value) =>
+      value
+        .split(/[\s,]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean),
+    )
+    .refine((entries) => entries.length > 0, 'Paste at least one address.')
+    .refine((entries) => entries.length <= 25, 'Up to 25 addresses at a time.'),
+});
+export type AddKnowledgeLinksInput = z.infer<typeof addKnowledgeLinksSchema>;
+
+export const knowledgeLinkParamSchema = z.object({ id: uuidSchema, linkId: uuidSchema });
+
+/** Which source the assistant is being asked to forget. */
+export const forgetKnowledgeSchema = z.object({
+  source: z.enum(['website', 'links', 'feed', 'keyFacts']),
+});
+export type ForgetKnowledgeInput = z.infer<typeof forgetKnowledgeSchema>;
+
 // --- operator side ----------------------------------------------------------
 
 export const aiFallbackProviderSchema = z.enum(['none', 'openai', 'deepseek', 'anthropic']);

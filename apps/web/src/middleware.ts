@@ -58,7 +58,7 @@ function socketOrigins(value: string | undefined): string[] {
   }
 }
 
-function contentSecurityPolicy(nonce: string): string {
+export function contentSecurityPolicy(nonce: string): string {
   const api = httpOrigin(process.env['API_URL']);
   const widget = httpOrigin(process.env['WIDGET_URL']);
   // Attachments are rendered straight from the object store over a short-lived signed URL, so the
@@ -71,6 +71,10 @@ function contentSecurityPolicy(nonce: string): string {
 
   const image = new Set(["'self'", 'data:', 'blob:']);
   if (storage) image.add(storage);
+  // Profile pictures are served by the API, not the object store: the address carries the
+  // picture's own id so it can be cached forever, which a signed store URL cannot be. Leaving
+  // the API out here is what made every uploaded picture render as a broken image.
+  if (api) image.add(api);
 
   const frame = new Set(["'self'"]);
   if (widget) frame.add(widget);

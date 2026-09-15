@@ -1,7 +1,8 @@
 'use client';
 
-import { cn } from '@/components/ui';
+import { Avatar, cn } from '@/components/ui';
 import { countryFlag, countryName, pageLabel } from '@/lib/geo';
+import type { ConversationViewer } from '@/lib/realtime';
 import type { ConversationDto } from '@/lib/types';
 
 function relativeTime(iso: string): string {
@@ -30,6 +31,7 @@ export function ConversationList({
   selectedId,
   onlineVisitors,
   visitorPages = {},
+  viewers = {},
   onSelect,
 }: {
   conversations: ConversationDto[];
@@ -37,6 +39,14 @@ export function ConversationList({
   onlineVisitors: Set<string>;
   /** Live pages from presence. Falls back to the session's last recorded page when absent. */
   visitorPages?: Record<string, { url: string; title: string | null }>;
+  /**
+   * Who from the team has each conversation open right now, keyed by conversation id.
+   *
+   * Shown to everybody, including the person themselves: knowing your own name is on a chat is
+   * how you know your colleagues can see you are on it. Nothing is shown for a conversation the
+   * assistant is handling on its own, because nobody is reading it.
+   */
+  viewers?: Record<string, { at: number; list: ConversationViewer[] }>;
   onSelect: (conversation: ConversationDto) => void;
 }) {
   return (
@@ -59,6 +69,7 @@ export function ConversationList({
             ? { url: conversation.session.currentUrl, title: conversation.session.currentTitle }
             : null);
         const where = pageLabel(page);
+        const watching = viewers[conversation.id]?.list ?? [];
 
         return (
           <li key={conversation.id}>
@@ -138,6 +149,23 @@ export function ConversationList({
                     <span className="ml-auto shrink-0 text-[11px] text-ink-subtle">Closed</span>
                   )}
                 </span>
+                {watching.length > 0 && (
+                  <span
+                    className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11.5px] text-ink-muted"
+                    title={`${watching.map((viewer) => viewer.name).join(', ')} ${watching.length === 1 ? 'has' : 'have'} this chat open`}
+                  >
+                    <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0 text-ink-subtle" aria-hidden="true">
+                      <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+                      <circle cx="12" cy="12" r="2.6" />
+                    </svg>
+                    {watching.map((viewer) => (
+                      <span key={viewer.memberId} className="inline-flex items-center gap-1">
+                        <Avatar name={viewer.name} url={viewer.avatarUrl} size={16} />
+                        <span className="max-w-[9rem] truncate">{viewer.name}</span>
+                      </span>
+                    ))}
+                  </span>
+                )}
               </span>
             </button>
           </li>

@@ -53,6 +53,7 @@ import {
   AiReplyService,
   AiSettingsService,
   KnowledgeFileService,
+  KnowledgeSourceService,
   KnowledgeService,
   PlatformAiService,
   createAiGateway,
@@ -99,6 +100,7 @@ export interface Container {
   aiSettings: AiSettingsService;
   /** Files the owner uploads for the assistant to read. */
   aiFiles: KnowledgeFileService;
+  aiSources: KnowledgeSourceService;
   /** The visitor's thumbs up or down on an AI reply. */
   aiFeedback: AiFeedbackService;
   /** The AI report. */
@@ -462,6 +464,20 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
   const knowledge = new KnowledgeService({ db, gateway: aiGateway, appUrl: config.APP_URL, clock });
   const aiSettings = new AiSettingsService({ db, knowledge, queue, entitlements, clock });
   const aiFiles = new KnowledgeFileService({ db, storage, knowledge, queue, clock });
+  /**
+   * Pages the owner pastes, and the "forget this" buttons.
+   *
+   * No reader here: the API only writes the document and queues the job, and the worker - which
+   * has the browser - does the reading. `allowPrivateAddresses` matters on this side too, because
+   * it is what decides whether a local test address is refused before it is ever queued.
+   */
+  const aiSources = new KnowledgeSourceService({
+    db,
+    knowledge,
+    queue,
+    clock,
+    allowPrivateAddresses: config.AI_CRAWL_ALLOW_PRIVATE,
+  });
   const aiFeedback = new AiFeedbackService({ db, clock });
   const aiAnalytics = new AiAnalyticsService({ db });
   const aiReplies = new AiReplyService({
@@ -546,6 +562,7 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     platformBilling,
     aiSettings,
     aiFiles,
+    aiSources,
     aiFeedback,
     aiAnalytics,
     aiReplies,

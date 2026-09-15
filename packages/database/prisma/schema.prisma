@@ -2064,6 +2064,9 @@ enum KnowledgeDocumentKind {
   file
   /// One product from the property's product feed. Removed when a later feed no longer lists it.
   product
+  /// A page the owner added by pasting its address. Any site, including somebody else's; kept
+  /// until they remove it, and never touched by the website crawl's own tidying up.
+  link
 }
 
 enum KnowledgeFileStatus {

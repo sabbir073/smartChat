@@ -29,7 +29,7 @@ export interface KnowledgeServiceOptions {
 export interface RetrievedChunk {
   chunkId: string;
   documentId: string;
-  kind: 'article' | 'notes' | 'page' | 'file' | 'product';
+  kind: 'article' | 'notes' | 'page' | 'file' | 'product' | 'link';
   title: string;
   url: string | null;
   heading: string | null;
@@ -45,6 +45,8 @@ export interface KnowledgeStatus {
   files: number;
   /** How many are products from the feed. */
   products: number;
+  /** How many are pages the owner added by pasting an address. */
+  links: number;
   chunks: number;
   lastIndexedAt: Date | null;
   /** Documents whose last indexing failed, with the reason. */
@@ -179,9 +181,16 @@ export class KnowledgeService {
     const existing = await this.options.db.knowledgeDocument.findUnique({
       where: { accountId_propertyId_url: { accountId, propertyId, url: page.url } },
     });
-    if (existing?.kind === 'product') {
-      // The feed already describes this URL, with the price and the stock the page may not
-      // show. The structured version wins; the crawl only notes that the page is still there.
+    if (existing?.kind === 'product' || existing?.kind === 'link') {
+      /**
+       * Two documents the crawl must not take over.
+       *
+       * A `product` is described by the feed, with the price and the stock the page may not show.
+       * A `link` was added by hand, and its whole point is that it survives the crawl's tidy-up -
+       * turning it back into a `page` here would hand it to `prunePages` the moment the owner
+       * excluded that path or the site stopped linking to it. Either way the crawl only notes
+       * that the page is still there.
+       */
       await this.options.db.knowledgeDocument.update({ where: { id: existing.id }, data: { lastSeenAt: seenAt } });
       return { documentId: existing.id, changed: false };
     }
@@ -210,6 +219,68 @@ export class KnowledgeService {
       },
     });
     return { documentId: created.id, changed: true };
+  }
+
+  /**
+   * One page the owner added by pasting its address.
+   *
+   * Separate from `syncPage` for one reason that matters: the document keeps `kind: 'link'`, so
+   * the tidy-up at the end of a website crawl - which deletes every `page` the crawl did not see
+   * - cannot take it away. These are chosen by hand, often on somebody else's site, and the
+   * owner is the only one who removes them.
+   */
+  async syncLink(
+    accountId: string,
+    propertyId: string,
+    page: { url: string; title: string; text: string; description: string | null },
+    seenAt: Date,
+  ): Promise<{ documentId: string; changed: boolean }> {
+    const text = (page.description ? `${page.description}\n\n${page.text}` : page.text).slice(0, 200_000);
+    const hash = contentHash(page.title, text);
+    const existing = await this.options.db.knowledgeDocument.findUnique({
+      where: { accountId_propertyId_url: { accountId, propertyId, url: page.url } },
+    });
+    if (existing) {
+      if (existing.kind === 'link' && existing.contentHash === hash && existing.indexedAt && !existing.error) {
+        await this.options.db.knowledgeDocument.update({ where: { id: existing.id }, data: { lastSeenAt: seenAt } });
+        return { documentId: existing.id, changed: false };
+      }
+      await this.options.db.knowledgeDocument.update({
+        where: { id: existing.id },
+        data: { kind: 'link', title: page.title, text, contentHash: hash, tokenCount: estimateTokens(text), error: null, lastSeenAt: seenAt },
+      });
+      return { documentId: existing.id, changed: true };
+    }
+    const created = await this.options.db.knowledgeDocument.create({
+      data: {
+        accountId,
+        propertyId,
+        kind: 'link',
+        title: page.title,
+        url: page.url,
+        text,
+        contentHash: hash,
+        tokenCount: estimateTokens(text),
+        lastSeenAt: seenAt,
+      },
+    });
+    return { documentId: created.id, changed: true };
+  }
+
+  /**
+   * Forget everything of one kind for one property: the owner pressing "forget what you learned
+   * from my website", or from the feed, or from the pages they pasted. The chunks go with the
+   * documents (ON DELETE CASCADE), so the assistant stops answering from them immediately.
+   */
+  async forgetKind(
+    accountId: string,
+    propertyId: string,
+    kind: 'page' | 'link' | 'product' | 'file' | 'notes' | 'article',
+  ): Promise<number> {
+    const result = await this.options.db.knowledgeDocument.deleteMany({
+      where: { accountId, propertyId, kind },
+    });
+    return result.count;
   }
 
   /**
@@ -366,7 +437,7 @@ export class KnowledgeService {
   async listDocumentIds(
     accountId: string,
     propertyId: string,
-    kinds?: Array<'article' | 'notes' | 'page' | 'file' | 'product'>,
+    kinds?: Array<'article' | 'notes' | 'page' | 'file' | 'product' | 'link'>,
   ): Promise<string[]> {
     const rows = await this.options.db.knowledgeDocument.findMany({
       where: { accountId, propertyId, ...(kinds ? { kind: { in: kinds } } : {}) },
@@ -385,6 +456,7 @@ export class KnowledgeService {
     let pages = 0;
     let files = 0;
     let products = 0;
+    let links = 0;
     let lastIndexedAt: Date | null = null;
     let pending = 0;
     const failures: KnowledgeStatus['failures'] = [];
@@ -393,13 +465,14 @@ export class KnowledgeService {
       if (document.kind === 'page') pages += 1;
       if (document.kind === 'file') files += 1;
       if (document.kind === 'product') products += 1;
+      if (document.kind === 'link') links += 1;
       if (document.indexedAt && (!lastIndexedAt || document.indexedAt > lastIndexedAt)) {
         lastIndexedAt = document.indexedAt;
       }
       if (document.error) failures.push({ documentId: document.id, title: document.title, error: document.error });
       else if (!document.indexedAt) pending += 1;
     }
-    return { documents: documents.length, pages, files, products, chunks, lastIndexedAt, failures: failures.slice(0, 20), pending };
+    return { documents: documents.length, pages, files, products, links, chunks, lastIndexedAt, failures: failures.slice(0, 20), pending };
   }
 
   async document(accountId: string, documentId: string): Promise<KnowledgeDocument | null> {
@@ -476,7 +549,7 @@ export class KnowledgeService {
       chunks: rows.map((row) => ({
         chunkId: row.chunk_id,
         documentId: row.document_id,
-        kind: row.kind === 'notes' ? 'notes' : row.kind === 'page' ? 'page' : row.kind === 'file' ? 'file' : row.kind === 'product' ? 'product' : 'article',
+        kind: KNOWN_KINDS.has(row.kind) ? (row.kind as RetrievedChunk['kind']) : 'article',
         title: row.title,
         url: row.url,
         heading: row.heading,
@@ -487,6 +560,12 @@ export class KnowledgeService {
     };
   }
 }
+
+/**
+ * The kinds a chunk can come back as. A row with anything else - a kind added to the schema and
+ * not to this list - is shown as an article rather than dropped, which is the harmless failure.
+ */
+const KNOWN_KINDS = new Set(['article', 'notes', 'page', 'file', 'product', 'link']);
 
 interface RetrievedRow {
   chunk_id: string;

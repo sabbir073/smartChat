@@ -49,6 +49,8 @@ export interface AiSettingsView {
     pages: number;
     files: number;
     products: number;
+    /** Pages the owner added by pasting an address. */
+    links: number;
     chunks: number;
     articles: number;
     lastIndexedAt: string | null;
@@ -119,3 +121,18 @@ export interface AiReport {
   unanswered: Array<{ question: string; count: number; lastAskedAt: string; outcome: 'ticket' | 'failed' }>;
   unhelpful: Array<{ conversationId: string; question: string; reply: string; at: string }>;
 }
+
+/** One page the owner added by pasting its address. Mirrors `KnowledgeLinkView` in core. */
+export interface KnowledgeLinkView {
+  id: string;
+  url: string;
+  title: string;
+  status: 'reading' | 'ready' | 'failed';
+  error: string | null;
+  chunks: number;
+  addedAt: string;
+  indexedAt: string | null;
+}
+
+/** The sources the assistant can be told to forget, whole. */
+export type ForgettableSource = 'website' | 'links' | 'feed' | 'keyFacts';

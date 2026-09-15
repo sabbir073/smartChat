@@ -307,6 +307,77 @@ export async function crawlSite(
 }
 
 /**
+ * One page, read on its own.
+ *
+ * The owner pasted an address and asked the assistant to learn that page - so unlike the crawl
+ * there is no queue, no host to stay inside, no links to follow and no budget: one address, one
+ * document. What it does share with the crawl is how a page is *read*: the plain fetch settles
+ * the status and whether the host is turning bots away, the browser is spent only on a page
+ * worth rendering, and whichever copy has actual words wins.
+ *
+ * Throws with a sentence the owner can act on, because that sentence is stored on the document
+ * and shown beside the address on the settings page.
+ */
+export async function readOnePage(
+  url: string,
+  options: {
+    read?: ((url: string) => Promise<ReadPage | null>) | undefined;
+    timeoutMs?: number;
+    maxBytes?: number;
+    allowPrivateAddresses?: boolean;
+  } = {},
+): Promise<CrawledPage> {
+  const normalised = normaliseUrl(url, null);
+  if (!normalised) throw new Error('That is not a web address we can read.');
+
+  const fetched = await fetchDocument(normalised, {
+    maxBytes: options.maxBytes ?? DEFAULT_MAX_BYTES,
+    timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    ...(options.allowPrivateAddresses ? { allowPrivateAddresses: true } : {}),
+    accept: 'text/html,application/xhtml+xml',
+  }).catch((error: unknown) => {
+    throw new Error(`The page could not be fetched (${error instanceof Error ? error.message : String(error)}).`);
+  });
+
+  const isHtml = fetched.contentType.includes('text/html') || fetched.contentType.includes('application/xhtml');
+  const challenged = fetched.status === 200 && looksLikeBotChallenge(fetched.text);
+
+  let read: ReadPage | null = null;
+  if (options.read && (fetched.status === 200 || fetched.status === 403) && (isHtml || fetched.status === 403)) {
+    read = await options.read(fetched.finalUrl).catch(() => null);
+    if (read && (read.status !== 200 || looksLikeBotChallenge(read.html))) read = null;
+    if (read && read.markdown.trim().length < MIN_PAGE_CHARS && fetched.status === 200 && !challenged) {
+      const plain = extractPage(fetched.text, fetched.finalUrl);
+      if (plain && plain.text.length >= MIN_PAGE_CHARS) read = null;
+    }
+  }
+
+  if (fetched.status !== 200 && !read) throw new Error(`The page answered HTTP ${fetched.status}.`);
+  if (challenged && !read) {
+    throw new Error('That address answers automated visitors with a bot-verification page, so it could not be read.');
+  }
+  if (!read && !isHtml) throw new Error('That address is not a web page we can read as text.');
+
+  const finalUrl = read?.finalUrl ? (normaliseUrl(read.finalUrl, null) ?? fetched.finalUrl) : fetched.finalUrl;
+  const html = read?.html ?? fetched.text;
+  const plain = extractPage(html, finalUrl);
+
+  const extracted: ExtractedPage | null =
+    read && read.markdown.trim().length >= MIN_PAGE_CHARS
+      ? {
+          title: read.title ?? plain?.title ?? finalUrl,
+          description: read.description ?? plain?.description ?? null,
+          text: tidyMarkdown(read.markdown),
+        }
+      : plain;
+
+  if (!extracted || extracted.text.length < MIN_PAGE_CHARS) {
+    throw new Error('There was no readable text on that page.');
+  }
+  return { ...extracted, url: finalUrl };
+}
+
+/**
  * The reader's markdown, in the shape the chunker reads: `-` bullets, every heading on a line of
  * its own with blank lines around it (the chunker takes a heading only as a block by itself),
  * single blank lines between blocks.
