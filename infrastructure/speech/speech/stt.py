@@ -84,7 +84,7 @@ def load_bengali(paths: ModelPaths, settings: Settings) -> SherpaRecogniser:
         sample_rate=STT_SAMPLE_RATE,
         feature_dim=80,
         decoding_method="greedy_search",
-        provider=settings.provider,
+        provider=settings.ort_provider(),
     )
     return SherpaRecogniser("indicconformer-bn" + ("-int8" if settings.stt_bn_variant == "int8" else ""), "bn", recognizer)
 
@@ -101,7 +101,7 @@ def load_english(paths: ModelPaths, settings: Settings) -> SherpaRecogniser:
         feature_dim=80,
         decoding_method="greedy_search",
         model_type="nemo_transducer",
-        provider=settings.provider,
+        provider=settings.ort_provider(),
     )
     return SherpaRecogniser("parakeet-tdt-0.6b-v3-int8", "en", recognizer)
 
@@ -113,6 +113,6 @@ def load_omnilingual(paths: ModelPaths, settings: Settings) -> SherpaRecogniser:
         tokens=_require(directory / "tokens.txt", "Omnilingual tokens"),
         num_threads=settings.stt_threads,
         decoding_method="greedy_search",
-        provider=settings.provider,
+        provider=settings.ort_provider(),
     )
     return SherpaRecogniser("omnilingual-ctc-300m-v2-int8", "bn", recognizer)

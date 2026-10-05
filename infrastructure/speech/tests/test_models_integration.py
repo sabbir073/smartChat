@@ -7,30 +7,18 @@ should: real clips in, exact transcripts out, real audio back, measured latencie
 from __future__ import annotations
 
 import json
-import os
-import socket
-import threading
 import time
-from collections.abc import Iterator
-from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
 import numpy as np
 import pytest
 import soundfile as sf
-import uvicorn
 from websockets.sync.client import connect
 
-from speech.config import Settings
-from speech.engine import Engine
-from speech.server import create_app
-from tests.conftest import ASSETS, frames, pcm16
+from tests.conftest import ASSETS, HEADERS, Live, frames, pcm16
 
 pytestmark = pytest.mark.models
-
-TOKEN = "integration-token"
-HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
 # Observed in this environment: the owner's note names the "সুস্থ হওয়ার পর..." sentence as the
 # transcript of cv_31617644.wav, but that sentence is what both the mp3 and the wav of
@@ -43,46 +31,6 @@ REFERENCES = {
 }
 BN_TEXT = "হ্যালো, গেটচ্যাটে আপনাকে স্বাগতম। আমি আপনাকে কীভাবে সাহায্য করতে পারি? আপনার অর্ডার নম্বর ১৫০০ টাকায় নিশ্চিত হয়েছে।"
 EN_TEXT = "Hello, welcome to GetChat. How can I help you today? Your order of 1,500 taka has been confirmed."
-
-
-@dataclass
-class Live:
-    base: str
-    ws: str
-    engine: Engine
-
-
-def _free_port() -> int:
-    with socket.socket() as sock:
-        sock.bind(("127.0.0.1", 0))
-        return int(sock.getsockname()[1])
-
-
-@pytest.fixture(scope="module")
-def live() -> Iterator[Live]:
-    os.environ["SPEECH_TOKEN"] = TOKEN
-    os.environ.setdefault("SPEECH_THREADS", "4")
-    settings = Settings.from_env()
-    engine = Engine(settings)
-    engine.load()
-    port = _free_port()
-    app = create_app(settings, engine=engine, autoload=False)
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", ws="websockets-sansio"))
-    thread = threading.Thread(target=server.run, daemon=True)
-    thread.start()
-    base = f"http://127.0.0.1:{port}"
-    for _ in range(100):
-        try:
-            if httpx.get(f"{base}/health", timeout=2).status_code == 200:
-                break
-        except httpx.HTTPError:
-            pass
-        time.sleep(0.1)
-    else:
-        raise RuntimeError("server did not come up")
-    yield Live(base=base, ws=f"ws://127.0.0.1:{port}", engine=engine)
-    server.should_exit = True
-    thread.join(timeout=10)
 
 
 def _normalise(text: str) -> str:

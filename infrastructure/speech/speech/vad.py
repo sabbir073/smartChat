@@ -46,13 +46,15 @@ class SileroVad:
     sherpa-onnx releases (inputs x/h/c) and v5 from the upstream repository (input/state/sr).
     """
 
-    def __init__(self, path: Path, threads: int = 1) -> None:
+    def __init__(self, path: Path, threads: int = 1, arena: bool = False) -> None:
         if not path.exists():
             raise VadModelError(f"VAD model missing: {path}")
         options = ort.SessionOptions()
         options.intra_op_num_threads = threads
         options.inter_op_num_threads = 1
         options.log_severity_level = 3
+        # The per-window tensors are tiny; the arena would only pin memory (speech/memory.py).
+        options.enable_cpu_mem_arena = arena
         self.session = ort.InferenceSession(str(path), options, providers=["CPUExecutionProvider"])
         names = {i.name for i in self.session.get_inputs()}
         if {"x", "h", "c"} <= names:

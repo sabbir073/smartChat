@@ -40,3 +40,8 @@ msg.txt
 # working tree on a deployed host; `git add -A` there must never be able to pick them up.
 infrastructure/nginx/certs/
 infrastructure/nginx/acme/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/

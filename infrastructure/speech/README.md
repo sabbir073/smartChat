@@ -60,6 +60,9 @@ before it is ever loaded.
 | `SPEECH_PROVIDER` | `cpu` | sherpa-onnx execution provider; see *GPU later*. |
 | `SPEECH_STT_BN_VARIANT` | `fp32` | `int8` quantises IndicConformer at download time (saves ~350 MB RSS; measured slower and one more error on the reference clips, see below). |
 | `SPEECH_KOKORO_VARIANT` | `fp32` | `int8` downloads the int8 Kokoro instead (saves ~500 MB RSS; measured 2.5x *slower* on an AVX-512 Xeon, RTF 1.5, so not the default). |
+| `SPEECH_ORT_CPU_ARENA` | `0` | `1` re-enables ONNX Runtime's CPU memory arena. Off by default: the arena keeps every high-water mark and grew the service past its memory limit (see *Memory*). |
+| `SPEECH_HEAP_TRIM` | `1` | `0` stops the `malloc_trim` after each model call. Diagnosis only. |
+| `MALLOC_ARENA_MAX` | `2` (image) | glibc per-thread heap cap; set in the image and entrypoint, and through `mallopt` at start when unset. |
 | `SPEECH_VERIFY_CHECKSUMS` | `1` | `0` accepts an upstream re-upload whose SHA-256 differs (size is still checked). |
 | `SPEECH_LOG_LEVEL` | `info` | JSON-lines log level. |
 
@@ -73,7 +76,8 @@ never a stack trace.
 ```json
 {"status":"ok","models":{"vad":true,"stt_bn":true,"stt_en":true,"lid":true,
  "tts":["bn_female","bn_bd","en_female","en_male","en_piper"]},
- "threads":4,"sessions":0,"maxSessions":8,"rssMb":2334,"loadSeconds":14.06}
+ "threads":4,"sessions":0,"maxSessions":8,"rssMb":2334,"loadSeconds":14.06,
+ "ttsCache":{"entries":12,"bytes":4194304,"hits":30,"misses":12}}
 ```
 
 `503` with `"status":"loading"` and a `missing` list until every model is loaded; `"status":"error"`
@@ -169,6 +173,38 @@ Body: raw `audio/wav` (anything libsndfile reads, any rate, ≤ 32 MB, ≤ 10 mi
 `file` part. Response
 `{"text","language","languageConfidence","lid":{"bn","en"},"durationMs","latencyMs","model"}`.
 
+## Memory
+
+The first deployment grew from 2.4 GB to 3.6 GB in fifteen minutes and was OOM-killed. No
+Python object leaked (tracemalloc showed only the bounded TTS cache); the growth was native:
+
+- ONNX Runtime's CPU memory arena, one per sherpa-onnx session, never shrinks. A long sentence
+  through a VITS vocoder allocates tens of MB of activations, the arena keeps that high-water
+  mark for ever, and eight sessions each keep their own. The service now creates every session
+  with the arena off (sherpa-onnx's `cpu:<config file>` provider form, the file is written into
+  the models directory at start) and its own VAD session likewise.
+- glibc's per-thread heaps fragmenting under the inference pool: `MALLOC_ARENA_MAX=2` plus a
+  `malloc_trim(0)` (2-3 ms) after every model call, which returns the freed pages.
+
+Measured with `tools/loadtest.py` (20 sessions of three utterances at 10 ms frames, 200 TTS
+requests over two voices and two output rates, 50 transcriptions; `SPEECH_THREADS=2`):
+
+| | start | end | growth |
+|---|---|---|---|
+| before (arena on, no trim) | 2415 MB | 2835 MB and still rising | **+420 MB** |
+| after, twice the load (400 TTS, 40 sessions, 100 transcriptions) | 2334 MB | 2364 MB | **+30 MB** (peak +31) |
+| after, 100 three-sentence replies on all four default voices | 2365 MB | 2367 MB | +2 MB |
+
+The remaining creep is the TTS cache filling up to its 50 MB cap (`/health` reports it under
+`ttsCache`). `tests/test_memory.py` repeats a smaller mixed run against the real server and
+fails if RSS climbs more than 100 MB. Cost of the fix: no measurable change for the
+recognisers and the slow voices, about 15% on the fast piper voices (184 → 232 ms for a
+sentence), 2-3 ms of trimming per call.
+
+`tools/memcheck.py` runs one engine in a loop in-process (`tts`, `stt`, `lid`, `vad`,
+`resample`) and prints RSS, with a tracemalloc diff on request - the quickest way to see which
+side of the fence a regression is on.
+
 ## Logs
 
 JSON lines on stdout. One line per utterance:
@@ -242,7 +278,9 @@ infrastructure/speech/
     audio.py                PCM/float conversion, libsoxr resampling, WAV decoding
     text/                   clean.py (markdown/URLs/emoji), sentences.py (sentences, script runs),
                             bn_numbers.py (Bengali number words)
-    config.py, layout.py, logs.py
+    config.py, layout.py, logs.py, memory.py (ORT arena off, glibc trim)
   tools/make_samples.py     one WAV per voice through the real pipeline
-  tests/                    90 unit tests (no models) + 19 end-to-end tests (`-m models`)
+  tools/loadtest.py         mixed load against a running server, RSS per round
+  tools/memcheck.py         one engine in a loop in-process, RSS and tracemalloc
+  tests/                    90 unit tests (no models) + 20 end-to-end tests (`-m models`, incl. memory)
 ```

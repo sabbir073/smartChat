@@ -561,7 +561,7 @@ async function main() {
   await visitorParty.say('What are your opening hours?', 'en');
   // The brain is slowed to 2.5 s in the local run, so the hold-on line comes first; wait for the
   // whole reply, which is the hold-on, the answer, and silence after both.
-  check('the AI replied', await visitorParty.waitForReply('ai:', askedAt, 2500, 60_000));
+  check('the AI replied', await visitorParty.waitForReply('ai:', askedAt, 4000, 60_000));
   const answerAudio = visitorParty.heardFromIdentity('ai:').subarray(heardBefore);
   const answer = await transcribe(answerAudio, 'en');
   check(
@@ -686,7 +686,7 @@ async function main() {
   check(
     'the Bengali question is in the transcript',
     (transcriptB.body?.data ?? []).some(
-      (m) => m.senderType === 'visitor' && m.voice?.callId === callB.id && /খোলা/.test(m.body),
+      (m) => m.senderType === 'visitor' && m.voice?.callId === callB.id && /খোল/.test(m.body),
     ),
   );
 

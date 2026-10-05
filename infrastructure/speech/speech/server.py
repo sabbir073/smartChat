@@ -36,6 +36,8 @@ from speech import __version__, logs
 from speech.audio import STT_SAMPLE_RATE, SUPPORTED_OUTPUT_RATES, decode_wav, float_to_pcm16, to_stt_rate
 from speech.config import LANGUAGES, Settings
 from speech.engine import Engine
+from speech.memory import after_inference
+from speech.memory import configure as configure_memory
 from speech.session import EngineLike, ListenSession
 from speech.tts import MAX_TEXT_CHARS, RenderStats, TtsError
 
@@ -170,7 +172,7 @@ def create_app(settings: Settings, engine: EngineLike | None = None, autoload: b
             first_chunk_ms: int | None = None
             try:
                 for index, sentence in enumerate(plan.sentences):
-                    audio = await loop.run_in_executor(engine.executor, tts_engine.render_sentence, sentence, plan.sample_rate, index == 0, stats)
+                    audio = await loop.run_in_executor(engine.executor, after_inference, tts_engine.render_sentence, sentence, plan.sample_rate, index == 0, stats)
                     if first_chunk_ms is None:
                         first_chunk_ms = int((time.monotonic() - started) * 1000)
                     yield float_to_pcm16(audio)
@@ -222,7 +224,7 @@ def create_app(settings: Settings, engine: EngineLike | None = None, autoload: b
         started = time.monotonic()
         try:
             for index, sentence in enumerate(plan.sentences):
-                audio = await loop.run_in_executor(engine.executor, tts_engine.render_sentence, sentence, plan.sample_rate, index == 0, stats)
+                audio = await loop.run_in_executor(engine.executor, after_inference, tts_engine.render_sentence, sentence, plan.sample_rate, index == 0, stats)
                 total_ms += int(1000 * audio.size / plan.sample_rate)
         except Exception:  # noqa: BLE001 - reported as a 500 with a plain message
             log.exception("tts info failed", extra={"event": "tts_error", "voice": plan.voice})
@@ -362,6 +364,7 @@ def main() -> None:
         print(f"speech: bad configuration: {error}", file=sys.stderr)
         sys.exit(2)
     logs.configure(settings.log_level)
+    configure_memory(trim=settings.heap_trim)
     app = create_app(settings)
     uvicorn.run(app, host="0.0.0.0", port=settings.port, log_level="warning", access_log=False, ws="websockets-sansio", ws_max_size=4 * 1024 * 1024, timeout_keep_alive=30)
 

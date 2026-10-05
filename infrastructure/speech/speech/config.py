@@ -48,10 +48,21 @@ class Settings:
     stt_fallback: str  # "" or "omnilingual"
     default_language: str  # the sticky language a session starts with
     provider: str  # sherpa-onnx execution provider: cpu now, cuda later
+    # ONNX Runtime's CPU memory arena never shrinks and was the main reason the service grew
+    # past its memory limit; off by default (SPEECH_ORT_CPU_ARENA=1 turns it back on).
+    ort_arena: bool
+    # malloc_trim after every model call (SPEECH_HEAP_TRIM=0 switches it off, for diagnosis only).
+    heap_trim: bool
     stt_bn_variant: str  # "fp32" (the reference accuracy) or "int8"
     kokoro_variant: str  # "fp32" or "int8"
     verify_checksums: bool
     log_level: str
+
+    def ort_provider(self) -> str:
+        """The provider string every sherpa-onnx model is created with (see speech/memory.py)."""
+        from speech.memory import ort_provider
+
+        return ort_provider(self.provider, self.ort_arena, self.models_dir)
 
     @property
     def stt_threads(self) -> int:
@@ -88,6 +99,8 @@ class Settings:
             stt_fallback="" if fallback == "none" else fallback,
             default_language=default_language,
             provider=os.environ.get("SPEECH_PROVIDER", "cpu").strip().lower() or "cpu",
+            ort_arena=_bool("SPEECH_ORT_CPU_ARENA", False),
+            heap_trim=_bool("SPEECH_HEAP_TRIM", True),
             stt_bn_variant=stt_bn_variant,
             kokoro_variant=kokoro_variant,
             verify_checksums=_bool("SPEECH_VERIFY_CHECKSUMS", True),

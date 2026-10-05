@@ -7,8 +7,13 @@ populated by download_models.py and the test clips (SPEECH_TEST_ASSETS, default
 from __future__ import annotations
 
 import os
+import socket
 import sys
+import threading
+import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,11 +23,13 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from speech.config import Settings  # noqa: E402
-from speech.engine import Recognition  # noqa: E402
+from speech.engine import Engine, Recognition  # noqa: E402
 from speech.layout import ModelPaths  # noqa: E402
 from speech.vad import VadState  # noqa: E402
 
 ASSETS = Path(os.environ.get("SPEECH_TEST_ASSETS", "/home/claude/speech-assets/bn_test"))
+TOKEN = "integration-token"
+HEADERS = {"Authorization": f"Bearer {TOKEN}"}
 
 
 def _models_present() -> tuple[bool, str]:
@@ -152,3 +159,51 @@ def pcm16(samples: np.ndarray) -> bytes:
 def frames(data: bytes, frame_ms: int, rate: int) -> list[bytes]:
     size = int(rate * frame_ms / 1000) * 2
     return [data[i : i + size] for i in range(0, len(data), size)]
+
+
+@dataclass
+class Live:
+    base: str
+    ws: str
+    engine: Engine
+
+
+def _free_port() -> int:
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+@pytest.fixture(scope="session")
+def live() -> Iterator[Live]:
+    """A real uvicorn server with the real models, started once for every `models` test."""
+    import httpx
+    import uvicorn
+
+    from speech.memory import configure as configure_memory
+    from speech.server import create_app
+
+    os.environ["SPEECH_TOKEN"] = TOKEN
+    os.environ.setdefault("SPEECH_THREADS", "4")
+    settings = Settings.from_env()
+    configure_memory(trim=settings.heap_trim)
+    engine = Engine(settings)
+    engine.load()
+    port = _free_port()
+    app = create_app(settings, engine=engine, autoload=False)
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", ws="websockets-sansio"))
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(100):
+        try:
+            if httpx.get(f"{base}/health", timeout=2).status_code == 200:
+                break
+        except httpx.HTTPError:
+            pass
+        time.sleep(0.1)
+    else:
+        raise RuntimeError("server did not come up")
+    yield Live(base=base, ws=f"ws://127.0.0.1:{port}", engine=engine)
+    server.should_exit = True
+    thread.join(timeout=10)

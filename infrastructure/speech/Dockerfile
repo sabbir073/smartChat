@@ -15,7 +15,11 @@ ENV PYTHONUNBUFFERED=1 \
     # speechbrain/huggingface_hub must never go to the network at runtime: every file it needs
     # is in /models already.
     HF_HUB_OFFLINE=1 \
-    HF_HUB_DISABLE_TELEMETRY=1
+    HF_HUB_DISABLE_TELEMETRY=1 \
+    # glibc gives every thread its own heap by default (up to 8 per core); with the inference
+    # pool that is a dozen fragmenting heaps and a resident set that only grows. Two is enough
+    # here and is what speech/memory.py assumes (it sets the same through mallopt as a backstop).
+    MALLOC_ARENA_MAX=2
 
 WORKDIR /app
 COPY requirements.txt ./

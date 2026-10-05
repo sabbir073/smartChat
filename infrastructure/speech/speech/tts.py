@@ -229,7 +229,7 @@ def kokoro_speakers(model_path: Path) -> dict[str, int]:
 
 def load_voices(paths: ModelPaths, settings: Settings) -> dict[str, Voice]:
     """Every voice, loaded once; a missing model raises so the service refuses to start."""
-    threads, provider = settings.tts_threads, settings.provider
+    threads, provider = settings.tts_threads, settings.ort_provider()
     voices: dict[str, Voice] = {}
 
     coqui = _vits(paths.coqui_bn_dir / "model.onnx", paths.coqui_bn_dir / "tokens.txt", None, threads, provider)

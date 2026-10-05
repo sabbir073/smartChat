@@ -35,6 +35,7 @@ from speech.audio import STT_SAMPLE_RATE, duration_ms
 from speech.config import LANGUAGES, Settings
 from speech.layout import ModelPaths
 from speech.lid import LanguageIdentifier, LidResult
+from speech.memory import after_inference
 from speech.stt import ModelLoadError, Recogniser, Transcript, load_bengali, load_english, load_omnilingual
 from speech.tts import TtsEngine, load_voices
 from speech.vad import SileroVad
@@ -122,7 +123,7 @@ class Engine:
             raise ModelLoadError(f"models directory {paths.root} does not exist (run download_models.py)")
 
         step = time.monotonic()
-        self.vad = SileroVad(paths.vad, threads=1)
+        self.vad = SileroVad(paths.vad, threads=1, arena=settings.ort_arena)
         log.info("vad loaded", extra={"event": "model_loaded", "model": "silero-vad", "version": self.vad.version, "ms": int((time.monotonic() - step) * 1000)})
 
         step = time.monotonic()
@@ -185,6 +186,8 @@ class Engine:
             payload["maxSessions"] = self.settings.max_sessions
             payload["rssMb"] = rss_mb()
             payload["loadSeconds"] = self.load_seconds
+            if self.tts is not None:
+                payload["ttsCache"] = self.tts.cache.stats
             if self.fallback is not None:
                 payload["models"]["stt_fallback"] = self.fallback.name
             return 200, payload
@@ -224,7 +227,7 @@ class Engine:
         timings: dict[str, int] = {}
 
         if mode in LANGUAGES:
-            transcript: Transcript = await loop.run_in_executor(self.executor, self.stt[mode].transcribe, audio)
+            transcript: Transcript = await loop.run_in_executor(self.executor, after_inference, self.stt[mode].transcribe, audio)
             timings["stt_ms"] = transcript.decode_ms
             return Recognition(
                 text=transcript.text,
@@ -239,8 +242,8 @@ class Engine:
             )
 
         assert self.lid is not None
-        lid_future = loop.run_in_executor(self.executor, self.lid.identify, audio)
-        stt_future = loop.run_in_executor(self.executor, self.stt[sticky].transcribe, audio)
+        lid_future = loop.run_in_executor(self.executor, after_inference, self.lid.identify, audio)
+        stt_future = loop.run_in_executor(self.executor, after_inference, self.stt[sticky].transcribe, audio)
         # LID usually finishes first; when it calls for the other language, that decode starts
         # at once rather than after the sticky decode it is going to replace.
         lid_result: LidResult = await lid_future
@@ -251,7 +254,7 @@ class Engine:
         if lid_result.language == other and lid_result.confidence >= SWITCH_CONFIDENCE and length_ms >= SWITCH_MIN_MS:
             chosen = other
             switched = True
-            other_future = loop.run_in_executor(self.executor, self.stt[other].transcribe, audio)
+            other_future = loop.run_in_executor(self.executor, after_inference, self.stt[other].transcribe, audio)
             discarded, transcript = await asyncio.gather(stt_future, other_future)
             timings["stt_ms"] = discarded.decode_ms
             timings["switch_stt_ms"] = transcript.decode_ms
