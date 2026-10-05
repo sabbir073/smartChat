@@ -36,6 +36,8 @@ interface MeResponse {
   activeAccountId: string | null;
   permissions: string[];
   role: string | null;
+  /** This person's membership id in the active account, or null outside any account. */
+  memberId: string | null;
 }
 
 interface AuthState {
@@ -49,6 +51,12 @@ interface AuthState {
    */
   can(permission: string): boolean;
   role: string | null;
+  /**
+   * My membership id in the active account. What the API uses to say who holds a call, who a
+   * conversation is assigned to, who a transfer is aimed at - so it is the one id the dashboard
+   * needs in order to recognise itself.
+   */
+  memberId: string | null;
   accounts: AccountSummary[];
   activeAccount: AccountSummary | null;
   refresh(): Promise<void>;
@@ -98,6 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<ReadonlySet<string>>(() => new Set());
   const [role, setRole] = useState<string | null>(null);
+  const [memberId, setMemberId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -107,6 +116,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setActiveAccountId(data.activeAccountId ?? data.accounts[0]?.id ?? null);
       setPermissions(new Set(data.permissions ?? []));
       setRole(data.role ?? null);
+      setMemberId(data.memberId ?? null);
       setStatus('authenticated');
     } catch (error) {
       // Any authentication failure means "not signed in" here; the API is the authority and has
@@ -117,6 +127,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setActiveAccountId(null);
         setPermissions(new Set());
         setRole(null);
+        setMemberId(null);
         setStatus('anonymous');
 
         /**
@@ -173,11 +184,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         accounts.find((account) => account.id === activeAccountId) ?? accounts[0] ?? null,
       can: (permission: string) => permissions.has(permission),
       role,
+      memberId,
       refresh,
       switchAccount,
       signOut,
     }),
-    [status, user, accounts, activeAccountId, permissions, role, refresh, switchAccount, signOut],
+    [
+      status,
+      user,
+      accounts,
+      activeAccountId,
+      permissions,
+      role,
+      memberId,
+      refresh,
+      switchAccount,
+      signOut,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

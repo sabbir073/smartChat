@@ -69,6 +69,15 @@ x-app-env: &app-env
   AI_CHAT_MODEL: ${AI_CHAT_MODEL:-qwen3:1.7b}
   AI_EMBED_MODEL: ${AI_EMBED_MODEL:-embeddinggemma}
   AI_EMBED_DIMENSIONS: ${AI_EMBED_DIMENSIONS:-768}
+  # Voice calls. Off unless VOICE_ENABLED is true and the media server is named; see docs/VOICE.md.
+  VOICE_ENABLED: ${VOICE_ENABLED:-false}
+  LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
+  LIVEKIT_API_URL: ${LIVEKIT_API_URL:-http://livekit:7880}
+  LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-}
+  LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-}
+  SPEECH_URL: ${SPEECH_URL:-http://speech:3010}
+  SPEECH_TOKEN: ${SPEECH_TOKEN:-}
+  VOICE_AI_MAX_CALLS: ${VOICE_AI_MAX_CALLS:-1}
 
 x-infra-ready: &infra-ready
   postgres:
@@ -372,6 +381,8 @@ services:
       # Not used to reach storage - the browser does that over a signed URL. The dashboard needs
       # the origin so its Content Security Policy can allow the attachment images it renders.
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9100}
+      # The media server, for the same reason: the dashboard opens a WebSocket to it on a call.
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health >/dev/null 2>&1 || exit 1']
       interval: 15s
@@ -398,12 +409,98 @@ services:
       # Named in the panel's Content Security Policy so a visitor can see the file they were
       # just sent. Nothing here reaches storage; the browser does, over a signed URL.
       S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9100}
+      # The media server, named in the same policy, so the panel may open a call.
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-}
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/healthz >/dev/null 2>&1 || exit 1']
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 10s
+    networks: [smartchat]
+
+  # ---------------------------------------------------------------------------
+  # Voice calls: three services, all optional. With VOICE_ENABLED=false they start and idle.
+  #
+  #   livekit  the media server. Carries the audio of every call; decides nothing about who may
+  #            be in a room - the API mints every key. Bridge-networked with its media ports
+  #            published, so the API and the agent reach it by name and the internet reaches it
+  #            by the host's public address (rtc.node_ip).
+  #   speech   listening and speaking, on the CPU: voice activity, language identification,
+  #            Bengali and English speech-to-text, two voices. Models download to a volume on
+  #            first start (~2 GB), so the first boot takes a few minutes.
+  #   voice    the AI on the line: joins a call's room, listens through `speech`, thinks with the
+  #            same brain as the chat, speaks through `speech`.
+  # ---------------------------------------------------------------------------
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    restart: unless-stopped
+    logging: *default-logging
+    command: ['--config', '/etc/livekit.yaml']
+    environment:
+      # The one key pair, shared with the API (tokens, webhook) and the agent.
+      LIVEKIT_KEYS: '${LIVEKIT_API_KEY:-devkey}: ${LIVEKIT_API_SECRET:-devsecret_devsecret_devsecret_0000}'
+    configs:
+      - source: livekit_config
+        target: /etc/livekit.yaml
+    ports:
+      # ICE over TCP, for networks that block UDP; ICE over UDP on one multiplexed port; TURN/UDP.
+      - '7881:7881/tcp'
+      - '7882:7882/udp'
+      - '3478:3478/udp'
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:7880/ >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    networks: [smartchat]
+
+  speech:
+    build:
+      context: ./infrastructure/speech
+    image: smartchat/speech:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    environment:
+      PORT: 3010
+      SPEECH_TOKEN: ${SPEECH_TOKEN:-}
+      SPEECH_MODELS_DIR: /models
+      SPEECH_THREADS: ${SPEECH_THREADS:-4}
+      SPEECH_MAX_SESSIONS: ${SPEECH_MAX_SESSIONS:-8}
+    volumes:
+      - speech_models:/models
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen(''http://127.0.0.1:3010/health'', timeout=4).status == 200 else 1)"',
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      # The first boot downloads the models before it can be healthy.
+      start_period: 900s
+    networks: [smartchat]
+
+  voice:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/voice.Dockerfile
+    image: smartchat/voice:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    logging: *default-logging
+    depends_on: *infra-ready
+    environment:
+      <<: *app-env
+      SERVICE_NAME: voice
+      PORT: 3004
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3004/health >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     networks: [smartchat]
 
   # ---------------------------------------------------------------------------
@@ -433,6 +530,41 @@ volumes:
   redis_data:
   minio_data:
   ollama_models:
+  speech_models:
+
+# The media server's configuration, rendered from the environment: the public address it
+# advertises to browsers, the TURN name, and where its webhook goes. Everything that is a secret
+# arrives through LIVEKIT_KEYS, not here.
+configs:
+  livekit_config:
+    content: |
+      port: 7880
+      log_level: info
+      rtc:
+        tcp_port: 7881
+        udp_port: 7882
+        use_external_ip: true
+        node_ip: ${LIVEKIT_NODE_IP:-}
+      turn:
+        enabled: ${LIVEKIT_TURN_ENABLED:-false}
+        domain: ${LIVEKIT_TURN_DOMAIN:-turn.localhost}
+        tls_port: 5349
+        udp_port: 3478
+        external_tls: true
+        proxy_protocol: true
+        proxy_protocol_trusted_cidrs:
+          - 10.0.0.0/8
+          - 172.16.0.0/12
+          - 192.168.0.0/16
+      room:
+        auto_create: false
+        empty_timeout: 120
+        departure_timeout: 30
+        max_participants: 3
+      webhook:
+        api_key: ${LIVEKIT_API_KEY:-devkey}
+        urls:
+          - http://api:3001/api/v1/voice/media/webhook
 
 networks:
   smartchat:

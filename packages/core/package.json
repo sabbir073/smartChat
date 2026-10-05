@@ -36,6 +36,7 @@
     "bullmq": "^5.34.10",
     "ioredis": "^5.4.2",
     "linkedom": "^0.18.13",
+    "livekit-server-sdk": "2.19.1",
     "mammoth": "^1.12.2",
     "nodemailer": "^10.0.0",
     "stripe": "^22.6.1",

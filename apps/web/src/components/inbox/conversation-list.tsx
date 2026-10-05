@@ -1,6 +1,9 @@
 'use client';
 
+import type { CallDto } from '@smartchat/types';
+import { PhoneGlyph } from '@/components/calls/call-glyphs';
 import { Avatar, cn } from '@/components/ui';
+import { listBadge } from '@/lib/call-store';
 import { countryFlag, countryName, pageLabel } from '@/lib/geo';
 import type { ConversationViewer } from '@/lib/realtime';
 import type { ConversationDto } from '@/lib/types';
@@ -32,6 +35,7 @@ export function ConversationList({
   onlineVisitors,
   visitorPages = {},
   viewers = {},
+  calls,
   onSelect,
 }: {
   conversations: ConversationDto[];
@@ -39,6 +43,8 @@ export function ConversationList({
   onlineVisitors: Set<string>;
   /** Live pages from presence. Falls back to the session's last recorded page when absent. */
   visitorPages?: Record<string, { url: string; title: string | null }>;
+  /** The live call each conversation is on, keyed by conversation id. A row with one gets a badge. */
+  calls?: ReadonlyMap<string, CallDto>;
   /**
    * Who from the team has each conversation open right now, keyed by conversation id.
    *
@@ -70,6 +76,8 @@ export function ConversationList({
             : null);
         const where = pageLabel(page);
         const watching = viewers[conversation.id]?.list ?? [];
+        const call = calls?.get(conversation.id);
+        const callLabel = call ? listBadge(call) : null;
 
         return (
           <li key={conversation.id}>
@@ -132,6 +140,18 @@ export function ConversationList({
                   <span className="truncate text-[13px] text-ink-muted">
                     {conversation.subject ?? conversation.visitor.email ?? 'No subject'}
                   </span>
+                  {callLabel && (
+                    <span
+                      className={cn(
+                        'inline-flex shrink-0 items-center gap-1 rounded-full px-1.5 text-[10.5px] font-semibold',
+                        call?.status === 'ringing' ? 'animate-pulse bg-success text-ink-inverted' : 'bg-brand-soft text-brand',
+                      )}
+                      title={call?.status === 'ringing' ? 'This conversation has a call ringing' : 'This conversation is on a call'}
+                    >
+                      <PhoneGlyph size={10} />
+                      {callLabel}
+                    </span>
+                  )}
                   {(conversation.ai?.replyCount ?? 0) > 0 && !conversation.ai?.pausedAt && conversation.status !== 'closed' && (
                     <span
                       className="shrink-0 rounded-full bg-success-soft px-1.5 text-[10px] font-semibold uppercase tracking-wide text-success"

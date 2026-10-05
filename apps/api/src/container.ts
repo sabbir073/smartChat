@@ -57,6 +57,11 @@ import {
   KnowledgeService,
   PlatformAiService,
   createAiGateway,
+  CallService,
+  LiveKitRooms,
+  PrismaCallStore,
+  VoiceSettingsService,
+  type MediaRooms,
 } from '@smartchat/core';
 import type { Logger } from '@smartchat/logger';
 import { DAY, MINUTE } from '@smartchat/core';
@@ -117,6 +122,10 @@ export interface Container {
   conversations: ConversationService;
   presence: PresenceService;
   connectionTickets: ConnectionTicketService;
+  /** Voice calls: the per-website settings, and the call state machine. Null when calling is off. */
+  voiceSettings: VoiceSettingsService;
+  calls: CallService | null;
+  media: MediaRooms | null;
   shutdown(): Promise<void>;
 }
 
@@ -203,6 +212,8 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     graceDays: () => settings.graceDays(),
     clock,
   });
+  /** Calling, per website. Built early: the widget bootstrap asks it whether to show the button. */
+  const voiceSettings = new VoiceSettingsService({ db, entitlements });
   let gatewayCache: { secretKey: string; gateway: StripeGateway } | null = null;
   const stripeGateway = async (): Promise<StripeGateway | null> => {
     const stripe = await settings.stripe();
@@ -268,6 +279,10 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     isAgentAvailable: hasAvailableAgent,
     resolveCountry: (ip) => geo.lookup(ip).then((hit) => hit?.country ?? null),
     canRemoveBranding: (accountId) => entitlements.hasFeature(accountId, 'removeBranding'),
+    canCall: (accountId, propertyId) =>
+      config.VOICE_ENABLED
+        ? voiceSettings.callingEnabled(accountId, propertyId)
+        : Promise.resolve(false),
     maxUploadBytes: config.UPLOAD_MAX_BYTES,
     clock,
   });
@@ -459,7 +474,11 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
       fallbackBaseUrl: config.AI_FALLBACK_BASE_URL || undefined,
     },
     settings,
-    { clock, log: (event, detail) => logger.warn(detail, event), accountRoute: (accountId) => accountAi.routeFor(accountId) },
+    {
+      clock,
+      log: (event, detail) => logger.warn(detail, event),
+      accountRoute: (accountId) => accountAi.routeFor(accountId),
+    },
   );
   const knowledge = new KnowledgeService({ db, gateway: aiGateway, appUrl: config.APP_URL, clock });
   const aiSettings = new AiSettingsService({ db, knowledge, queue, entitlements, clock });
@@ -526,6 +545,38 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     };
   };
 
+  /**
+   * Voice calls.
+   *
+   * Off unless the deploy says otherwise and names a media server. The settings service always
+   * exists - the page that configures calling must open on an installation that cannot make
+   * them, and say so - while the call service itself needs the media server to mint keys.
+   */
+  const media: MediaRooms | null =
+    config.VOICE_ENABLED && config.LIVEKIT_API_URL && config.LIVEKIT_PUBLIC_URL
+      ? new LiveKitRooms({
+          apiUrl: config.LIVEKIT_API_URL,
+          publicUrl: config.LIVEKIT_PUBLIC_URL,
+          apiKey: config.LIVEKIT_API_KEY,
+          apiSecret: config.LIVEKIT_API_SECRET,
+        })
+      : null;
+  const calls = media
+    ? new CallService({
+        store: new PrismaCallStore(db),
+        media,
+        settings: voiceSettings,
+        entitlements,
+        events,
+        queue,
+        redis,
+        conversations,
+        aiMaxCalls: config.VOICE_AI_MAX_CALLS,
+        clock,
+        log: (event, detail) => logger.info(detail, event),
+      })
+    : null;
+
   return {
     config,
     logger,
@@ -573,6 +624,9 @@ export function createContainer(config: ApiConfig, logger: Logger): Container {
     conversations,
     presence,
     connectionTickets,
+    voiceSettings,
+    calls,
+    media,
     async shutdown() {
       await queue.close().catch(() => {});
       await mailer.close?.().catch(() => {});

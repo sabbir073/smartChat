@@ -52,6 +52,10 @@ export type {
   KnowledgeFile,
   AccountAiSetting,
   AiTurn,
+  VoiceSetting,
+  Call,
+  CallLeg,
+  CallEvent,
 } from '@prisma/client';
 export {
   AccountStatus,
@@ -78,6 +82,10 @@ export {
   TriggerEvent,
   TriggerFrequency,
   TriggerMatch,
+  CallStatus,
+  CallLegKind,
+  CallEndReason,
+  CallEventType,
   WebhookDeliveryStatus,
   BillingInterval,
   SubscriptionStatus,

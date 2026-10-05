@@ -1,0 +1,9 @@
+# Keep the build context to what the image needs.
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+tools/
+README.md
+samples/
+*.wav

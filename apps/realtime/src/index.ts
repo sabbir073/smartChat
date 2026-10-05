@@ -143,6 +143,28 @@ async function main(): Promise<void> {
     const agents = io.of('/agent');
     const visitors = io.of('/visitor');
 
+    // A key, not news: it goes to the one party it was minted for and to nobody else.
+    if (typeof event.toMemberId === 'string' && event.toMemberId.length > 0) {
+      agents.to(room.agent(event.toMemberId)).emit(event.type, event.payload);
+      return;
+    }
+    if (event.toVisitor === true) {
+      if (!event.visitorId) return;
+      /**
+       * A call can open a conversation the visitor's socket has never joined - the Call button
+       * was pressed before a word was typed - and the transcript and the call's own milestones
+       * are then delivered to a room this socket is not in. Joining it here, from the server
+       * side, is what lets the widget see the AI's words as they are said.
+       */
+      if (event.conversationId) {
+        visitors
+          .in(room.visitor(event.visitorId))
+          .socketsJoin(room.conversation(event.conversationId));
+      }
+      visitors.to(room.visitor(event.visitorId)).emit(event.type, event.payload);
+      return;
+    }
+
     if (event.conversationId) {
       agents.to(room.conversation(event.conversationId)).emit(event.type, event.payload);
       // An internal note carries content the visitor must never see. One flag decides it, in one

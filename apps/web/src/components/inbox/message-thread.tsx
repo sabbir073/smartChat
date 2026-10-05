@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { useStickToBottom } from '@/lib/stick-to-bottom';
 import { MESSAGE_MAX_LENGTH, expandShortcut } from '@smartchat/validation';
+import { MicrophoneGlyph } from '@/components/calls/call-glyphs';
 import { cn } from '@/components/ui';
 import type { AgentMessage } from '@/lib/realtime';
 import type { AiSuggestion, ShortcutDto } from '@/lib/types';
 import { splitLinks } from '@/lib/linkify';
+import { systemText } from '@/lib/system-message';
 import { ShortcutPicker, readShortcutQuery } from './shortcut-picker';
 import { AttachmentCard, formatBytes } from './attachment';
 
@@ -14,22 +16,6 @@ interface ThreadMessage extends AgentMessage {
   delivery: 'pending' | 'sent' | 'failed';
   /** While a file is on its way up, so the bubble shows progress rather than an empty box. */
   uploading?: { fileName: string; byteSize: number };
-}
-
-/**
- * The agent-facing wording for a system message.
- *
- * The dashboard says "the visitor" where the panel says "you", and names the colleague who acted
- * rather than calling them "the support team" - the same event, told from this side of it.
- */
-function systemText(message: ThreadMessage): string {
-  const event = message.event;
-  if (!event) return message.body;
-
-  const actor = event.by === 'visitor' ? 'The visitor' : (event.actorName ?? 'An agent');
-  return event.kind === 'conversation.closed'
-    ? `${actor} ended this chat`
-    : `${actor} reopened this chat`;
 }
 
 function time(iso: string): string {
@@ -143,6 +129,12 @@ export function MessageThread({
             </div>
             <div className="flex flex-wrap gap-2 px-1 text-[11px] text-ink-subtle">
               {fromAgent && message.senderName && <span>{message.senderName}</span>}
+              {message.voice && (
+                <span className="inline-flex items-center gap-0.5" title="Said on a call and transcribed">
+                  <MicrophoneGlyph size={11} />
+                  <span className="sr-only">Said on a call</span>
+                </span>
+              )}
               {fromBot && (
                 <span
                   className="rounded border border-border px-1 text-[10px] font-semibold uppercase tracking-wide"

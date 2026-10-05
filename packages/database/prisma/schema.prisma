@@ -435,6 +435,10 @@ model Account {
   knowledgeFiles     KnowledgeFile[]
   aiTurns            AiTurn[]
   aiSetting          AccountAiSetting?
+  voiceSettings      VoiceSetting[]
+  calls              Call[]
+  callLegs           CallLeg[]
+  callEvents         CallEvent[]
 
   @@index([status, deletedAt])
   @@map("accounts")
@@ -467,6 +471,8 @@ model AccountMember {
   properties             PropertyMember[]
   departments            DepartmentMember[]
   assignedConversations  Conversation[]     @relation("ConversationAssignee")
+  answeredCalls          Call[]             @relation("CallAnsweredBy")
+  callLegs               CallLeg[]
   sentMessages           Message[]
   reads                  ConversationRead[]
   authoredTriggers       Trigger[]          @relation("TriggerAuthor")
@@ -551,6 +557,8 @@ model Property {
   knowledgeDocuments KnowledgeDocument[]
   knowledgeFiles     KnowledgeFile[]
   aiTurns            AiTurn[]
+  voiceSetting       VoiceSetting?
+  calls              Call[]
 
   @@unique([accountId, id])
   @@index([accountId, deletedAt])
@@ -713,9 +721,9 @@ model Visitor {
   email      String? @db.Citext
   phone      String?
 
-  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
-  lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
-  visitCount  Int      @default(1) @map("visit_count")
+  firstSeenAt DateTime  @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime  @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  visitCount  Int       @default(1) @map("visit_count")
   /// When the widget last greeted them on its own. A visitor is greeted once a day at most.
   greetedAt   DateTime? @map("greeted_at") @db.Timestamptz(6)
 
@@ -747,6 +755,8 @@ model Visitor {
   conversations  Conversation[]
   triggerFirings TriggerFiring[]
   contact        Contact?         @relation(fields: [accountId, contactId], references: [accountId, id], onDelete: SetNull)
+
+  calls Call[]
 
   @@unique([accountId, id])
   @@unique([propertyId, externalId])
@@ -906,6 +916,7 @@ model Conversation {
   attachments    Attachment[]
   tickets        Ticket[]
   aiTurns        AiTurn[]
+  calls          Call[]
 
   @@unique([accountId, id])
   // Drives the inbox list.
@@ -1881,18 +1892,22 @@ model Plan {
 
   // --- what the plan allows ------------------------------------------------
   /// null = unlimited.
-  maxProperties     Int?    @map("max_properties")
+  maxProperties        Int?    @map("max_properties")
   /// null = unlimited. Counts active members and pending invitations together.
-  maxMembers        Int?    @map("max_members")
-  aiAgent           Boolean @default(false) @map("ai_agent")
+  maxMembers           Int?    @map("max_members")
+  aiAgent              Boolean @default(false) @map("ai_agent")
   /// AI replies per calendar month, per account. null = unlimited. Meaningless when `aiAgent` is off.
-  aiRepliesPerMonth Int?    @map("ai_replies_per_month")
+  aiRepliesPerMonth    Int?    @map("ai_replies_per_month")
   /// Public API keys and outbound webhooks.
-  integrations      Boolean @default(false)
+  integrations         Boolean @default(false)
   /// Hide "Powered by" in the widget.
-  removeBranding    Boolean @default(false) @map("remove_branding")
+  removeBranding       Boolean @default(false) @map("remove_branding")
   /// The account may bring its own hosted-model key (OpenAI, DeepSeek, Anthropic).
-  aiOwnKey          Boolean @default(false) @map("ai_own_key")
+  aiOwnKey             Boolean @default(false) @map("ai_own_key")
+  /// Voice calls from the widget: agents answer in the dashboard, the AI answers when nobody does.
+  voice                Boolean @default(false)
+  /// Call minutes per calendar month, per account, every call counted. null = unlimited.
+  voiceMinutesPerMonth Int?    @map("voice_minutes_per_month")
 
   /// "Talk to us" rather than a checkout button. Price fields are ignored.
   isContactSales Boolean @default(false) @map("is_contact_sales")
@@ -2123,29 +2138,29 @@ model AiSetting {
   accountId  String @map("account_id") @db.Uuid
   propertyId String @map("property_id") @db.Uuid
 
-  mode               AiMode @default(team)
+  mode                 AiMode @default(team)
   /// What the widget calls it. Public by nature - it is the sender name on every reply.
-  assistantName      String @default("AI assistant") @map("assistant_name")
+  assistantName        String @default("AI assistant") @map("assistant_name")
   /// A short description of the business and how to speak, in the owner's words. Goes into the
   /// system prompt as-is, so it is bounded and never contains anything secret.
-  instructions       String @default("")
+  instructions         String @default("")
   /// Opening hours, phone numbers, addresses - facts the owner would rather type than have the
   /// crawler guess. Indexed as the `notes` document and always searched first.
-  keyFacts           String @default("") @map("key_facts")
+  keyFacts             String @default("") @map("key_facts")
   /// Said when the AI cannot help, before the ticket offer.
-  ticketOfferText    String @default("I've checked our information and I don't have a definite answer on that. Let me create a ticket so a team member can look into it properly and get back to you by email.") @map("ticket_offer_text")
+  ticketOfferText      String @default("I've checked our information and I don't have a definite answer on that. Let me create a ticket so a team member can look into it properly and get back to you by email.") @map("ticket_offer_text")
   /// Said when the AI hands a conversation to a person who is online.
-  handoffText        String @default("I'm passing this to a member of our team - they'll pick it up right here in a moment.") @map("handoff_text")
+  handoffText          String @default("I'm passing this to a member of our team - they'll pick it up right here in a moment.") @map("handoff_text")
   /// Said while the assistant is still looking, if the answer takes more than a moment.
-  checkingText       String @default("Give me a moment, I'm checking that for you...") @map("checking_text")
+  checkingText         String @default("Give me a moment, I'm checking that for you...") @map("checking_text")
   /// The earliest the line above may be said, in seconds. 0 = never say it. It is a floor, not a
   /// schedule: the assistant also waits until the answer is slower than this website's own normal
   /// reply, so on a slow site the line stays rare instead of preceding every answer.
-  checkingAfterSeconds Int  @default(10) @map("checking_after_seconds")
+  checkingAfterSeconds Int    @default(10) @map("checking_after_seconds")
   /// Said when the visitor asks for a person and nobody on the team is online.
-  offlineHandoffText String @default("Our team isn't online right now. I can open a ticket so they follow up by email, and I'm happy to keep helping you here in the meantime.") @map("offline_handoff_text")
+  offlineHandoffText   String @default("Our team isn't online right now. I can open a ticket so they follow up by email, and I'm happy to keep helping you here in the meantime.") @map("offline_handoff_text")
   /// Said when the assistant marks a conversation as urgent.
-  urgentText         String @default("I've marked this as urgent so the team sees it first.") @map("urgent_text")
+  urgentText           String @default("I've marked this as urgent so the team sees it first.") @map("urgent_text")
 
   // --- the conversation's rhythm: taking back, nudging, closing ---------------
   /// After a handoff, minutes the assignee has to reply before the assistant takes the chat back. 0 = never.
@@ -2354,6 +2369,8 @@ model AiTurn {
   /// The visitor's thumbs up or down on the reply, when they gave one.
   rating            AiRating?
   ratedAt           DateTime? @map("rated_at") @db.Timestamptz(6)
+  /// Said on a call rather than typed in a chat. Counted against call minutes, not AI replies.
+  voice             Boolean   @default(false)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -2367,4 +2384,191 @@ model AiTurn {
   @@index([conversationId, createdAt])
   @@index([replyMessageId])
   @@map("ai_turns")
+}
+
+// -----------------------------------------------------------------------------
+// Voice calls
+// -----------------------------------------------------------------------------
+
+enum CallStatus {
+  /// Somebody is being rung: the whole team at the start, one target during a transfer.
+  ringing
+  /// Answered; the parties are joining the room.
+  connecting
+  /// Two parties are in the room and talking.
+  active
+  ended
+
+  @@map("call_status")
+}
+
+enum CallLegKind {
+  visitor
+  member
+  ai
+
+  @@map("call_leg_kind")
+}
+
+enum CallEndReason {
+  completed
+  /// Nobody answered and the AI could not take it (off, over capacity, or out of minutes).
+  no_answer
+  /// The visitor hung up while it was still ringing.
+  cancelled
+  /// Every agent who was rung pressed decline.
+  declined
+  visitor_left
+  agent_left
+  ai_ended
+  allowance
+  failed
+
+  @@map("call_end_reason")
+}
+
+enum CallEventType {
+  started
+  ring
+  answer
+  decline
+  no_answer
+  transfer_requested
+  transfer_accepted
+  transfer_failed
+  ai_joined
+  ai_left
+  ended
+  error
+
+  @@map("call_event_type")
+}
+
+/// How calls behave on one website. One row per property, created on first read.
+model VoiceSetting {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId  String @map("account_id") @db.Uuid
+  propertyId String @map("property_id") @db.Uuid
+
+  /// The Call button in the widget. The plan must also include voice.
+  enabled         Boolean @default(false)
+  /// How long the team rings before the AI picks up (or the call is missed).
+  ringSeconds     Int     @default(25) @map("ring_seconds")
+  /// Whether the AI answers when nobody does. Needs the AI agent on for the website.
+  aiAnswers       Boolean @default(true) @map("ai_answers")
+  /// The most one AI-handled call may last, so a line left open does not run all day.
+  aiMaxSeconds    Int     @default(600) @map("ai_max_seconds")
+  /// The language the AI greets in before it has heard the visitor: `en` or `bn`.
+  defaultLanguage String  @default("en") @map("default_language")
+  /// The speech voices, by id as the speech service lists them, and the Piper speaker number.
+  voiceEn         String  @default("en_female") @map("voice_en")
+  voiceBn         String  @default("bn_bd") @map("voice_bn")
+  voiceBnSpeaker  Int     @default(0) @map("voice_bn_speaker")
+  /// The fixed things the AI says on a call - greeting, hold on, ticket offer - in both
+  /// languages, overriding the defaults in code: `{ "greeting": { "en": "...", "bn": "..." } }`.
+  phrases         Json    @default("{}")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account  Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property Property @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+
+  @@unique([accountId, propertyId])
+  @@map("voice_settings")
+}
+
+/// One call from the widget. It belongs to the conversation the visitor was in, so the inbox
+/// shows it as the chat head it is, with everything that was said around it.
+model Call {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  propertyId     String @map("property_id") @db.Uuid
+  conversationId String @map("conversation_id") @db.Uuid
+  visitorId      String @map("visitor_id") @db.Uuid
+
+  status             CallStatus   @default(ringing)
+  /// The media room, named after the call. One call, one room, never reused.
+  roomName           String       @unique @map("room_name")
+  /// Who has it right now: the member, or the AI. Null while it rings.
+  answeredByMemberId String?      @map("answered_by_member_id") @db.Uuid
+  handledByAi        Boolean      @default(false) @map("handled_by_ai")
+  /// Who is being rung during a transfer: one member, or the AI. Null outside a transfer.
+  pendingKind        CallLegKind? @map("pending_kind")
+  pendingMemberId    String?      @map("pending_member_id") @db.Uuid
+  /// Bumped for every round of ringing. A timeout job carries the value it was scheduled with
+  /// and does nothing when the call has moved on.
+  ringSeq            Int          @default(0) @map("ring_seq")
+  /// The language the AI last heard, for the next greeting and the record.
+  language           String?
+
+  startedAt       DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
+  answeredAt      DateTime?      @map("answered_at") @db.Timestamptz(6)
+  endedAt         DateTime?      @map("ended_at") @db.Timestamptz(6)
+  endReason       CallEndReason? @map("end_reason")
+  /// From answer to end, for the monthly allowance. Zero for a call nobody answered.
+  durationSeconds Int            @default(0) @map("duration_seconds")
+  /// How much of it the AI handled.
+  aiSeconds       Int            @default(0) @map("ai_seconds")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account      Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  property     Property       @relation(fields: [accountId, propertyId], references: [accountId, id], onDelete: Cascade)
+  conversation Conversation   @relation(fields: [accountId, conversationId], references: [accountId, id], onDelete: Cascade)
+  visitor      Visitor        @relation(fields: [accountId, visitorId], references: [accountId, id], onDelete: Cascade)
+  answeredBy   AccountMember? @relation("CallAnsweredBy", fields: [accountId, answeredByMemberId], references: [accountId, id], onDelete: SetNull)
+  legs         CallLeg[]
+  events       CallEvent[]
+
+  @@unique([accountId, id])
+  // The inbox's ringing and live calls, and the call history per website.
+  @@index([accountId, propertyId, status, startedAt(sort: Desc)])
+  @@index([accountId, status])
+  @@index([conversationId, startedAt(sort: Desc)])
+  // The monthly minutes.
+  @@index([accountId, startedAt(sort: Desc)])
+  @@map("calls")
+}
+
+/// One party's time in a call: the visitor, a member, or the AI. A transfer adds a leg.
+model CallLeg {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId String      @map("account_id") @db.Uuid
+  callId    String      @map("call_id") @db.Uuid
+  kind      CallLegKind
+  memberId  String?     @map("member_id") @db.Uuid
+  /// The participant identity in the media room.
+  identity  String
+  joinedAt  DateTime?   @map("joined_at") @db.Timestamptz(6)
+  leftAt    DateTime?   @map("left_at") @db.Timestamptz(6)
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  call    Call           @relation(fields: [accountId, callId], references: [accountId, id], onDelete: Cascade)
+  member  AccountMember? @relation(fields: [accountId, memberId], references: [accountId, id], onDelete: SetNull)
+
+  @@index([callId, createdAt])
+  @@map("call_legs")
+}
+
+/// What happened on a call, in order: the record the inbox timeline and the report are built from.
+model CallEvent {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  accountId      String        @map("account_id") @db.Uuid
+  callId         String        @map("call_id") @db.Uuid
+  type           CallEventType
+  /// The member who did it, when a member did.
+  memberId       String?       @map("member_id") @db.Uuid
+  /// The member a transfer was aimed at, when one was.
+  targetMemberId String?       @map("target_member_id") @db.Uuid
+  data           Json          @default("{}")
+  at             DateTime      @default(now()) @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  call    Call    @relation(fields: [accountId, callId], references: [accountId, id], onDelete: Cascade)
+
+  @@index([callId, at])
+  @@map("call_events")
 }

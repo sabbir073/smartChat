@@ -1,8 +1,25 @@
-/** Structured detail on a system message, so the panel writes its own wording. */
+/**
+ * Structured detail on a system message, so the panel writes its own wording.
+ *
+ * Mirrors the server's definition in `packages/core/src/realtime/events.ts`; the two are kept in
+ * step by hand because the panel must not depend on the core package.
+ */
 export interface SystemMessageEvent {
-  kind: 'conversation.closed' | 'conversation.reopened';
-  by: 'visitor' | 'agent';
+  kind:
+    | 'conversation.closed'
+    | 'conversation.reopened'
+    | 'call.started'
+    | 'call.answered'
+    | 'call.transferred'
+    | 'call.missed'
+    | 'call.ended';
+  /** `ai` is the assistant; `system` is a timer or the server itself. */
+  by: 'visitor' | 'agent' | 'ai' | 'system';
   actorName?: string;
+  /** For call events: which call, how long it lasted, who it went to. */
+  callId?: string;
+  durationSeconds?: number;
+  targetName?: string;
 }
 
 /** What the panel needs to render a file. Never a URL: those are minted per request. */
@@ -34,6 +51,8 @@ export interface MessageDto {
   event?: SystemMessageEvent;
   /** Present on bot messages the AI assistant wrote. */
   ai?: AiMessageInfo;
+  /** Present when the message is something that was said on a call, transcribed. */
+  voice?: { callId: string };
 }
 
 /** Where an AI reply came from, and whether it carries the ticket offer. */

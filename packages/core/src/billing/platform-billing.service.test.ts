@@ -30,6 +30,8 @@ function plan(overrides: Partial<Record<string, unknown>> = {}) {
     integrations: false,
     removeBranding: false,
     aiOwnKey: false,
+    voice: false,
+    voiceMinutesPerMonth: null,
     isContactSales: false,
     isPublic: true,
     isDefault: true,
@@ -53,8 +55,9 @@ function harness(opts: { plans?: ReturnType<typeof plan>[]; gateway?: unknown } 
   const db = {
     plan: {
       findMany: vi.fn(async () => plans.map((p) => ({ ...p }))),
-      findUnique: vi.fn(async ({ where }: { where: { id?: string; key?: string } }) =>
-        plans.find((p) => (where.id ? p.id === where.id : p.key === where.key)) ?? null,
+      findUnique: vi.fn(
+        async ({ where }: { where: { id?: string; key?: string } }) =>
+          plans.find((p) => (where.id ? p.id === where.id : p.key === where.key)) ?? null,
       ),
       updateMany: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
         for (const p of plans) Object.assign(p, data);
@@ -64,24 +67,36 @@ function harness(opts: { plans?: ReturnType<typeof plan>[]; gateway?: unknown } 
         plans.push(created);
         return created;
       }),
-      update: vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-        const row = plans.find((p) => p.id === where.id)!;
-        Object.assign(row, data);
-        return { ...row };
-      }),
+      update: vi.fn(
+        async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          const row = plans.find((p) => p.id === where.id)!;
+          Object.assign(row, data);
+          return { ...row };
+        },
+      ),
     },
     subscription: {
       groupBy: vi.fn(async () => []),
       count: vi.fn(async () => 0),
       findMany: vi.fn(async () => []),
-      findUnique: vi.fn(async ({ where, include }: { where: { accountId: string }; include?: unknown }) => {
-        const row = subscriptions.get(where.accountId);
-        if (!row) return null;
-        return include ? { ...row, plan: plans.find((p) => p.id === row['planId']) } : { ...row };
-      }),
-      update: vi.fn(async ({ where, data }: { where: { accountId: string }; data: Record<string, unknown> }) => {
-        Object.assign(subscriptions.get(where.accountId)!, data);
-      }),
+      findUnique: vi.fn(
+        async ({ where, include }: { where: { accountId: string }; include?: unknown }) => {
+          const row = subscriptions.get(where.accountId);
+          if (!row) return null;
+          return include ? { ...row, plan: plans.find((p) => p.id === row['planId']) } : { ...row };
+        },
+      ),
+      update: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { accountId: string };
+          data: Record<string, unknown>;
+        }) => {
+          Object.assign(subscriptions.get(where.accountId)!, data);
+        },
+      ),
     },
     invoice: { findMany: vi.fn(async () => []) },
     property: { count: vi.fn(async () => 0) },
@@ -91,9 +106,17 @@ function harness(opts: { plans?: ReturnType<typeof plan>[]; gateway?: unknown } 
         const row = settingsRows.get(where.key);
         return row ? { key: where.key, ...row } : null;
       }),
-      upsert: vi.fn(async ({ where, create }: { where: { key: string }; create: { value: string; encrypted: boolean } }) => {
-        settingsRows.set(where.key, { value: create.value, encrypted: create.encrypted });
-      }),
+      upsert: vi.fn(
+        async ({
+          where,
+          create,
+        }: {
+          where: { key: string };
+          create: { value: string; encrypted: boolean };
+        }) => {
+          settingsRows.set(where.key, { value: create.value, encrypted: create.encrypted });
+        },
+      ),
       deleteMany: vi.fn(async ({ where }: { where: { key: string } }) => {
         settingsRows.delete(where.key);
       }),
@@ -103,7 +126,10 @@ function harness(opts: { plans?: ReturnType<typeof plan>[]; gateway?: unknown } 
   };
 
   const settings = new PlatformSettingsService(db as never, KEY);
-  const entitlements = new EntitlementService({ db: db as never, graceDays: () => settings.graceDays() });
+  const entitlements = new EntitlementService({
+    db: db as never,
+    graceDays: () => settings.graceDays(),
+  });
   const service = new PlatformBillingService({
     db: db as never,
     settings,
@@ -132,17 +158,15 @@ describe('PlatformBillingService plans', () => {
   it('will not let the default plan cost money: new accounts land on it without a card', async () => {
     const h = harness();
     expect(
-      await codeOf(() =>
-        h.service.updatePlan(principal, 'plan_free', { monthlyPriceCents: 500 }),
-      ),
+      await codeOf(() => h.service.updatePlan(principal, 'plan_free', { monthlyPriceCents: 500 })),
     ).toBe(ErrorCode.VALIDATION_FAILED);
   });
 
   it('will not retire the default plan', async () => {
     const h = harness();
-    expect(await codeOf(() => h.service.updatePlan(principal, 'plan_free', { isActive: false }))).toBe(
-      ErrorCode.VALIDATION_FAILED,
-    );
+    expect(
+      await codeOf(() => h.service.updatePlan(principal, 'plan_free', { isActive: false })),
+    ).toBe(ErrorCode.VALIDATION_FAILED);
   });
 
   it('moves the default flag when another plan becomes the default', async () => {
@@ -171,6 +195,8 @@ describe('PlatformBillingService plans', () => {
       integrations: true,
       removeBranding: false,
       aiOwnKey: false,
+      voice: false,
+      voiceMinutesPerMonth: null,
       isContactSales: false,
       isPublic: true,
       isDefault: false,
@@ -186,10 +212,19 @@ describe('PlatformBillingService plans', () => {
   it('records the Stripe ids when a sync succeeds, and reports a failure without losing the save', async () => {
     const syncPlan = vi
       .fn()
-      .mockResolvedValueOnce({ productId: 'prod_1', monthlyPriceId: 'price_m', annualPriceId: null })
-      .mockRejectedValueOnce(Object.assign(new Error('boom'), { code: ErrorCode.PAYMENT_PROVIDER_ERROR }));
+      .mockResolvedValueOnce({
+        productId: 'prod_1',
+        monthlyPriceId: 'price_m',
+        annualPriceId: null,
+      })
+      .mockRejectedValueOnce(
+        Object.assign(new Error('boom'), { code: ErrorCode.PAYMENT_PROVIDER_ERROR }),
+      );
     const h = harness({
-      plans: [plan(), plan({ id: 'plan_s', key: 'starter', isDefault: false, monthlyPriceCents: 2000 })],
+      plans: [
+        plan(),
+        plan({ id: 'plan_s', key: 'starter', isDefault: false, monthlyPriceCents: 2000 }),
+      ],
       gateway: { syncPlan },
     });
 
@@ -237,7 +272,10 @@ describe('PlatformBillingService settings', () => {
 
   it('changes the grace window without touching the keys', async () => {
     const h = harness();
-    await h.service.updateSettings(principal, { stripeSecretKey: 'sk_test_abc123', stripePublishableKey: 'pk_test_x' });
+    await h.service.updateSettings(principal, {
+      stripeSecretKey: 'sk_test_abc123',
+      stripePublishableKey: 'pk_test_x',
+    });
     const view = await h.service.updateSettings(principal, { graceDays: 7 });
     expect(view.graceDays).toBe(7);
     expect(view.stripe.secretKeyConfigured).toBe(true);
@@ -246,7 +284,9 @@ describe('PlatformBillingService settings', () => {
 
 describe('PlatformBillingService accounts', () => {
   it('puts an account on a plan by hand and clears any lock', async () => {
-    const h = harness({ plans: [plan(), plan({ id: 'plan_g', key: 'growth', isDefault: false, maxProperties: 10 })] });
+    const h = harness({
+      plans: [plan(), plan({ id: 'plan_g', key: 'growth', isDefault: false, maxProperties: 10 })],
+    });
     h.subscriptions.set('acc_1', {
       id: 's1',
       accountId: 'acc_1',
@@ -262,9 +302,17 @@ describe('PlatformBillingService accounts', () => {
       lockedAt: new Date(),
       note: null,
     });
-    const view = await h.service.setAccountPlan(principal, 'acc_1', { planKey: 'growth', note: 'sponsored' });
+    const view = await h.service.setAccountPlan(principal, 'acc_1', {
+      planKey: 'growth',
+      note: 'sponsored',
+    });
     expect(view.plan.key).toBe('growth');
-    expect(view.subscription).toMatchObject({ status: 'none', provider: 'manual', lockedAt: null, note: 'sponsored' });
+    expect(view.subscription).toMatchObject({
+      status: 'none',
+      provider: 'manual',
+      lockedAt: null,
+      note: 'sponsored',
+    });
     expect(view.locked.locked).toBe(false);
   });
 
@@ -280,7 +328,9 @@ describe('PlatformBillingService accounts', () => {
       stripeSubscriptionId: 'sub_1',
     });
     expect(
-      await codeOf(() => h.service.setAccountPlan(principal, 'acc_1', { planKey: 'free', note: null })),
+      await codeOf(() =>
+        h.service.setAccountPlan(principal, 'acc_1', { planKey: 'free', note: null }),
+      ),
     ).toBe(ErrorCode.CONFLICT);
   });
 });

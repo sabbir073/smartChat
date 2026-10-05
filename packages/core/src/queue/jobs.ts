@@ -8,6 +8,13 @@ export const QueueName = {
   MAINTENANCE: 'maintenance',
   /** AI replies and knowledge indexing. Its own queue: a slow model must not delay an email. */
   AI: 'ai',
+  /**
+   * Call timers and the AI's call sessions. Its own queue because a ring timeout is a deadline
+   * measured in seconds, and the AI queue holds crawls that take minutes.
+   */
+  VOICE: 'voice',
+  /** The AI's call sessions, consumed by the voice agent process and by nothing else. */
+  VOICE_AI: 'voice_ai',
 } as const;
 export type QueueName = (typeof QueueName)[keyof typeof QueueName];
 
@@ -117,6 +124,31 @@ export interface AiSuggestPayload {
   messageId: string;
 }
 
+export const VoiceJob = {
+  /** The team was rung this long and nobody answered: the AI picks up, or the call is missed. */
+  RING_TIMEOUT: 'voice.ring_timeout',
+  /** The one person a call was transferred to did not answer in time. */
+  TRANSFER_TIMEOUT: 'voice.transfer_timeout',
+  /** The AI should join a call's room and talk. Consumed by the voice agent, not the worker. */
+  AI_JOIN: 'voice.ai_join',
+  /** Every minute: end calls whose parties vanished without a word (a closed laptop, a crash). */
+  SWEEP: 'voice.sweep',
+} as const;
+
+export interface VoiceRingTimeoutPayload {
+  accountId: string;
+  callId: string;
+  /** The call's `ringSeq` when the timer was set; a different value means the call moved on. */
+  ringSeq: number;
+}
+
+export interface VoiceAiJoinPayload {
+  accountId: string;
+  callId: string;
+  /** The AI leg that was created for this join, so a stale job does not start a second session. */
+  legId: string;
+}
+
 export interface SendEmailPayload {
   message: MailMessage;
   /** Correlates the job back to the request that created it. */
@@ -173,6 +205,10 @@ export type JobPayloadMap = {
   [AiJob.FOLLOWUP]: AiFollowupPayload;
   [AiJob.SUGGEST]: AiSuggestPayload;
   [AiJob.RECRAWL_DUE]: Record<string, never>;
+  [VoiceJob.RING_TIMEOUT]: VoiceRingTimeoutPayload;
+  [VoiceJob.TRANSFER_TIMEOUT]: VoiceRingTimeoutPayload;
+  [VoiceJob.AI_JOIN]: VoiceAiJoinPayload;
+  [VoiceJob.SWEEP]: Record<string, never>;
 };
 
 export type JobName = keyof JobPayloadMap;

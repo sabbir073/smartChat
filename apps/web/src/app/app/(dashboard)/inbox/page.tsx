@@ -11,6 +11,8 @@ import {
   type AgentMessage,
   type ConversationViewer,
 } from '@/lib/realtime';
+import { CallBar } from '@/components/calls/call-bar';
+import { useCalls } from '@/components/calls/call-provider';
 import { ConversationList } from '@/components/inbox/conversation-list';
 import { ConversationHeader } from '@/components/inbox/conversation-header';
 import { DEFAULT_FILTERS, FilterBar, type InboxFilters } from '@/components/inbox/filter-bar';
@@ -23,6 +25,7 @@ import {
 import { VisitorPanel } from '@/components/inbox/visitor-panel';
 import { Alert, EmptyState, Spinner, cn, useToast } from '@/components/ui';
 import type { AiSuggestion, ConversationDto, MemberDto, PropertyDto, ShortcutDto } from '@/lib/types';
+import { callForConversation, liveByConversation } from '@/lib/call-store';
 import { armChimeOnGesture, playChime } from '@/lib/chime';
 
 /**
@@ -42,9 +45,17 @@ const VIEWER_STALE_MS = 90_000;
  * bubble and its confirmed twin collapse into one row instead of appearing twice.
  */
 export default function InboxPage() {
-  const { activeAccount, user } = useAuth();
+  const { activeAccount, user, memberId } = useAuth();
   const toast = useToast();
   const aiIncluded = useBilling().entitlements?.plan.aiAgent ?? false;
+  /**
+   * Calls are the shell's business, not the inbox's: the provider holds every live call and the
+   * room this tab is in. The inbox's part is to feed it from the socket and to show the bar and
+   * the badges, which it reads back from the same map everyone else does.
+   */
+  const calls = useCalls();
+  const callsRef = useRef(calls);
+  callsRef.current = calls;
 
   const [connection, setConnection] = useState<AgentConnectionState>('idle');
   const [conversations, setConversations] = useState<ConversationDto[]>([]);
@@ -59,24 +70,19 @@ export default function InboxPage() {
   // Read inside socket handlers, which are bound once.
   const conversationsRef = useRef<ConversationDto[]>([]);
   conversationsRef.current = conversations;
-  const membersRef = useRef<MemberDto[]>([]);
-  membersRef.current = members;
-  const userIdRef = useRef<string | null>(null);
-  userIdRef.current = user?.id ?? null;
+  // My membership id, read inside the socket handler for "was this handed to me?".
+  const memberIdRef = useRef<string | null>(null);
+  memberIdRef.current = memberId;
   const toastRef = useRef(toast);
   toastRef.current = toast;
   /**
-   * The chime for incoming visitor messages. On by default; the choice is this browser's and is
-   * remembered here, because a shared inbox on a shop floor and one on a quiet desk want different
-   * things. Read through a ref by the socket handler, which is bound once.
+   * The chime for incoming visitor messages, and the ring for incoming calls. On by default; the
+   * choice is this browser's and is remembered by the call provider, because a shared inbox on a
+   * shop floor and one on a quiet desk want different things - and the ring, which sounds on
+   * every screen, has to follow the same switch. Read through a ref by the socket handler, which
+   * is bound once.
    */
-  const [soundOn, setSoundOn] = useState(() => {
-    try {
-      return localStorage.getItem('inbox.sound') !== 'off';
-    } catch {
-      return true;
-    }
-  });
+  const { soundOn, setSoundOn } = calls;
   const soundOnRef = useRef(soundOn);
   soundOnRef.current = soundOn;
   const openConversationRef = useRef<(conversation: ConversationDto) => Promise<void>>(async () => undefined);
@@ -263,7 +269,13 @@ export default function InboxPage() {
 
   useEffect(() => {
     const client = new AgentRealtimeClient({
-      onState: setConnection,
+      onState: (state) => {
+        setConnection(state);
+        // While this socket is up the provider hears every call from it; otherwise it polls.
+        callsRef.current.setFeedLive(state === 'connected');
+      },
+
+      onCallUpdated: (call) => callsRef.current.ingest(call),
 
       onMessage: (message: AgentMessage) => {
         upsertMessage({ ...message, delivery: 'sent' });
@@ -392,7 +404,7 @@ export default function InboxPage() {
         // The assistant handed a conversation to this person: say so, here and on the desktop,
         // because the whole point of a handoff is that somebody notices it.
         if (payload?.['by'] === 'ai' && typeof payload['assignedMemberId'] === 'string') {
-          const mine = membersRef.current.find((m) => m.id === payload['assignedMemberId'])?.userId === userIdRef.current;
+          const mine = memberIdRef.current !== null && payload['assignedMemberId'] === memberIdRef.current;
           if (mine) {
             toastRef.current.success('The AI assistant handed you a conversation.');
             if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && document.visibilityState !== 'visible') {
@@ -459,6 +471,7 @@ export default function InboxPage() {
       typingTimers.current = {};
       client.close();
       clientRef.current = null;
+      callsRef.current.setFeedLive(false);
     };
     // One client per account. Everything that changes more often than that - the status filter,
     // the open conversation - is reached through a ref, so the socket is never torn down and no
@@ -545,6 +558,13 @@ export default function InboxPage() {
   }, [conversations, selectedId, selectedConversation]);
 
   const thread = selectedId ? (messages[selectedId] ?? []) : [];
+
+  /** Live calls by conversation for the list's badges, and the open conversation's call for the bar. */
+  const liveCalls = useMemo(() => liveByConversation(calls.calls), [calls.calls]);
+  const selectedCall = useMemo(
+    () => (selected ? callForConversation(calls.calls, selected.id) : null),
+    [calls.calls, selected],
+  );
 
   // --- actions ------------------------------------------------------------
 
@@ -634,13 +654,23 @@ export default function InboxPage() {
     return () => document.removeEventListener('click', ask);
   }, []);
 
+  // The provider's floating pill hides itself while the call's conversation is the one on screen.
   useEffect(() => {
-    try {
-      localStorage.setItem('inbox.sound', soundOn ? 'on' : 'off');
-    } catch {
-      /* remembered for this session only */
-    }
-  }, [soundOn]);
+    callsRef.current.setOpenConversation(selectedId);
+  }, [selectedId]);
+  useEffect(() => () => callsRef.current.setOpenConversation(null), []);
+
+  // "Open the conversation" on the call pill, pressed while the inbox is already on screen.
+  const openRequest = calls.openRequest;
+  useEffect(() => {
+    if (!openRequest) return;
+    callsRef.current.requestOpen(null);
+    if (selectedRef.current === openRequest) return;
+    void api
+      .get<ConversationDto>(`/conversations/${openRequest}`)
+      .then((result) => openConversationRef.current(result.data))
+      .catch(() => toastRef.current.error('That conversation could not be opened.'));
+  }, [openRequest]);
 
   // The tab's title carries the unread count, so a glance at the tab bar says whether to come back.
   const unreadTotal = conversations.reduce((sum, c) => sum + (c.agentUnreadCount > 0 ? 1 : 0), 0);
@@ -971,9 +1001,9 @@ export default function InboxPage() {
         </span>
         <button
           type="button"
-          onClick={() => setSoundOn((on) => !on)}
+          onClick={() => setSoundOn(!soundOn)}
           aria-pressed={soundOn}
-          title={soundOn ? 'Sound on: a chime for every new visitor message. Click to mute.' : 'Sound off. Click to hear a chime for new visitor messages.'}
+          title={soundOn ? 'Sound on: a chime for new visitor messages and a ring for calls. Click to mute.' : 'Sound off. Click to hear new visitor messages and incoming calls.'}
           className="rounded-full px-2 py-0.5 text-[12px] text-ink-muted transition-colors hover:bg-surface-raised"
         >
           {soundOn ? '🔔 Sound on' : '🔕 Muted'}
@@ -1040,6 +1070,7 @@ export default function InboxPage() {
                 onlineVisitors={onlineVisitors}
                 visitorPages={visitorPages}
                 viewers={viewers}
+                calls={liveCalls}
                 onSelect={(conversation) => void openConversation(conversation)}
               />
               {cursor && (
@@ -1092,6 +1123,9 @@ export default function InboxPage() {
                   selectedRef.current = null;
                 }}
               />
+
+              {/* The call this conversation is on, if any: ringing, live with somebody, or the AI's. */}
+              {selectedCall && <CallBar call={selectedCall} />}
 
               {threadError && (
                 <Alert tone="danger" className="m-3">

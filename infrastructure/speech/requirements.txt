@@ -1,0 +1,22 @@
+# Runtime dependencies, pinned to the versions the service was tested with (Python 3.12).
+# torch comes from the PyTorch CPU index: the +cpu wheels exist only there, and the default
+# PyPI wheels would drag in several gigabytes of CUDA libraries this CPU-only service never uses.
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+fastapi==0.142.2
+uvicorn==0.53.0
+websockets==17.2
+pydantic==2.13.5
+python-multipart==0.0.32
+
+sherpa-onnx==1.13.8
+onnxruntime==1.29.0
+onnx==1.23.1
+numpy==2.5.3
+soundfile==0.14.0
+soxr==1.1.0
+psutil==7.2.2
+
+torch==2.14.1+cpu
+torchaudio==2.11.0+cpu
+speechbrain==1.1.1

@@ -62,3 +62,4 @@ export * from './billing/platform-billing.service.js';
 export * from './billing/owner.js';
 export * from './billing/reconcile.service.js';
 export * from './ai/index.js';
+export * from './voice/index.js';

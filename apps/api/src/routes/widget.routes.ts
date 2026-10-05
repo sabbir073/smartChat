@@ -2,8 +2,10 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { AppError, ErrorCode } from '@smartchat/types';
 import { z } from 'zod';
 import {
+  callParamSchema,
   confirmUploadSchema,
   signUploadSchema,
+  startCallSchema,
   widgetBootstrapSchema,
   widgetConfigQuerySchema,
   widgetFeedbackSchema,
@@ -143,7 +145,11 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
     const input = parseBody(widgetFeedbackSchema, request.body);
     const identity = await container.visitors.authenticate(token);
     const result = await container.aiFeedback.rate(
-      { accountId: identity.accountId, propertyId: identity.propertyId, visitorId: identity.visitorId },
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+      },
       id,
       input.rating,
     );
@@ -258,6 +264,72 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
   });
 
   /** Lets the panel confirm its stored token is still valid before it renders a chat. */
+  // --- voice calls -----------------------------------------------------------
+  /**
+   * The visitor presses Call.
+   *
+   * Returns the call as it stands and the key to the media room; the ringing, the answer and
+   * everything after arrive over the socket as `call:updated`. Rate limited on its own budget
+   * because one press rings the whole team.
+   */
+  app.post('/widget/calls', async (request, reply) => {
+    const token = bearer(request);
+    await app.rateLimit(request, 'callStart');
+    const input = parseBody(startCallSchema, request.body);
+    const identity = await container.visitors.authenticate(token);
+    const calls = requireCalls(container);
+    const result = await calls.start(
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        sessionId: identity.sessionId,
+        visitorName: identity.visitor.name,
+      },
+      input,
+    );
+    reply.header('cache-control', 'no-store');
+    return ok(reply, result);
+  });
+
+  /** The visitor's live call, if any - asked on load so a reload does not lose a call. */
+  app.get('/widget/calls/current', async (request, reply) => {
+    const identity = await container.visitors.authenticate(bearer(request));
+    reply.header('cache-control', 'no-store');
+    if (!container.calls) return ok(reply, null);
+    const live = await container.calls.liveForVisitor({
+      accountId: identity.accountId,
+      propertyId: identity.propertyId,
+      visitorId: identity.visitorId,
+      sessionId: identity.sessionId,
+      visitorName: identity.visitor.name,
+    });
+    return ok(reply, live);
+  });
+
+  app.get('/widget/calls/:id', async (request, reply) => {
+    const identity = await container.visitors.authenticate(bearer(request));
+    const { id } = parseParams(callParamSchema, request.params);
+    reply.header('cache-control', 'no-store');
+    return ok(reply, await requireCalls(container).forVisitor(visitorIdentity(identity), id));
+  });
+
+  /** The visitor is in the room. Either side reporting it is enough; both is fine. */
+  app.post('/widget/calls/:id/joined', async (request, reply) => {
+    const identity = await container.visitors.authenticate(bearer(request));
+    const { id } = parseParams(callParamSchema, request.params);
+    reply.header('cache-control', 'no-store');
+    return ok(reply, await requireCalls(container).visitorJoined(visitorIdentity(identity), id));
+  });
+
+  /** The visitor hangs up: while it rings, or mid-call. */
+  app.post('/widget/calls/:id/end', async (request, reply) => {
+    const identity = await container.visitors.authenticate(bearer(request));
+    const { id } = parseParams(callParamSchema, request.params);
+    reply.header('cache-control', 'no-store');
+    return ok(reply, await requireCalls(container).hangUp(visitorIdentity(identity), id));
+  });
+
   app.get('/widget/me', async (request, reply) => {
     const identity = await container.visitors.authenticate(bearer(request));
     reply.header('cache-control', 'no-store');
@@ -270,4 +342,27 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
       sessionId: identity.sessionId,
     });
   });
+}
+
+function requireCalls(container: Container) {
+  if (!container.calls) {
+    throw new AppError(ErrorCode.FEATURE_NOT_AVAILABLE, 'Calls are not available on this website.');
+  }
+  return container.calls;
+}
+
+function visitorIdentity(identity: {
+  accountId: string;
+  propertyId: string;
+  visitorId: string;
+  sessionId: string;
+  visitor: { name: string | null };
+}) {
+  return {
+    accountId: identity.accountId,
+    propertyId: identity.propertyId,
+    visitorId: identity.visitorId,
+    sessionId: identity.sessionId,
+    visitorName: identity.visitor.name,
+  };
 }

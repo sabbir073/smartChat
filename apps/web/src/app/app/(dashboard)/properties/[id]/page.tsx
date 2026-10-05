@@ -218,6 +218,11 @@ export default function PropertyDetailPage() {
                 AI agent
               </Button>
             </Link>
+            <Link href={`/app/properties/${id}/voice`}>
+              <Button size="sm" variant="secondary">
+                Voice calls
+              </Button>
+            </Link>
             <Link href={`/app/properties/${id}/widget`}>
               <Button size="sm">Customise widget</Button>
             </Link>

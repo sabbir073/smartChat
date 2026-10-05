@@ -5,6 +5,7 @@ import { Suspense, useEffect, useState, type FormEvent } from 'react';
 import { ApiError, api } from '@/lib/api-client';
 import { useAuth } from '@/lib/auth-context';
 import {
+  callMinutesLabel,
   formatDate,
   formatMoney,
   lockMessage,
@@ -44,6 +45,8 @@ interface PlanCard {
   integrations: boolean;
   removeBranding: boolean;
   aiOwnKey: boolean;
+  voice: boolean;
+  voiceMinutesPerMonth: number | null;
   isContactSales: boolean;
   sortOrder: number;
   purchasable: boolean;
@@ -301,6 +304,9 @@ function BillingPageInner() {
                 <dt className="text-[13px] text-ink-muted">Features</dt>
                 <dd className="mt-1 space-y-0.5 text-sm text-ink">
                   <Feature on={plan.aiAgent}>AI agent</Feature>
+                  <Feature on={plan.voice}>
+                    {plan.voice ? `Voice calls · ${callMinutesLabel(plan.voiceMinutesPerMonth)}` : 'Voice calls'}
+                  </Feature>
                   <Feature on={plan.integrations}>API keys &amp; webhooks</Feature>
                   <Feature on={plan.removeBranding}>Remove widget branding</Feature>
                   {plan.aiOwnKey && <Feature on>Your own AI provider key</Feature>}
@@ -414,6 +420,11 @@ function BillingPageInner() {
                   <li>{limit(entry.maxProperties, 'website')}</li>
                   <li>{limit(entry.maxMembers, 'team member')}</li>
                   <li className={cn(!entry.aiAgent && 'text-ink-subtle line-through')}>AI agent</li>
+                  <li className={cn(!entry.voice && 'text-ink-subtle line-through')}>
+                    {entry.voice && entry.voiceMinutesPerMonth !== null
+                      ? `Voice calls · ${callMinutesLabel(entry.voiceMinutesPerMonth)}`
+                      : 'Voice calls'}
+                  </li>
                   <li className={cn(!entry.integrations && 'text-ink-subtle line-through')}>
                     API keys &amp; webhooks
                   </li>

@@ -44,6 +44,8 @@ export interface MessageDto {
    * message carries the ticket offer. Whitelisted out of the metadata bag like `event`.
    */
   ai?: AiMessageInfo;
+  /** Present when the message is something that was said on a call, transcribed. */
+  voice?: { callId: string };
 }
 
 export interface AiMessageInfo {
@@ -102,12 +104,37 @@ export interface MessageAttachment {
 
 /** What a system message records. `body` is the human-readable fallback for exports. */
 export interface SystemMessageEvent {
-  kind: 'conversation.closed' | 'conversation.reopened';
-  /** Who did it. `visitor` is the person in the widget; `agent` is a member of the account. */
-  by: 'visitor' | 'agent';
+  kind:
+    | 'conversation.closed'
+    | 'conversation.reopened'
+    | 'call.started'
+    | 'call.answered'
+    | 'call.transferred'
+    | 'call.missed'
+    | 'call.ended';
+  /**
+   * Who did it. `visitor` is the person in the widget; `agent` is a member of the account; `ai`
+   * is the assistant; `system` is a timer or the server itself.
+   */
+  by: 'visitor' | 'agent' | 'ai' | 'system';
   /** The agent's display name when an agent did it, so the transcript reads naturally. */
   actorName?: string;
+  /** For call events: which call, how long it lasted, who it went to. */
+  callId?: string;
+  durationSeconds?: number;
+  targetName?: string;
 }
+
+const SYSTEM_KINDS: ReadonlySet<string> = new Set([
+  'conversation.closed',
+  'conversation.reopened',
+  'call.started',
+  'call.answered',
+  'call.transferred',
+  'call.missed',
+  'call.ended',
+]);
+const SYSTEM_ACTORS: ReadonlySet<string> = new Set(['visitor', 'agent', 'ai', 'system']);
 
 /** Narrow a stored metadata bag to the system-message shape, or nothing if it is not one. */
 function readSystemEvent(message: MessageMaybeWithSender): SystemMessageEvent | undefined {
@@ -115,13 +142,21 @@ function readSystemEvent(message: MessageMaybeWithSender): SystemMessageEvent | 
   const raw = message.metadata as Record<string, unknown> | null;
   const kind = raw?.['kind'];
   const by = raw?.['by'];
-  if (kind !== 'conversation.closed' && kind !== 'conversation.reopened') return undefined;
-  if (by !== 'visitor' && by !== 'agent') return undefined;
+  if (typeof kind !== 'string' || !SYSTEM_KINDS.has(kind)) return undefined;
+  if (typeof by !== 'string' || !SYSTEM_ACTORS.has(by)) return undefined;
   const actorName = raw?.['actorName'];
+  const callId = raw?.['callId'];
+  const durationSeconds = raw?.['durationSeconds'];
+  const targetName = raw?.['targetName'];
   return {
-    kind,
-    by,
+    kind: kind as SystemMessageEvent['kind'],
+    by: by as SystemMessageEvent['by'],
     ...(typeof actorName === 'string' && actorName.length > 0 ? { actorName } : {}),
+    ...(typeof callId === 'string' && callId.length > 0 ? { callId } : {}),
+    ...(typeof durationSeconds === 'number' && Number.isFinite(durationSeconds)
+      ? { durationSeconds }
+      : {}),
+    ...(typeof targetName === 'string' && targetName.length > 0 ? { targetName } : {}),
   };
 }
 
@@ -171,6 +206,11 @@ export function toMessageDto(
       const ai = readAiInfo(message);
       return ai ? { ai } : {};
     })(),
+    ...(() => {
+      const callId = (message.metadata as Record<string, unknown> | null)?.['callId'];
+      const spoken = (message.metadata as Record<string, unknown> | null)?.['voice'] === true;
+      return spoken && typeof callId === 'string' ? { voice: { callId } } : {};
+    })(),
   };
 }
 
@@ -185,6 +225,14 @@ export interface DomainEvent {
    * metadata) and is delivered to agent rooms only.
    */
   agentsOnly?: boolean;
+  /**
+   * Addressed delivery, for the few events that are a key rather than news: a grant to join a
+   * call's media room. `toMemberId` reaches that member's own sockets and nobody else;
+   * `toVisitor` reaches the visitor named by `visitorId` and nobody else. Either one replaces
+   * the room fan-out entirely.
+   */
+  toMemberId?: string;
+  toVisitor?: boolean;
   payload: Record<string, unknown>;
   /** Correlates the event back to the request that produced it. */
   requestId?: string;

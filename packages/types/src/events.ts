@@ -53,6 +53,13 @@ export const ServerEvent = {
    * visitor is told one boolean and never which people are online.
    */
   AGENTS_AVAILABLE: 'presence:agents_available',
+  /**
+   * A call changed: it started ringing, was answered, is being transferred, ended. The payload
+   * is the whole CallDto, so a screen that missed one event is still right after the next.
+   * Sent to the conversation (the visitor's widget and the open thread) and to the property's
+   * agents (the inbox list and the ringing card).
+   */
+  CALL_UPDATED: 'call:updated',
 } as const;
 export type ServerEvent = (typeof ServerEvent)[keyof typeof ServerEvent];
 
@@ -87,6 +94,10 @@ export const presenceKey = {
   viewer: (accountId: string, socketId: string) => `presence:viewer:${accountId}:${socketId}`,
   viewerSet: (accountId: string) => `presence:viewers:${accountId}`,
   ticket: (ticketId: string) => `rt:ticket:${ticketId}`,
+  /** Set once by whoever answers a ringing call first; everybody else was too late. */
+  callClaim: (callId: string, ringSeq: number) => `call:claim:${callId}:${ringSeq}`,
+  /** How many calls the AI is on right now, server-wide. The cap protects the CPU. */
+  aiCalls: () => 'voice:ai_calls',
 } as const;
 
 export const PRESENCE_TTL_SECONDS = 45;

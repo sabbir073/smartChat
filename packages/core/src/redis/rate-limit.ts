@@ -137,6 +137,11 @@ export const RATE_LIMITS = {
   // An offline message writes a conversation and sends mail later. Five an hour per IP is more
   // than any real person needs and far less than a script wants.
   offlineMessage: { limit: 5, windowMs: 60 * 60_000 },
+  // Starting a call rings the whole team. Ten an hour per IP is a generous visitor and a poor
+  // prank.
+  callStart: { limit: 10, windowMs: 60 * 60_000 },
+  // The media server's webhook, per IP: a few events per participant per call.
+  mediaWebhook: { limit: 600, windowMs: 60_000 },
   visitorUpload: { limit: 10, windowMs: 60 * 60_000 },
   dashboardApi: { limit: 600, windowMs: 60_000 },
   /**

@@ -120,6 +120,23 @@ all day: *are you on this one?*
 - Nothing is published while the assistant is handling a conversation on its own, because the AI
   does not hold a socket — an empty list is exactly right.
 
+## 5c. Calls
+
+A call is announced the way a conversation is: the whole state, every time it changes.
+
+- `call:updated` carries `{ call: CallDto }` and goes to the website's agents (`prop:<propertyId>`,
+  agents only) and to the visitor's own room (`visitor:<visitorId>`). There is no partial update
+  to merge; a screen that missed an event is right again on the next one.
+- The visitor is delivered to by their *visitor* room rather than the conversation room, and the
+  gateway joins their sockets to the conversation room when it does so. A call can open a
+  conversation before a word is typed, and the transcript of an AI call must still reach the
+  widget live.
+- Nothing about a call travels over the socket from the client. Starting, answering, declining,
+  transferring and ending are HTTP calls (API.md), each a single transition on the call's state
+  machine; the socket is how everybody else learns about it.
+- The key to the media room is never broadcast. It is returned to the one party that asked for it,
+  in the HTTP response, and it opens one room for one identity for a few minutes.
+
 ## 6. Reconnect and resync
 
 On reconnect the client sends `sync:since { conversationId, lastSeq }`. The server replays every

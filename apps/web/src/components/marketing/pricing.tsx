@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { cn } from '@/components/ui';
-import { formatMoney } from '@/lib/billing';
+import { callMinutesLabel, formatMoney } from '@/lib/billing';
 
 /**
  * The plans, as the public site shows them.
@@ -28,6 +28,9 @@ export interface PublicPlan {
   integrations: boolean;
   removeBranding: boolean;
   aiOwnKey: boolean;
+  /** Voice calls from the widget, and the month's call minutes (null: no limit). */
+  voice: boolean;
+  voiceMinutesPerMonth: number | null;
   isContactSales: boolean;
   sortOrder: number;
 }
@@ -164,6 +167,11 @@ export function PricingTable({
                 <Line on>{limit(plan.maxMembers, 'team member', 'team members')}</Line>
                 <Line on>Unlimited conversations</Line>
                 <Line on={plan.aiAgent}>AI agent</Line>
+                <Line on={plan.voice}>
+                  {plan.voice && plan.voiceMinutesPerMonth !== null
+                    ? `Voice calls · ${callMinutesLabel(plan.voiceMinutesPerMonth)}`
+                    : 'Voice calls'}
+                </Line>
                 <Line on={plan.integrations}>API keys &amp; webhooks</Line>
                 <Line on={plan.removeBranding}>Remove widget branding</Line>
                 {plan.aiOwnKey && <Line on>Your own AI provider key</Line>}

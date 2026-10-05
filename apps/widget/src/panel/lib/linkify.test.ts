@@ -11,13 +11,17 @@ describe('splitLinks', () => {
   });
 
   it('leaves plain text, bare domains and other schemes alone', () => {
-    expect(splitLinks('Go to acme.example or javascript:alert(1)')).toEqual([{ kind: 'text', text: 'Go to acme.example or javascript:alert(1)' }]);
+    expect(splitLinks('Go to acme.example or javascript:alert(1)')).toEqual([
+      { kind: 'text', text: 'Go to acme.example or javascript:alert(1)' },
+    ]);
     expect(splitLinks('')).toEqual([]);
   });
 
   it('handles several links and a link at the end', () => {
     const parts = splitLinks('A https://a.example/x and https://b.example/y');
-    expect(parts.filter((p) => p.kind === 'link').map((p) => (p as { href: string }).href)).toEqual(['https://a.example/x', 'https://b.example/y']);
+    expect(parts.filter((p) => p.kind === 'link').map((p) => (p as { href: string }).href)).toEqual(
+      ['https://a.example/x', 'https://b.example/y'],
+    );
     expect(parts.at(-1)).toEqual({ kind: 'link', href: 'https://b.example/y' });
   });
 });

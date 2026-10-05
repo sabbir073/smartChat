@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { livekitPublicUrl } from './lib/runtime-config';
 
 const SESSION_COOKIE = 'sc_session';
 
@@ -58,6 +59,25 @@ function socketOrigins(value: string | undefined): string[] {
   }
 }
 
+/**
+ * The media server, which browsers are given as `wss://` but which its client also reaches over
+ * HTTPS on the same host (it validates a refused connection with a plain request). Both spellings
+ * are allowed whichever one the environment spelled.
+ */
+export function mediaOrigins(value: string | undefined): string[] {
+  if (!value) return [];
+  try {
+    const url = new URL(value);
+    const secure = url.protocol === 'wss:' || url.protocol === 'https:';
+    return [
+      `${secure ? 'wss:' : 'ws:'}//${url.host}`,
+      `${secure ? 'https:' : 'http:'}//${url.host}`,
+    ];
+  } catch {
+    return [];
+  }
+}
+
 export function contentSecurityPolicy(nonce: string): string {
   const api = httpOrigin(process.env['API_URL']);
   const widget = httpOrigin(process.env['WIDGET_URL']);
@@ -68,6 +88,9 @@ export function contentSecurityPolicy(nonce: string): string {
   const connect = new Set(["'self'", ...socketOrigins(process.env['REALTIME_URL'])]);
   if (api) connect.add(api);
   if (storage) connect.add(storage);
+  // A call's audio goes browser-to-media-server directly; the join grant carries the URL, but the
+  // policy has to have allowed the host before the grant is ever used.
+  for (const origin of mediaOrigins(livekitPublicUrl())) connect.add(origin);
 
   const image = new Set(["'self'", 'data:', 'blob:']);
   if (storage) image.add(storage);

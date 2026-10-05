@@ -641,6 +641,203 @@ button:disabled {
   opacity: 1;
 }
 
+/* ---- voice calls -------------------------------------------------------------- */
+
+/* The Call button sits with the other header controls and borrows their colour. */
+.header-call {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  opacity: 0.9;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.header-call:hover {
+  background: rgba(255, 255, 255, 0.16);
+  opacity: 1;
+}
+
+/*
+ * The call bar: a strip under the header while a call is anything but idle.
+ *
+ * Tinted from the header colour rather than the primary one, so it reads as part of the frame
+ * around the conversation and not as a message in it. The chat underneath is untouched.
+ */
+.call-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  min-height: 44px;
+  /* The plain surface first, for a browser without color-mix(); the tint for the rest. */
+  background: var(--sc-surface-alt);
+  background: color-mix(in srgb, var(--sc-header) 10%, var(--sc-surface));
+  color: var(--sc-ink);
+  border-bottom: 1px solid var(--sc-border);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.call-bar[data-tone='lost'] {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.call-bar[data-tone='over'] {
+  background: var(--sc-surface-alt);
+  color: var(--sc-ink-muted);
+}
+
+:root[data-theme='dark'] .call-bar[data-tone='lost'] {
+  background: #3b1d1d;
+  color: #fca5a5;
+}
+
+.call-bar-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--sc-header);
+  color: var(--sc-header-text);
+  flex-shrink: 0;
+}
+
+.call-bar[data-tone='over'] .call-bar-icon {
+  background: var(--sc-ink-subtle);
+  color: #fff;
+}
+
+.call-bar[data-tone='lost'] .call-bar-icon {
+  background: #e5484d;
+  color: #fff;
+}
+
+/* A gentle pulse while the team is being rung - the visual half of the ringback. */
+.call-bar-icon[data-ringing] {
+  animation: sc-ring 1.5s ease-in-out infinite;
+}
+
+@keyframes sc-ring {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--sc-header) 45%, transparent);
+  }
+  60% {
+    box-shadow: 0 0 0 7px color-mix(in srgb, var(--sc-header) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .call-bar-icon[data-ringing] {
+    animation: none;
+  }
+}
+
+.call-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+
+.call-bar-status {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The final line can be a sentence; let it wrap rather than cutting it short. */
+.call-bar[data-tone='over'] .call-bar-status {
+  white-space: normal;
+  font-weight: 500;
+}
+
+.call-bar-clock {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--sc-ink-muted);
+}
+
+.call-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.call-bar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--sc-border);
+  border-radius: 50%;
+  background: var(--sc-surface);
+  color: var(--sc-ink);
+  cursor: pointer;
+}
+
+.call-bar-button:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.call-bar-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Muted is a state the visitor must be able to see at a glance, not only on hover. */
+.call-bar-button[aria-pressed='true'] {
+  background: var(--sc-ink);
+  color: var(--sc-surface);
+  border-color: var(--sc-ink);
+}
+
+.call-bar-hangup {
+  background: #e5484d;
+  color: #fff;
+  border-color: #e5484d;
+}
+
+.call-bar-hangup:hover:not(:disabled) {
+  background: #d23c41;
+  border-color: #d23c41;
+  filter: none;
+}
+
+/* iOS will not play the other side until the visitor taps: this is the tap. */
+.call-bar-unblock {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--sc-primary);
+  background: var(--sc-primary);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* A line said on a call: the glyph sits before the words, in the bubble's own colour. */
+.spoken-glyph {
+  display: inline-block;
+  vertical-align: -1px;
+  margin-right: 5px;
+  opacity: 0.7;
+}
+
 /* A status change in the transcript: a rule across the width with the text set into it. */
 .system-row {
   display: flex;

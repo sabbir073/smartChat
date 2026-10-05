@@ -192,7 +192,8 @@ export class ConversationService {
      */
     // A conversation the widget opened with its greeting is still waiting for the visitor's first
     // words; their pre-chat answers belong to it just as they would to a new one.
-    const firstWords = !reusable || (reusable.greetingAt !== null && reusable.lastVisitorMessageAt === null);
+    const firstWords =
+      !reusable || (reusable.greetingAt !== null && reusable.lastVisitorMessageAt === null);
     const preChat =
       input.preChat && firstWords ? await this.sanitisePreChat(identity, input.preChat) : null;
 
@@ -209,7 +210,10 @@ export class ConversationService {
         now,
       ));
     if (reusable && preChat && Object.keys(preChat).length > 0) {
-      await this.options.db.conversation.update({ where: { id: reusable.id }, data: { preChatData: toJson(preChat) } });
+      await this.options.db.conversation.update({
+        where: { id: reusable.id },
+        data: { preChatData: toJson(preChat) },
+      });
     }
 
     // Answers that identify the person are traits about them, so they are attached to the visitor
@@ -252,6 +256,74 @@ export class ConversationService {
   }
 
   /**
+   * The conversation a call belongs to: the one the visitor has open, or a new one.
+   *
+   * A call is a chat head, so it needs a conversation to hang from even when the visitor has not
+   * typed a word. A live conversation is reused exactly as `startOrContinue` would reuse it; a
+   * new one is opened with the pre-chat answers the widget collected first, and announced to the
+   * inbox so the row exists before it starts ringing. No message is written here - the call's
+   * own system message does that.
+   */
+  async ensureForVisitor(
+    identity: VisitorIdentity,
+    preChatInput?: Record<string, string>,
+  ): Promise<{ conversation: Conversation; isNew: boolean }> {
+    const now = this.clock.now();
+    const existing = await this.repo.findLatestForVisitor(identity.accountId, identity.visitorId);
+    const reusable = existing && existing.status !== 'closed' ? existing : null;
+
+    const firstWords =
+      !reusable || (reusable.greetingAt !== null && reusable.lastVisitorMessageAt === null);
+    const preChat =
+      preChatInput && firstWords ? await this.sanitisePreChat(identity, preChatInput) : null;
+
+    const conversation =
+      reusable ??
+      (await this.repo.create(
+        {
+          accountId: identity.accountId,
+          propertyId: identity.propertyId,
+          visitorId: identity.visitorId,
+          channel: 'widget',
+          ...(preChat && Object.keys(preChat).length > 0 ? { preChat } : {}),
+        },
+        now,
+      ));
+    if (reusable && preChat && Object.keys(preChat).length > 0) {
+      await this.options.db.conversation.update({
+        where: { id: reusable.id },
+        data: { preChatData: toJson(preChat) },
+      });
+    }
+    if (preChat) {
+      const traits = traitsFromForm(preChat);
+      if (Object.keys(traits).length > 0) {
+        await this.visitors.identify(identity.accountId, identity.visitorId, traits);
+      }
+    }
+
+    if (!reusable) {
+      await this.options.events.publish({
+        type: ServerEvent.CONVERSATION_CREATED,
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        conversationId: conversation.id,
+        visitorId: identity.visitorId,
+        payload: { conversationId: conversation.id },
+      });
+      await this.emitWebhook(identity.accountId, WebhookEvent.CONVERSATION_STARTED, {
+        conversationId: conversation.id,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        channel: conversation.channel,
+        firstMessage: '',
+        startedAt: conversation.startedAt.toISOString(),
+      });
+    }
+    return { conversation, isNew: !reusable };
+  }
+
+  /**
    * The widget's own greeting.
    *
    * Opens a conversation before the visitor has said anything and puts the configured greeting
@@ -263,9 +335,14 @@ export class ConversationService {
    * Once a day per visitor, and never while they already have a conversation open: a returning
    * visitor picks up where they were. Returns null when there is nothing to do.
    */
-  async greet(identity: VisitorIdentity): Promise<{ conversation: Conversation; message: MessageDto } | null> {
+  async greet(
+    identity: VisitorIdentity,
+  ): Promise<{ conversation: Conversation; message: MessageDto } | null> {
     const now = this.clock.now();
-    const config = await this.widgets.liveConfigForProperty(identity.accountId, identity.propertyId);
+    const config = await this.widgets.liveConfigForProperty(
+      identity.accountId,
+      identity.propertyId,
+    );
     if (!config || !config.behaviour.proactiveEnabled) return null;
 
     const existing = await this.repo.findLatestForVisitor(identity.accountId, identity.visitorId);
@@ -275,20 +352,37 @@ export class ConversationService {
       select: { greetedAt: true, isBanned: true },
     });
     if (!visitor || visitor.isBanned) return null;
-    if (visitor.greetedAt && now.getTime() - visitor.greetedAt.getTime() < GREETING_INTERVAL_MS) return null;
+    if (visitor.greetedAt && now.getTime() - visitor.greetedAt.getTime() < GREETING_INTERVAL_MS)
+      return null;
 
     const assistant = await this.options.db.aiSetting.findUnique({
-      where: { accountId_propertyId: { accountId: identity.accountId, propertyId: identity.propertyId } },
+      where: {
+        accountId_propertyId: { accountId: identity.accountId, propertyId: identity.propertyId },
+      },
       select: { assistantName: true, mode: true },
     });
-    const senderName = assistant && assistant.mode !== 'team' ? assistant.assistantName : config.content.agentDisplayName;
+    const senderName =
+      assistant && assistant.mode !== 'team'
+        ? assistant.assistantName
+        : config.content.agentDisplayName;
 
     const conversation = await this.repo.create(
-      { accountId: identity.accountId, propertyId: identity.propertyId, visitorId: identity.visitorId, channel: 'widget' },
+      {
+        accountId: identity.accountId,
+        propertyId: identity.propertyId,
+        visitorId: identity.visitorId,
+        channel: 'widget',
+      },
       now,
     );
-    await this.options.db.conversation.update({ where: { id: conversation.id }, data: { greetingAt: now } });
-    await this.options.db.visitor.update({ where: { id: identity.visitorId }, data: { greetedAt: now } });
+    await this.options.db.conversation.update({
+      where: { id: conversation.id },
+      data: { greetingAt: now },
+    });
+    await this.options.db.visitor.update({
+      where: { id: identity.visitorId },
+      data: { greetedAt: now },
+    });
 
     const persisted = await this.repo.insertMessage({
       accountId: identity.accountId,
@@ -533,7 +627,13 @@ export class ConversationService {
     // In a continued chat the assistant closes the loop in the transcript, so the visitor sees
     // the ticket number where they asked for it and the inbox sees what happened.
     if (continued) {
-      await this.confirmTicketInChat(identity, conversation.id, ticketNumber, traits.email ?? null, now);
+      await this.confirmTicketInChat(
+        identity,
+        conversation.id,
+        ticketNumber,
+        traits.email ?? null,
+        now,
+      );
     }
 
     return {
@@ -754,7 +854,9 @@ export class ConversationService {
     now: Date,
   ): Promise<void> {
     const settings = await this.options.db.aiSetting.findUnique({
-      where: { accountId_propertyId: { accountId: identity.accountId, propertyId: identity.propertyId } },
+      where: {
+        accountId_propertyId: { accountId: identity.accountId, propertyId: identity.propertyId },
+      },
       select: { assistantName: true },
     });
     const senderName = settings?.assistantName ?? 'AI assistant';
@@ -780,7 +882,10 @@ export class ConversationService {
       propertyId: identity.propertyId,
       conversationId,
       visitorId: identity.visitorId,
-      payload: { message: toMessageDto(persisted.message, senderName), room: room.conversation(conversationId) },
+      payload: {
+        message: toMessageDto(persisted.message, senderName),
+        room: room.conversation(conversationId),
+      },
     });
   }
 

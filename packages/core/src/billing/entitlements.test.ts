@@ -16,6 +16,8 @@ function plan(overrides: Partial<Record<string, unknown>> = {}) {
     integrations: false,
     removeBranding: false,
     aiOwnKey: false,
+    voice: false,
+    voiceMinutesPerMonth: null,
     isContactSales: false,
     ...overrides,
   };

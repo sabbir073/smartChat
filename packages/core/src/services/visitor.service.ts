@@ -67,6 +67,8 @@ export interface BootstrapResult {
   widget: { version: number; config: WidgetConfig };
   /** Drives the widget's online/offline copy before the socket has connected. */
   agentsAvailable: boolean;
+  /** Whether the panel shows a Call button: the website has calling on and the plan includes it. */
+  voice: { enabled: boolean };
   /**
    * The largest file this deployment accepts.
    *
@@ -114,6 +116,8 @@ export interface VisitorServiceOptions {
    * which is the safe default for a deployment that has not wired billing.
    */
   canRemoveBranding?: (accountId: string) => Promise<boolean>;
+  /** Whether visitors of this website may call. Absent means never. */
+  canCall?: (accountId: string, propertyId: string) => Promise<boolean>;
   maxUploadBytes?: number;
   clock?: Clock;
 }
@@ -263,7 +267,7 @@ export class VisitorService {
       this.options.visitorTokenSecret,
     );
 
-    const [agentsAvailable, removeBranding, presenter] = await Promise.all([
+    const [agentsAvailable, removeBranding, presenter, canCall] = await Promise.all([
       this.options.isAgentAvailable
         ? this.options.isAgentAvailable(property.accountId).catch(() => false)
         : false,
@@ -271,6 +275,9 @@ export class VisitorService {
         ? this.options.canRemoveBranding(property.accountId).catch(() => false)
         : false,
       this.presenterFor(property.accountId, visitor.id),
+      this.options.canCall
+        ? this.options.canCall(property.accountId, property.propertyId).catch(() => false)
+        : false,
     ]);
 
     return {
@@ -278,6 +285,7 @@ export class VisitorService {
       expiresInSeconds: VISITOR_TOKEN_TTL_SECONDS,
       agentsAvailable,
       showBranding: !removeBranding,
+      voice: { enabled: canCall },
       presenter,
       visitor: {
         id: visitor.id,
@@ -293,7 +301,10 @@ export class VisitorService {
   }
 
   /** The presenter for the visitor's latest conversation, or the owner when there is none. */
-  private async presenterFor(accountId: string, visitorId: string): Promise<{ name: string; avatarUrl: string | null } | null> {
+  private async presenterFor(
+    accountId: string,
+    visitorId: string,
+  ): Promise<{ name: string; avatarUrl: string | null } | null> {
     const latest = await this.options.db.conversation.findFirst({
       where: { accountId, visitorId, deletedAt: null },
       orderBy: { lastMessageAt: 'desc' },

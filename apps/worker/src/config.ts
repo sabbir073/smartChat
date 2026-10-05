@@ -8,6 +8,7 @@ import {
   secretsEnvSchema,
   storageEnvSchema,
   urlsEnvSchema,
+  voiceEnvSchema,
 } from '@smartchat/config';
 import { z } from 'zod';
 
@@ -23,6 +24,7 @@ const workerEnvSchema = baseEnvSchema
   // The AI reply job runs here: it needs the local model's address and, to open the fallback
   // provider's key from the console settings, the same encryption key as the API.
   .merge(aiEnvSchema)
+  .merge(voiceEnvSchema)
   .merge(secretsEnvSchema)
   .merge(
     z.object({

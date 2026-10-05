@@ -140,6 +140,24 @@ scrolled away, and the window stops following precisely when there is most to re
 `ResizeObserver` covers heights that change without a new message - a picture finishing loading,
 a bubble rewrapping. The dashboard's transcript uses the same hook, for the same reason.
 
+## 5e. Calling
+
+The Call button appears when the website has calling on and the plan includes it (`voice.enabled`
+in the bootstrap). Before the first call the same pre-chat form the chat shows is shown, with the
+same required fields; the answers travel with the call. The panel iframe is created with
+`allow="microphone"` by the loader, which is what lets a cross-origin iframe ask for the
+microphone at all; the permission prompt names our widget origin, not the customer's site.
+
+The media library (`livekit-client`) is loaded only when Call is pressed, as its own chunk under
+the panel's path, so the panel's first load is unchanged. During a call the chat keeps working:
+the bar at the top shows who is on the line and a timer, and the composer and the transcript are
+untouched. Lines spoken on an AI call appear in the transcript with a small microphone mark; the
+call's milestones (started, answered, transferred, ended, missed) are system messages.
+
+A denied microphone, a lost connection, a missed call and an exhausted plan each have one plain
+sentence in the bar. On iOS, audio that the browser refuses to start without a tap gets a
+"Tap to hear" button.
+
 ## 6. Domain security
 
 Each property holds an allowed-domain list. The API validates the `Origin` header of every widget

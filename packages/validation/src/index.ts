@@ -14,3 +14,4 @@ export * from './ticket.js';
 export * from './visitor.js';
 export * from './widget.js';
 export * from './ai.js';
+export * from './voice.js';

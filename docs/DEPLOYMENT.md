@@ -50,6 +50,12 @@ internet ──► nginx (TLS termination, Let's Encrypt)
 Infrastructure ports are not published to the host in the production overlay; only the proxy is
 exposed. Postgres, Redis and MinIO are reachable on the internal Docker network only.
 
+With voice calls deployed (VOICE.md), the media server also publishes its own media ports -
+7881/tcp, 7882/udp and 3478/udp - and the proxy gains two names, `lk.` for signalling and
+`turn.` for the TURN relay over TLS on 443. Port 443 is then answered by a `stream` front
+(`infrastructure/nginx/stream.conf`) that hands connections to the HTTPS servers or to TURN by the
+name the client asked for.
+
 ## 3. Release procedure
 
 1. CI is green on `master` (format, lint, typecheck, unit tests, build, docker build, migrations

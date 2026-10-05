@@ -16,5 +16,8 @@ export interface DomainEventLike {
   conversationId?: string;
   visitorId?: string;
   agentsOnly?: boolean;
+  /** Addressed delivery: one member's sockets, or one visitor's. See core's DomainEvent. */
+  toMemberId?: string;
+  toVisitor?: boolean;
   payload: Record<string, unknown>;
 }

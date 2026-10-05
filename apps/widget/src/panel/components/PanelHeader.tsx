@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PhoneIcon } from './CallBar.js';
 
 export function PanelHeader({
   title,
@@ -8,6 +9,8 @@ export function PanelHeader({
   avatarName,
   canEnd,
   onEnd,
+  canCall,
+  onCall,
   onMinimise,
 }: {
   title: string;
@@ -19,6 +22,9 @@ export function PanelHeader({
   /** Only offered while there is a live chat to end. */
   canEnd: boolean;
   onEnd: () => void;
+  /** Only offered when the website takes calls, and never while one is on. */
+  canCall: boolean;
+  onCall: () => void;
   onMinimise: () => void;
 }) {
   const initials = (avatarName ?? title)
@@ -59,6 +65,18 @@ export function PanelHeader({
       {canEnd && (
         <button type="button" className="header-end" onClick={onEnd}>
           End chat
+        </button>
+      )}
+
+      {canCall && (
+        <button
+          type="button"
+          className="header-call"
+          onClick={onCall}
+          aria-label="Call us"
+          title="Call us"
+        >
+          <PhoneIcon />
         </button>
       )}
 

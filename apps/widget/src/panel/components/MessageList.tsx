@@ -1,5 +1,7 @@
 import type { PanelMessage } from '../lib/types.js';
 import { AttachmentBubble, UploadingBubble } from './Attachment.js';
+import { SpokenGlyph } from './CallBar.js';
+import { describeDuration } from '../lib/call-state.js';
 import { splitLinks } from '../lib/linkify.js';
 import { useStickToBottom } from '../lib/stick-to-bottom.js';
 
@@ -10,14 +12,34 @@ import { useStickToBottom } from '../lib/stick-to-bottom.js';
  * "you", and an agent is named or called by the business's own label. `body` is the server's
  * English fallback and is used only if a future event kind reaches an older panel.
  */
-function systemText(message: PanelMessage): string {
+export function systemText(message: Pick<PanelMessage, 'body' | 'event'>): string {
   const event = message.event;
   if (!event) return message.body;
 
-  const actor = event.by === 'visitor' ? 'You' : (event.actorName ?? 'The support team');
-  return event.kind === 'conversation.closed'
-    ? `${actor} ended this chat`
-    : `${actor} reopened this chat`;
+  const actor =
+    event.by === 'visitor'
+      ? 'You'
+      : (event.actorName ?? (event.by === 'ai' ? 'The assistant' : 'The support team'));
+  switch (event.kind) {
+    case 'conversation.closed':
+      return `${actor} ended this chat`;
+    case 'conversation.reopened':
+      return `${actor} reopened this chat`;
+    case 'call.started':
+      return `${actor} started a call`;
+    case 'call.answered':
+      return `${actor} answered the call`;
+    case 'call.transferred':
+      return `Call transferred to ${event.targetName ?? 'a colleague'}`;
+    case 'call.missed':
+      return 'Missed call';
+    case 'call.ended':
+      return typeof event.durationSeconds === 'number'
+        ? `Call ended · ${describeDuration(event.durationSeconds)}`
+        : 'Call ended';
+    default:
+      return message.body;
+  }
 }
 
 function timeOf(iso: string): string {
@@ -61,7 +83,13 @@ export function MessageList({
   );
 
   return (
-    <div className="body" ref={containerRef} role="log" aria-live="polite" aria-label="Conversation">
+    <div
+      className="body"
+      ref={containerRef}
+      role="log"
+      aria-live="polite"
+      aria-label="Conversation"
+    >
       {welcome && <div className="bubble bubble-agent">{welcome}</div>}
 
       {messages.map((message) => {
@@ -82,9 +110,18 @@ export function MessageList({
         const sources = fromAi ? (message.ai?.sources ?? []).filter((s) => s.url) : [];
         const isLast = message === messages[messages.length - 1];
         const showOffer =
-          fromAi && message.ai?.offer === 'ticket' && isLast && offer !== undefined && !offer.dismissed;
+          fromAi &&
+          message.ai?.offer === 'ticket' &&
+          isLast &&
+          offer !== undefined &&
+          !offer.dismissed;
         // Only what the assistant said in its own words is rated; the offer is the owner's sentence.
-        const canRate = fromAi && !message.ai?.offer && !message.ai?.kind && onRate !== undefined && message.delivery !== 'pending';
+        const canRate =
+          fromAi &&
+          !message.ai?.offer &&
+          !message.ai?.kind &&
+          onRate !== undefined &&
+          message.delivery !== 'pending';
         const rating = message.ai?.rating;
         return (
           <div
@@ -111,7 +148,12 @@ export function MessageList({
                   resolveUrl={resolveAttachmentUrl}
                 />
               ) : (
-                <MessageBody body={message.body} />
+                <>
+                  {/* Said on a call, not typed: the glyph is how a transcript line tells itself
+                      apart from a message, for both sides of the conversation. */}
+                  {message.voice && <SpokenGlyph />}
+                  <MessageBody body={message.body} />
+                </>
               )}
             </div>
             <div className="message-meta">
@@ -140,7 +182,17 @@ export function MessageList({
                     title="Helpful"
                     onClick={() => onRate(message.id, rating === 'up' ? null : 'up')}
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
                       <path d="M7 10v12" />
                       <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z" />
                     </svg>
@@ -153,7 +205,17 @@ export function MessageList({
                     title="Not helpful"
                     onClick={() => onRate(message.id, rating === 'down' ? null : 'down')}
                   >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
                       <path d="M17 14V2" />
                       <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z" />
                     </svg>
@@ -176,7 +238,11 @@ export function MessageList({
             )}
             {showOffer && (
               <div className="ai-offer" role="group" aria-label="Open a support ticket?">
-                <button type="button" className="ai-offer-button primary" onClick={offer.onCreateTicket}>
+                <button
+                  type="button"
+                  className="ai-offer-button primary"
+                  onClick={offer.onCreateTicket}
+                >
                   Create a ticket
                 </button>
                 <button type="button" className="ai-offer-button" onClick={offer.onDismiss}>
@@ -189,7 +255,10 @@ export function MessageList({
       })}
 
       {agentTyping && (
-        <div className="bubble bubble-agent typing" aria-label={`${typingName ?? 'Agent'} is typing`}>
+        <div
+          className="bubble bubble-agent typing"
+          aria-label={`${typingName ?? 'Agent'} is typing`}
+        >
           <span />
           <span />
           <span />
@@ -199,7 +268,15 @@ export function MessageList({
       {hasNew && (
         <button type="button" className="jump-latest" onClick={jumpToLatest}>
           New messages
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            width="13"
+            height="13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            aria-hidden="true"
+          >
             <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </button>
@@ -216,7 +293,13 @@ function MessageBody({ body }: { body: string }) {
     <>
       {parts.map((part, i) =>
         part.kind === 'link' ? (
-          <a key={i} href={part.href} target="_blank" rel="noopener noreferrer" className="bubble-link">
+          <a
+            key={i}
+            href={part.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bubble-link"
+          >
             {part.href}
           </a>
         ) : (

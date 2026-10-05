@@ -4,3 +4,4 @@ export * from './events.js';
 export * from './pagination.js';
 export * from './permissions.js';
 export * from './tenancy.js';
+export * from './voice.js';

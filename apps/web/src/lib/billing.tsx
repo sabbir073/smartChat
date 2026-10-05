@@ -33,6 +33,9 @@ export interface EntitlementsDto {
     integrations: boolean;
     removeBranding: boolean;
     aiOwnKey: boolean;
+    /** Voice calls from the widget, and the month's allowance of call minutes (null: no limit). */
+    voice: boolean;
+    voiceMinutesPerMonth: number | null;
     isContactSales: boolean;
   };
   subscription: {
@@ -97,6 +100,11 @@ export function lockMessage(reason: LockReason): string {
     case 'over_limit':
       return 'Your account has more websites or team members than your plan includes. Remove some, or choose a bigger plan.';
   }
+}
+
+/** "300 call minutes a month", for a plan that includes calling. */
+export function callMinutesLabel(minutes: number | null): string {
+  return minutes === null ? 'Unlimited call minutes' : `${minutes} call minutes a month`;
 }
 
 export function formatMoney(cents: number, currency: string): string {

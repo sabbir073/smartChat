@@ -243,6 +243,30 @@ export function loadConfig<T extends ZodTypeAny>(
     }
 
     /**
+     * Calling switched on with no media server named is a Call button that rings nobody. The
+     * four are checked together because the feature needs all of them; the error names the one
+     * that is missing.
+     */
+    if ('VOICE_ENABLED' in parsed && parsed['VOICE_ENABLED'] === true) {
+      for (const key of [
+        'LIVEKIT_PUBLIC_URL',
+        'LIVEKIT_API_URL',
+        'LIVEKIT_API_KEY',
+        'LIVEKIT_API_SECRET',
+        'SPEECH_URL',
+      ]) {
+        const value = parsed[key];
+        if (typeof value !== 'string' || value.length === 0) {
+          offenders.push(`${key}: required when VOICE_ENABLED is true`);
+        }
+      }
+      const secret = parsed['LIVEKIT_API_SECRET'];
+      if (typeof secret === 'string' && secret.length > 0 && secret.length < 32) {
+        offenders.push('LIVEKIT_API_SECRET: must be at least 32 characters');
+      }
+    }
+
+    /**
      * Certificate verification may only be waived for a relay nobody else can stand in front of.
      *
      * Without this, `SMTP_TLS_REJECT_UNAUTHORIZED=false` - the line an operator copies from a

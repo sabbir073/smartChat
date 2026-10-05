@@ -197,6 +197,20 @@ POST   /widget/uploads/sign           POST   /widget/uploads/:id/confirm
 GET    /widget/attachments/:id/url    GET    /widget/me
 
 # ---------------------------------------------------------------------------
+# voice calls. The visitor's side is bearer-token like the rest of the widget
+# surface; the team's side is tenant-scoped. See VOICE.md.
+# ---------------------------------------------------------------------------
+POST   /widget/calls                  GET    /widget/calls/current
+GET    /widget/calls/:id              POST   /widget/calls/:id/joined
+POST   /widget/calls/:id/end
+GET    /calls                         GET    /calls/:id
+GET    /calls/:id/targets             POST   /calls/:id/answer
+POST   /calls/:id/decline             POST   /calls/:id/joined
+POST   /calls/:id/transfer            POST   /calls/:id/end
+GET    /properties/:id/voice          PATCH  /properties/:id/voice
+POST   /voice/media/webhook           (the media server, signed; its own scope)
+
+# ---------------------------------------------------------------------------
 # public. No credential of any kind, and its own scope with no auth hook.
 # ---------------------------------------------------------------------------
 GET    /public/kb/:publicId           GET    /public/kb/:publicId/search

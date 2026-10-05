@@ -1,7 +1,7 @@
 'use client';
 
 import { io, type Socket } from 'socket.io-client';
-import { AgentClientEvent, ServerEvent } from '@smartchat/types';
+import { AgentClientEvent, ServerEvent, type CallDto } from '@smartchat/types';
 import { api } from './api-client';
 
 /**
@@ -15,11 +15,26 @@ import { api } from './api-client';
 
 export type AgentConnectionState = 'idle' | 'connecting' | 'connected' | 'reconnecting';
 
-/** Structured detail on a system message, so the dashboard writes its own wording. */
+/**
+ * Structured detail on a system message, so the dashboard writes its own wording. Mirrors the
+ * server's definition in packages/core/src/realtime/events.ts.
+ */
 export interface SystemMessageEvent {
-  kind: 'conversation.closed' | 'conversation.reopened';
-  by: 'visitor' | 'agent';
+  kind:
+    | 'conversation.closed'
+    | 'conversation.reopened'
+    | 'call.started'
+    | 'call.answered'
+    | 'call.transferred'
+    | 'call.missed'
+    | 'call.ended';
+  /** `ai` is the assistant; `system` is a timer or the server itself. */
+  by: 'visitor' | 'agent' | 'ai' | 'system';
   actorName?: string;
+  /** For call events: which call, how long it lasted, who it went to. */
+  callId?: string;
+  durationSeconds?: number;
+  targetName?: string;
 }
 
 export interface AgentMessage {
@@ -39,7 +54,15 @@ export interface AgentMessage {
   /** Present only on `type: 'system'`. */
   event?: SystemMessageEvent;
   /** Present on bot messages the AI assistant wrote. */
-  ai?: { sources: Array<{ title: string; url: string | null }>; offer?: 'ticket'; rating?: 'up' | 'down'; badge?: boolean; kind?: string };
+  ai?: {
+    sources: Array<{ title: string; url: string | null }>;
+    offer?: 'ticket';
+    rating?: 'up' | 'down';
+    badge?: boolean;
+    kind?: string;
+  };
+  /** Present when the message is something that was said on a call, transcribed. */
+  voice?: { callId: string };
 }
 
 /** What the thread needs to render a file. Download URLs are minted per request, never stored. */
@@ -102,6 +125,12 @@ export interface AgentClientHandlers {
    * disconnected is absent from the snapshot, and merging would keep their name on screen.
    */
   onViewersSnapshot(snapshot: ConversationViewers[]): void;
+  /**
+   * A call changed. The payload is the whole call, so the handler replaces what it holds for
+   * that id rather than patching it: a screen that missed one event is right again on the next.
+   * Arrives for every call of the subscribed properties and for the open conversation.
+   */
+  onCallUpdated(call: CallDto): void;
 }
 
 interface Ack<T> {
@@ -196,8 +225,15 @@ export class AgentRealtimeClient {
 
     socket.on(ServerEvent.CONVERSATION_VIEWERS, (payload: ConversationViewers) => {
       if (payload?.conversationId) {
-        this.handlers.onViewers({ conversationId: payload.conversationId, viewers: payload.viewers ?? [] });
+        this.handlers.onViewers({
+          conversationId: payload.conversationId,
+          viewers: payload.viewers ?? [],
+        });
       }
+    });
+
+    socket.on(ServerEvent.CALL_UPDATED, (payload: { call?: CallDto }) => {
+      if (payload?.call?.id) this.handlers.onCallUpdated(payload.call);
     });
 
     for (const event of [

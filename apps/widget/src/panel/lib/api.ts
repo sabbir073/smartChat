@@ -1,6 +1,24 @@
 import { API_URL } from './runtime.js';
 import type { WidgetConfig } from '@smartchat/validation';
+import type { CallDto, CallJoinGrant, VoiceLanguage } from '@smartchat/types';
 import type { MessageAttachment, MessageDto } from './types.js';
+
+/**
+ * A call as the server hands it back, with the key to its media room.
+ *
+ * `join` is null only when the call was missed on the spot - nobody to ring and no AI to take
+ * it - in which case `call.status` is already `ended`.
+ */
+export interface CallStartResponse {
+  call: CallDto;
+  join: CallJoinGrant | null;
+}
+
+/** A live call found on load, so a reload mid-call picks it up again. */
+export interface CurrentCallResponse {
+  call: CallDto;
+  join: CallJoinGrant;
+}
 
 export interface BootstrapResponse {
   token: string;
@@ -23,6 +41,13 @@ export interface BootstrapResponse {
   showBranding: boolean;
   /** Who the window shows at the top: the assigned person or the owner. Null when the account has no owner. */
   presenter?: { name: string; avatarUrl: string | null } | null;
+  /**
+   * Whether the Call button is offered at all.
+   *
+   * Decided by the server from the plan and the website's settings, for the same reason as
+   * branding: a flag the panel worked out for itself would be worked out differently.
+   */
+  voice: { enabled: boolean };
 }
 
 export class WidgetApiError extends Error {
@@ -135,11 +160,14 @@ export const widgetApi = {
    */
   /** Thumbs up or down on an AI reply; null takes it back. */
   feedback: (token: string, messageId: string, rating: 'up' | 'down' | null) =>
-    request<{ messageId: string; rating: 'up' | 'down' | null }>(`/widget/messages/${messageId}/feedback`, {
-      method: 'POST',
-      body: { rating },
-      token,
-    }),
+    request<{ messageId: string; rating: 'up' | 'down' | null }>(
+      `/widget/messages/${messageId}/feedback`,
+      {
+        method: 'POST',
+        body: { rating },
+        token,
+      },
+    ),
 
   offlineMessage: (token: string, values: Record<string, string>, conversationId?: string) =>
     request<{ conversationId: string; ticketNumber?: number }>('/widget/offline-message', {
@@ -147,4 +175,40 @@ export const widgetApi = {
       body: { values, ...(conversationId ? { conversationId } : {}) },
       token,
     }),
+
+  // --- voice calls -----------------------------------------------------------
+
+  /**
+   * The visitor presses Call.
+   *
+   * The pre-chat answers travel with it when the call opens the conversation, exactly as they
+   * travel with a first message. Everything after this - the ringing, the answer, the end -
+   * arrives over the socket as `call:updated`.
+   */
+  startCall: (
+    token: string,
+    input: { preChat?: Record<string, string>; language?: VoiceLanguage },
+  ) =>
+    request<CallStartResponse>('/widget/calls', {
+      method: 'POST',
+      body: {
+        ...(input.preChat ? { preChat: input.preChat } : {}),
+        ...(input.language ? { language: input.language } : {}),
+      },
+      token,
+    }),
+
+  /** The visitor's live call, if any - asked on load so a reload does not lose a call. */
+  currentCall: (token: string) =>
+    request<CurrentCallResponse | null>('/widget/calls/current', { token }),
+
+  call: (token: string, callId: string) => request<CallDto>(`/widget/calls/${callId}`, { token }),
+
+  /** The panel is in the media room. The server marks the call active once both sides are. */
+  callJoined: (token: string, callId: string) =>
+    request<CallDto>(`/widget/calls/${callId}/joined`, { method: 'POST', token }),
+
+  /** Hang up: while it rings, or mid-call. */
+  endCall: (token: string, callId: string) =>
+    request<CallDto>(`/widget/calls/${callId}/end`, { method: 'POST', token }),
 };

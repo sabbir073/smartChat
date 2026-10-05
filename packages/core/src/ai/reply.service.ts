@@ -1,5 +1,12 @@
 import type { AiSetting, Database } from '@smartchat/database';
-import { AppError, ErrorCode, Permission, ServerEvent, room, type TenantContext } from '@smartchat/types';
+import {
+  AppError,
+  ErrorCode,
+  Permission,
+  ServerEvent,
+  room,
+  type TenantContext,
+} from '@smartchat/types';
 import type { EntitlementService } from '../billing/entitlements.js';
 import { toMessageDto, type EventPublisher } from '../realtime/events.js';
 import { ConversationRepository } from '../repositories/conversation.repository.js';
@@ -56,8 +63,44 @@ export interface AiDraft {
 }
 
 export type AiReplyOutcome =
-  | { posted: true; decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed'; provider: string | null; fellBack: boolean; latencyMs: number }
-  | { posted: false; reason: AiSkipReason | 'duplicate' | 'missing' | 'allowance' | 'offer_pending' };
+  | {
+      posted: true;
+      decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed';
+      provider: string | null;
+      fellBack: boolean;
+      latencyMs: number;
+    }
+  | {
+      posted: false;
+      reason: AiSkipReason | 'duplicate' | 'missing' | 'allowance' | 'offer_pending';
+    };
+
+/**
+ * What a spoken turn came to.
+ *
+ * `spoken` is what the voice agent says next: the answer, the owner's ticket offer, the hand-off
+ * line. `kind` is what the agent does after saying it: nothing more (`answer`, `chat`), wait for
+ * a yes or no about the ticket (`offer`), ring the team (`handoff`), or fall back to the offer
+ * because the AI could not be used at all (`unavailable`). `goodbye` ends the call after the
+ * words are out.
+ */
+export interface VoiceTurnOutcome {
+  kind: 'answer' | 'chat' | 'offer' | 'handoff' | 'unavailable';
+  spoken: string;
+  goodbye: boolean;
+  decision: 'answer' | 'chat' | 'ticket' | 'human' | 'failed';
+  latencyMs: number;
+  visitorMessageId: string | null;
+}
+
+/**
+ * The prompt budget for a spoken turn. Smaller than the chat's on purpose: every new token in
+ * the prompt costs about five milliseconds on the production CPU, and a caller is waiting in
+ * silence, not reading a typing indicator. Two passages of the chunker's size still put the
+ * right one in front of the model nearly every time; the history is what was just said.
+ */
+const VOICE_BUDGET = { totalTokens: 3_200, passageTokens: 500, historyTokens: 250 };
+const VOICE_MAX_TOKENS = 160;
 
 const MAX_HISTORY_MESSAGES = 10;
 const MAX_QUESTION_CHARS = 2_000;
@@ -100,17 +143,28 @@ export function usualFrom(latencies: number[]): number | null {
  * slower than four replies in five *and then some*, so a site whose answers simply take a while
  * does not announce every one of them.
  */
-export function checkingDelay(input: { afterSeconds: number; usualReplyMs: number | null }): number | null {
+export function checkingDelay(input: {
+  afterSeconds: number;
+  usualReplyMs: number | null;
+}): number | null {
   if (input.afterSeconds <= 0) return null;
   const floor = input.afterSeconds * 1_000;
-  return input.usualReplyMs === null ? floor : Math.max(floor, input.usualReplyMs + SLOWER_THAN_USUAL_MS);
+  return input.usualReplyMs === null
+    ? floor
+    : Math.max(floor, input.usualReplyMs + SLOWER_THAN_USUAL_MS);
 }
 
 export function looksLikeLookup(question: string): boolean {
   const words = question.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
   if (words.length < LOOKUP_MIN_WORDS) return false;
   // "Great, thanks, that's all I needed - bye!" is long enough to count and still not a lookup.
-  if (words.length <= 12 && /\b(hi|hello|hey|thanks|thank you|thank|cheers|ok|okay|bye|goodbye|good ?night|welcome)\b/i.test(question)) return false;
+  if (
+    words.length <= 12 &&
+    /\b(hi|hello|hey|thanks|thank you|thank|cheers|ok|okay|bye|goodbye|good ?night|welcome)\b/i.test(
+      question,
+    )
+  )
+    return false;
   return true;
 }
 
@@ -141,7 +195,10 @@ export class AiReplyService {
    * sixteen of seventeen answers were preceded by "give me a moment", which is not a courtesy any
    * more, it is a tic.
    */
-  private async checkingDelayMs(propertyId: string, settings: { checkingAfterSeconds?: number | null }): Promise<number | null> {
+  private async checkingDelayMs(
+    propertyId: string,
+    settings: { checkingAfterSeconds?: number | null },
+  ): Promise<number | null> {
     if (this.options.holdingAfterMs !== undefined) return this.options.holdingAfterMs;
     return checkingDelay({
       afterSeconds: settings.checkingAfterSeconds ?? DEFAULT_CHECKING_AFTER_SECONDS,
@@ -164,7 +221,11 @@ export class AiReplyService {
     let ms: number | null = null;
     try {
       const rows = await this.options.db.aiTurn.findMany({
-        where: { propertyId, latencyMs: { gt: 0 }, decision: { in: ['answer', 'chat', 'ticket', 'human'] } },
+        where: {
+          propertyId,
+          latencyMs: { gt: 0 },
+          decision: { in: ['answer', 'chat', 'ticket', 'human'] },
+        },
         orderBy: { createdAt: 'desc' },
         select: { latencyMs: true },
         take: LATENCY_SAMPLE,
@@ -195,14 +256,23 @@ export class AiReplyService {
       db.conversation.findFirst({
         where: { accountId: input.accountId, id: input.conversationId, deletedAt: null },
         include: {
-          property: { select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } } },
+          property: {
+            select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } },
+          },
         },
       }),
       db.message.findFirst({
-        where: { accountId: input.accountId, id: input.messageId, conversationId: input.conversationId, deletedAt: null },
+        where: {
+          accountId: input.accountId,
+          id: input.messageId,
+          conversationId: input.conversationId,
+          deletedAt: null,
+        },
       }),
       db.aiSetting.findUnique({
-        where: { accountId_propertyId: { accountId: input.accountId, propertyId: input.propertyId } },
+        where: {
+          accountId_propertyId: { accountId: input.accountId, propertyId: input.propertyId },
+        },
       }),
     ]);
     if (!conversation || !message || message.senderType !== 'visitor') {
@@ -221,6 +291,14 @@ export class AiReplyService {
       select: { id: true },
     });
     if (newer) return { posted: false, reason: 'duplicate' };
+
+    // A visitor on a call the AI is handling is being answered by voice. A chat reply to what
+    // they typed for the agent - their email address, usually - would talk over it.
+    const onCall = await db.call.findFirst({
+      where: { conversationId: conversation.id, status: { not: 'ended' }, handledByAi: true },
+      select: { id: true },
+    });
+    if (onCall) return { posted: false, reason: 'on_call' };
 
     const [planIncludesAi, agentsOnline] = await Promise.all([
       this.options.entitlements.hasFeature(input.accountId, 'aiAgent'),
@@ -249,7 +327,11 @@ export class AiReplyService {
       // The reply was queued on facts that have since changed - a person took over, the mode was
       // switched. The person answering still gets their suggestions.
       if (shouldSuggestReplies({ settings, planIncludesAi, conversation })) {
-        await this.suggest({ accountId: input.accountId, conversationId: conversation.id, messageId: message.id });
+        await this.suggest({
+          accountId: input.accountId,
+          conversationId: conversation.id,
+          messageId: message.id,
+        });
       }
       return { posted: false, reason: decision.reason };
     }
@@ -284,7 +366,9 @@ export class AiReplyService {
      * usually does here - see `checkingDelayMs`. Otherwise the typing indicator carries the wait,
      * which is what it is for.
      */
-    const delayMs = looksLikeLookup(question) ? await this.checkingDelayMs(input.propertyId, settings) : null;
+    const delayMs = looksLikeLookup(question)
+      ? await this.checkingDelayMs(input.propertyId, settings)
+      : null;
     const holding =
       delayMs === null
         ? null
@@ -295,7 +379,12 @@ export class AiReplyService {
               body: settings.checkingText,
               metadata: { kind: 'holding', ...(settings.showAiBadge ? { badge: true } : {}) },
               now: this.clock.now(),
-            }).catch((error: unknown) => this.options.log?.('ai.reply.holding_failed', { conversationId: conversation.id, error: String(error) }));
+            }).catch((error: unknown) =>
+              this.options.log?.('ai.reply.holding_failed', {
+                conversationId: conversation.id,
+                error: String(error),
+              }),
+            );
           }, delayMs);
     const stopHolding = () => {
       if (holding) clearTimeout(holding);
@@ -336,7 +425,12 @@ export class AiReplyService {
         passageCount: chunksInPrompt.length,
         allowedHosts: allowedHosts(conversation.property),
         grounding: [
-          ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text, chunk.url ?? '']),
+          ...chunksInPrompt.flatMap((chunk) => [
+            chunk.title,
+            chunk.heading ?? '',
+            chunk.text,
+            chunk.url ?? '',
+          ]),
           question,
           settings.instructions,
         ],
@@ -360,11 +454,19 @@ export class AiReplyService {
           error: [turnBase.error, parsed.reason].filter(Boolean).join('; '),
         });
         await this.options.lifecycle?.afterAssistantReply(conversation, settings);
-        return { posted: true, decision: 'failed', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
+        return {
+          posted: true,
+          decision: 'failed',
+          provider: outcome.provider,
+          fellBack: outcome.fellBack,
+          latencyMs,
+        };
       }
 
       const { reply } = parsed;
-      const note = parsed.downgraded ? [turnBase.error, parsed.downgraded].filter(Boolean).join('; ') : turnBase.error;
+      const note = parsed.downgraded
+        ? [turnBase.error, parsed.downgraded].filter(Boolean).join('; ')
+        : turnBase.error;
 
       // What the model noticed, acted on here - it has no hands of its own.
       const urgentNow = reply.urgent && conversation.priority !== 'urgent';
@@ -375,33 +477,77 @@ export class AiReplyService {
 
       if (reply.decision === 'answer') {
         const cited = reply.sources.map((n) => chunksInPrompt[n - 1]!).filter(Boolean);
-        await this.postAnswer(conversation, settings, message.id, withUrgency(reply.text), cited, chunksInPrompt, {
-          ...turnBase,
-          decision: 'answer',
-          error: note,
-        });
+        await this.postAnswer(
+          conversation,
+          settings,
+          message.id,
+          withUrgency(reply.text),
+          cited,
+          chunksInPrompt,
+          {
+            ...turnBase,
+            decision: 'answer',
+            error: note,
+          },
+        );
         await this.afterReply(conversation, settings, reply.goodbye);
-        return { posted: true, decision: 'answer', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
+        return {
+          posted: true,
+          decision: 'answer',
+          provider: outcome.provider,
+          fellBack: outcome.fellBack,
+          latencyMs,
+        };
       }
 
       if (reply.decision === 'chat') {
-        await this.post(conversation, settings, message.id, withUrgency(reply.text), { sources: [] }, chunksInPrompt, [], {
-          ...turnBase,
-          decision: 'chat',
-          error: note,
-        }, true);
+        await this.post(
+          conversation,
+          settings,
+          message.id,
+          withUrgency(reply.text),
+          { sources: [] },
+          chunksInPrompt,
+          [],
+          {
+            ...turnBase,
+            decision: 'chat',
+            error: note,
+          },
+          true,
+        );
         await this.afterReply(conversation, settings, reply.goodbye);
-        return { posted: true, decision: 'chat', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
+        return {
+          posted: true,
+          decision: 'chat',
+          provider: outcome.provider,
+          fellBack: outcome.fellBack,
+          latencyMs,
+        };
       }
 
       if (reply.decision === 'human' && agentsOnline) {
-        await this.postHandoff(conversation, settings, message.id, chunksInPrompt, history, question, {
-          ...turnBase,
-          decision: 'human',
-          error: note,
-        });
+        await this.postHandoff(
+          conversation,
+          settings,
+          message.id,
+          chunksInPrompt,
+          history,
+          question,
+          {
+            ...turnBase,
+            decision: 'human',
+            error: note,
+          },
+        );
         await this.options.lifecycle?.afterHandoff(conversation, settings);
-        return { posted: true, decision: 'human', provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
+        return {
+          posted: true,
+          decision: 'human',
+          provider: outcome.provider,
+          fellBack: outcome.fellBack,
+          latencyMs,
+        };
       }
 
       // A ticket, or a person wanted while nobody is online: the offer, in the owner's words.
@@ -411,10 +557,18 @@ export class AiReplyService {
         message.id,
         chunksInPrompt,
         { ...turnBase, decision: reply.decision, error: note },
-        withUrgency(reply.decision === 'human' ? settings.offlineHandoffText : settings.ticketOfferText),
+        withUrgency(
+          reply.decision === 'human' ? settings.offlineHandoffText : settings.ticketOfferText,
+        ),
       );
       await this.options.lifecycle?.afterAssistantReply(conversation, settings);
-      return { posted: true, decision: reply.decision, provider: outcome.provider, fellBack: outcome.fellBack, latencyMs };
+      return {
+        posted: true,
+        decision: reply.decision,
+        provider: outcome.provider,
+        fellBack: outcome.fellBack,
+        latencyMs,
+      };
     } catch (error) {
       stopHolding();
       const latencyMs = this.clock.timestamp() - started;
@@ -429,7 +583,10 @@ export class AiReplyService {
         promptTokens: 0,
         completionTokens: 0,
         latencyMs,
-        error: error instanceof AppError && error.code === ErrorCode.AI_UNAVAILABLE ? `unavailable: ${detail}` : detail.slice(0, 500),
+        error:
+          error instanceof AppError && error.code === ErrorCode.AI_UNAVAILABLE
+            ? `unavailable: ${detail}`
+            : detail.slice(0, 500),
       });
       await this.options.lifecycle?.afterAssistantReply(conversation, settings);
       return { posted: true, decision: 'failed', provider: null, fellBack: false, latencyMs };
@@ -439,8 +596,308 @@ export class AiReplyService {
     }
   }
 
+  /**
+   * One turn of a phone call: what the visitor said, transcribed, and what the assistant says back.
+   *
+   * The same brain as the chat - the same retrieval, the same prompt, the same contract and the
+   * same checks on what came back - with three differences a caller needs. The prompt is smaller
+   * (see VOICE_BUDGET) and asks for a spoken answer: short sentences, no links, no lists, numbers
+   * said in words. The mode and the allowance rules are not consulted: the call was routed to
+   * the AI by the website's own ring rules, and a transcript of an AI answering the phone must
+   * not be gated by "the AI never speaks in a chat a person has touched". And nothing here waits
+   * for the holding line: the agent plays its own "hold on" from the first second it needs to.
+   *
+   * What the visitor said is written to the conversation as their message, and the reply as the
+   * assistant's, both marked as spoken, so the inbox shows the call as it happens and the AI turn
+   * records it like any other.
+   */
+  async voiceTurn(input: {
+    accountId: string;
+    propertyId: string;
+    conversationId: string;
+    callId: string;
+    transcript: string;
+    language: 'en' | 'bn';
+  }): Promise<VoiceTurnOutcome> {
+    const { db } = this.options;
+    const started = this.clock.timestamp();
+    const [conversation, settings] = await Promise.all([
+      db.conversation.findFirst({
+        where: { accountId: input.accountId, id: input.conversationId, deletedAt: null },
+        include: {
+          property: {
+            select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } },
+          },
+        },
+      }),
+      db.aiSetting.findUnique({
+        where: {
+          accountId_propertyId: { accountId: input.accountId, propertyId: input.propertyId },
+        },
+      }),
+    ]);
+    const question = input.transcript.trim().slice(0, MAX_QUESTION_CHARS);
+    if (!conversation || !settings || question.length === 0) {
+      return {
+        kind: 'unavailable',
+        spoken: '',
+        goodbye: false,
+        decision: 'failed',
+        latencyMs: 0,
+        visitorMessageId: null,
+      };
+    }
+
+    const now = this.clock.now();
+    const heard = await new ConversationRepository(db).insertMessage({
+      accountId: conversation.accountId,
+      propertyId: conversation.propertyId,
+      conversationId: conversation.id,
+      senderType: 'visitor',
+      senderVisitorId: conversation.visitorId,
+      type: 'text',
+      body: question,
+      metadata: { voice: true, callId: input.callId, language: input.language },
+      now,
+    });
+    await this.options.events.publish({
+      type: ServerEvent.MESSAGE_NEW,
+      accountId: conversation.accountId,
+      propertyId: conversation.propertyId,
+      conversationId: conversation.id,
+      visitorId: conversation.visitorId,
+      payload: { message: toMessageDto(heard.message), room: room.conversation(conversation.id) },
+    });
+    const voiceMeta = { voice: true, callId: input.callId };
+    const agentsOnline = await this.hasAvailableAgent(input.accountId);
+
+    try {
+      const [retrieved, history] = await Promise.all([
+        this.options.knowledge.retrieve(input.accountId, input.propertyId, question),
+        this.history(conversation.id, heard.message.seq),
+      ]);
+      const passages: PromptPassage[] = retrieved.chunks.map((chunk, i) => ({
+        number: i + 1,
+        title: chunk.title,
+        heading: chunk.heading,
+        text: chunk.text,
+        url: chunk.url,
+      }));
+      const prompt = buildPrompt(
+        {
+          assistantName: settings.assistantName,
+          businessName: conversation.property.name,
+          instructions: settings.instructions,
+          passages,
+          history,
+          question: `${question}\n\n(This is a phone call, not a chat: answer in one or two short spoken sentences, in ${input.language === 'bn' ? 'Bengali' : 'the language the visitor spoke'}. No links, no lists, no markdown; say numbers in words.)`,
+        },
+        VOICE_BUDGET,
+      );
+      const chunksInPrompt = retrieved.chunks.slice(0, prompt.passages.length);
+      const outcome = await this.options.gateway.complete(
+        {
+          messages: prompt.messages,
+          schema: REPLY_SCHEMA,
+          maxTokens: VOICE_MAX_TOKENS,
+          temperature: 0.2,
+        },
+        { accountId: input.accountId },
+      );
+      const latencyMs = this.clock.timestamp() - started;
+      const parsed = parseReply(outcome.result.content, {
+        passageCount: chunksInPrompt.length,
+        allowedHosts: allowedHosts(conversation.property),
+        grounding: [
+          ...chunksInPrompt.flatMap((chunk) => [
+            chunk.title,
+            chunk.heading ?? '',
+            chunk.text,
+            chunk.url ?? '',
+          ]),
+          question,
+          settings.instructions,
+        ],
+        practicePhrases: [...PRACTICE_PHRASES],
+      });
+      const turnBase = {
+        provider: outcome.provider,
+        model: outcome.result.model,
+        fellBack: outcome.fellBack,
+        promptTokens: outcome.result.promptTokens,
+        completionTokens: outcome.result.completionTokens,
+        latencyMs,
+        error: outcome.fallbackReason ?? null,
+        voice: true,
+      };
+
+      if (!parsed.ok) {
+        await this.postOffer(
+          conversation,
+          settings,
+          heard.message.id,
+          chunksInPrompt,
+          {
+            ...turnBase,
+            decision: 'failed',
+            error: [turnBase.error, parsed.reason].filter(Boolean).join('; '),
+          },
+          settings.ticketOfferText,
+          voiceMeta,
+        );
+        return {
+          kind: 'offer',
+          spoken: settings.ticketOfferText,
+          goodbye: false,
+          decision: 'failed',
+          latencyMs,
+          visitorMessageId: heard.message.id,
+        };
+      }
+      const { reply } = parsed;
+      const note = parsed.downgraded
+        ? [turnBase.error, parsed.downgraded].filter(Boolean).join('; ')
+        : turnBase.error;
+      const urgentNow = reply.urgent && conversation.priority !== 'urgent';
+      if (urgentNow) await this.markUrgent(conversation);
+      if (reply.topic && conversation.aiReplyCount === 0) await this.tag(conversation, reply.topic);
+      const withUrgency = (text: string): string =>
+        urgentNow && !/urgent/i.test(text) ? `${text} ${settings.urgentText}`.trim() : text;
+
+      if (reply.decision === 'answer') {
+        const cited = reply.sources.map((n) => chunksInPrompt[n - 1]!).filter(Boolean);
+        const spoken = withUrgency(spokenText(reply.text));
+        await this.postAnswer(
+          conversation,
+          settings,
+          heard.message.id,
+          spoken,
+          cited,
+          chunksInPrompt,
+          { ...turnBase, decision: 'answer', error: note },
+          voiceMeta,
+        );
+        return {
+          kind: 'answer',
+          spoken,
+          goodbye: reply.goodbye,
+          decision: 'answer',
+          latencyMs,
+          visitorMessageId: heard.message.id,
+        };
+      }
+      if (reply.decision === 'chat') {
+        const spoken = withUrgency(spokenText(reply.text));
+        await this.post(
+          conversation,
+          settings,
+          heard.message.id,
+          spoken,
+          { sources: [] },
+          chunksInPrompt,
+          [],
+          { ...turnBase, decision: 'chat', error: note },
+          true,
+          voiceMeta,
+        );
+        return {
+          kind: 'chat',
+          spoken,
+          goodbye: reply.goodbye,
+          decision: 'chat',
+          latencyMs,
+          visitorMessageId: heard.message.id,
+        };
+      }
+      if (reply.decision === 'human' && agentsOnline) {
+        await this.post(
+          conversation,
+          settings,
+          heard.message.id,
+          settings.handoffText,
+          { sources: [] },
+          chunksInPrompt,
+          [],
+          { ...turnBase, decision: 'human', error: note },
+          true,
+          voiceMeta,
+        );
+        return {
+          kind: 'handoff',
+          spoken: settings.handoffText,
+          goodbye: false,
+          decision: 'human',
+          latencyMs,
+          visitorMessageId: heard.message.id,
+        };
+      }
+      const spoken = withUrgency(
+        reply.decision === 'human' ? settings.offlineHandoffText : settings.ticketOfferText,
+      );
+      await this.postOffer(
+        conversation,
+        settings,
+        heard.message.id,
+        chunksInPrompt,
+        { ...turnBase, decision: reply.decision, error: note },
+        spoken,
+        voiceMeta,
+      );
+      return {
+        kind: 'offer',
+        spoken,
+        goodbye: false,
+        decision: reply.decision,
+        latencyMs,
+        visitorMessageId: heard.message.id,
+      };
+    } catch (error) {
+      const latencyMs = this.clock.timestamp() - started;
+      const detail = error instanceof Error ? error.message : String(error);
+      this.options.log?.('ai.voice.failed', {
+        conversationId: conversation.id,
+        callId: input.callId,
+        error: detail,
+      });
+      await this.postOffer(
+        conversation,
+        settings,
+        heard.message.id,
+        [],
+        {
+          decision: 'failed',
+          provider: null,
+          model: null,
+          fellBack: false,
+          promptTokens: 0,
+          completionTokens: 0,
+          latencyMs,
+          error:
+            error instanceof AppError && error.code === ErrorCode.AI_UNAVAILABLE
+              ? `unavailable: ${detail}`
+              : detail.slice(0, 500),
+          voice: true,
+        },
+        settings.ticketOfferText,
+        voiceMeta,
+      );
+      return {
+        kind: 'offer',
+        spoken: settings.ticketOfferText,
+        goodbye: false,
+        decision: 'failed',
+        latencyMs,
+        visitorMessageId: heard.message.id,
+      };
+    }
+  }
+
   /** After a reply: keep time. A goodbye closes soon; anything else waits for the visitor. */
-  private async afterReply(conversation: ConversationRow, settings: AiSetting, goodbye: boolean): Promise<void> {
+  private async afterReply(
+    conversation: ConversationRow,
+    settings: AiSetting,
+    goodbye: boolean,
+  ): Promise<void> {
     if (!this.options.lifecycle) return;
     if (goodbye) await this.options.lifecycle.afterGoodbye(conversation);
     else await this.options.lifecycle.afterAssistantReply(conversation, settings);
@@ -448,7 +905,10 @@ export class AiReplyService {
 
   /** The visitor said it is urgent: the row says so, and every open inbox sees it change. */
   private async markUrgent(conversation: ConversationRow): Promise<void> {
-    await this.options.db.conversation.update({ where: { id: conversation.id }, data: { priority: 'urgent' } });
+    await this.options.db.conversation.update({
+      where: { id: conversation.id },
+      data: { priority: 'urgent' },
+    });
     conversation.priority = 'urgent';
     await this.publishRow(conversation);
     this.options.log?.('ai.reply.urgent', { conversationId: conversation.id });
@@ -500,23 +960,38 @@ export class AiReplyService {
         accountId: context.accountId,
         id: conversationId,
         deletedAt: null,
-        ...(context.propertyIds && context.propertyIds.size > 0 ? { propertyId: { in: [...context.propertyIds] } } : {}),
+        ...(context.propertyIds && context.propertyIds.size > 0
+          ? { propertyId: { in: [...context.propertyIds] } }
+          : {}),
       },
       include: {
-        property: { select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } } },
+        property: {
+          select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } },
+        },
       },
     });
     if (!conversation) throw new AppError(ErrorCode.CONVERSATION_NOT_FOUND);
     const message = await db.message.findFirst({
-      where: { conversationId: conversation.id, senderType: 'visitor', deletedAt: null, type: 'text' },
+      where: {
+        conversationId: conversation.id,
+        senderType: 'visitor',
+        deletedAt: null,
+        type: 'text',
+      },
       orderBy: { seq: 'desc' },
     });
     const question = message?.body.trim().slice(0, MAX_QUESTION_CHARS) ?? '';
-    if (!message || !question) return { draft: null, sources: [], reason: 'no_question', provider: null, latencyMs: 0 };
+    if (!message || !question)
+      return { draft: null, sources: [], reason: 'no_question', provider: null, latencyMs: 0 };
 
     const settings =
       (await db.aiSetting.findUnique({
-        where: { accountId_propertyId: { accountId: context.accountId, propertyId: conversation.propertyId } },
+        where: {
+          accountId_propertyId: {
+            accountId: context.accountId,
+            propertyId: conversation.propertyId,
+          },
+        },
       })) ?? null;
     const assistantName = settings?.assistantName ?? 'AI assistant';
     const instructions = settings?.instructions ?? '';
@@ -558,7 +1033,10 @@ export class AiReplyService {
         promptTokens: 0,
         completionTokens: 0,
         latencyMs,
-        error: `unavailable: ${error instanceof Error ? error.message : String(error)}`.slice(0, 500),
+        error: `unavailable: ${error instanceof Error ? error.message : String(error)}`.slice(
+          0,
+          500,
+        ),
       });
       return { draft: null, sources: [], reason: 'unavailable', provider: null, latencyMs };
     }
@@ -567,15 +1045,24 @@ export class AiReplyService {
       passageCount: chunksInPrompt.length,
       allowedHosts: allowedHosts(conversation.property),
       grounding: [
-        ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text, chunk.url ?? '']),
+        ...chunksInPrompt.flatMap((chunk) => [
+          chunk.title,
+          chunk.heading ?? '',
+          chunk.text,
+          chunk.url ?? '',
+        ]),
         question,
         instructions,
       ],
       practicePhrases: [...PRACTICE_PHRASES],
     });
     const decision = parsed.ok ? parsed.reply.decision : 'failed';
-    const text = parsed.ok && (decision === 'answer' || decision === 'chat') ? parsed.reply.text : null;
-    const cited = parsed.ok && decision === 'answer' ? parsed.reply.sources.map((n) => chunksInPrompt[n - 1]!).filter(Boolean) : [];
+    const text =
+      parsed.ok && (decision === 'answer' || decision === 'chat') ? parsed.reply.text : null;
+    const cited =
+      parsed.ok && decision === 'answer'
+        ? parsed.reply.sources.map((n) => chunksInPrompt[n - 1]!).filter(Boolean)
+        : [];
     await this.recordDraft(context, conversation, message.id, chunksInPrompt, {
       provider: outcome.provider,
       model: outcome.result.model,
@@ -584,9 +1071,14 @@ export class AiReplyService {
       completionTokens: outcome.result.completionTokens,
       latencyMs,
       citedChunkIds: cited.map((chunk) => chunk.chunkId),
-      error: [outcome.fallbackReason, parsed.ok ? parsed.downgraded : parsed.reason, text ? null : `model decided: ${decision}`]
-        .filter(Boolean)
-        .join('; ') || null,
+      error:
+        [
+          outcome.fallbackReason,
+          parsed.ok ? parsed.downgraded : parsed.reason,
+          text ? null : `model decided: ${decision}`,
+        ]
+          .filter(Boolean)
+          .join('; ') || null,
     });
     return {
       draft: text,
@@ -604,18 +1096,35 @@ export class AiReplyService {
    * person picks one, edits it, sends it, or ignores them all. Runs on the first visitor message
    * of a chat a person is handling; the Suggest button covers the rest.
    */
-  async suggest(input: { accountId: string; conversationId: string; messageId: string }): Promise<{ suggestions: number }> {
+  async suggest(input: {
+    accountId: string;
+    conversationId: string;
+    messageId: string;
+  }): Promise<{ suggestions: number }> {
     const { db } = this.options;
     const [conversation, message] = await Promise.all([
       db.conversation.findFirst({
         where: { accountId: input.accountId, id: input.conversationId, deletedAt: null },
-        include: { property: { select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } } } },
+        include: {
+          property: {
+            select: { name: true, websiteUrl: true, domains: { select: { pattern: true } } },
+          },
+        },
       }),
-      db.message.findFirst({ where: { accountId: input.accountId, id: input.messageId, senderType: 'visitor', deletedAt: null } }),
+      db.message.findFirst({
+        where: {
+          accountId: input.accountId,
+          id: input.messageId,
+          senderType: 'visitor',
+          deletedAt: null,
+        },
+      }),
     ]);
     if (!conversation || !message || conversation.status === 'closed') return { suggestions: 0 };
     const settings = await db.aiSetting.findUnique({
-      where: { accountId_propertyId: { accountId: input.accountId, propertyId: conversation.propertyId } },
+      where: {
+        accountId_propertyId: { accountId: input.accountId, propertyId: conversation.propertyId },
+      },
     });
     if (!settings || !settings.suggestReplies) return { suggestions: 0 };
     const question = message.body.trim().slice(0, MAX_QUESTION_CHARS);
@@ -668,7 +1177,10 @@ export class AiReplyService {
       promptTokens = outcome.result.promptTokens;
       completionTokens = outcome.result.completionTokens;
     } catch (error) {
-      this.options.log?.('ai.suggest.failed', { conversationId: conversation.id, error: String(error) });
+      this.options.log?.('ai.suggest.failed', {
+        conversationId: conversation.id,
+        error: String(error),
+      });
       return { suggestions: 0 };
     }
     const latencyMs = this.clock.timestamp() - started;
@@ -676,7 +1188,12 @@ export class AiReplyService {
       passageCount: chunksInPrompt.length,
       allowedHosts: allowedHosts(conversation.property),
       grounding: [
-        ...chunksInPrompt.flatMap((chunk) => [chunk.title, chunk.heading ?? '', chunk.text, chunk.url ?? '']),
+        ...chunksInPrompt.flatMap((chunk) => [
+          chunk.title,
+          chunk.heading ?? '',
+          chunk.text,
+          chunk.url ?? '',
+        ]),
         question,
         settings.instructions,
       ],
@@ -808,7 +1325,13 @@ export class AiReplyService {
       propertyId: conversation.propertyId,
       conversationId: conversation.id,
       visitorId: conversation.visitorId,
-      payload: { conversationId: conversation.id, actorType: 'bot', actorId: 'ai', actorName, typing },
+      payload: {
+        conversationId: conversation.id,
+        actorType: 'bot',
+        actorId: 'ai',
+        actorName,
+        typing,
+      },
     });
   }
 
@@ -820,9 +1343,21 @@ export class AiReplyService {
     cited: RetrievedChunk[],
     retrieved: RetrievedChunk[],
     turn: TurnRecord,
+    extra: Record<string, unknown> = {},
   ): Promise<void> {
     const sources = dedupeSources(cited);
-    await this.post(conversation, settings, visitorMessageId, text, { sources }, retrieved, cited, turn, true);
+    await this.post(
+      conversation,
+      settings,
+      visitorMessageId,
+      text,
+      { sources },
+      retrieved,
+      cited,
+      turn,
+      true,
+      extra,
+    );
   }
 
   private async postOffer(
@@ -832,6 +1367,7 @@ export class AiReplyService {
     retrieved: RetrievedChunk[],
     turn: TurnRecord,
     body: string = settings.ticketOfferText,
+    extra: Record<string, unknown> = {},
   ): Promise<void> {
     await this.post(
       conversation,
@@ -843,6 +1379,7 @@ export class AiReplyService {
       [],
       turn,
       turn.decision !== 'failed',
+      extra,
     );
   }
 
@@ -885,7 +1422,17 @@ export class AiReplyService {
         ...(assignee ? { assignedMemberId: assignee.id } : {}),
       },
     });
-    await this.post(conversation, settings, visitorMessageId, settings.handoffText, { sources: [] }, retrieved, [], turn, true);
+    await this.post(
+      conversation,
+      settings,
+      visitorMessageId,
+      settings.handoffText,
+      { sources: [] },
+      retrieved,
+      [],
+      turn,
+      true,
+    );
 
     const base = {
       accountId: conversation.accountId,
@@ -900,7 +1447,10 @@ export class AiReplyService {
         payload: { conversationId: conversation.id, assignedMemberId: assignee.id, by: 'ai' },
       });
       // The window now shows the person who is coming.
-      await new PresenterService(this.options.db).announce(this.options.events, { ...conversation, assignedMemberId: assignee.id });
+      await new PresenterService(this.options.db).announce(this.options.events, {
+        ...conversation,
+        assignedMemberId: assignee.id,
+      });
     }
     // The inbox list shows "waiting for a person" from the flag; tell it the row changed.
     await this.options.events.publish({
@@ -919,7 +1469,10 @@ export class AiReplyService {
     });
   }
 
-  private async pickOnlineAgent(accountId: string, propertyId: string): Promise<{ id: string } | null> {
+  private async pickOnlineAgent(
+    accountId: string,
+    propertyId: string,
+  ): Promise<{ id: string } | null> {
     const candidates = await this.options.db.accountMember.findMany({
       where: {
         accountId,
@@ -934,7 +1487,9 @@ export class AiReplyService {
         id: true,
         _count: {
           select: {
-            assignedConversations: { where: { status: { in: ['open', 'pending'] }, deletedAt: null } },
+            assignedConversations: {
+              where: { status: { in: ['open', 'pending'] }, deletedAt: null },
+            },
           },
         },
       },
@@ -955,6 +1510,7 @@ export class AiReplyService {
     cited: RetrievedChunk[],
     turn: TurnRecord,
     countsAsReply: boolean,
+    extra: Record<string, unknown> = {},
   ): Promise<void> {
     const now = this.clock.now();
     const persisted = await this.options.db.$transaction(async (tx) => {
@@ -971,6 +1527,7 @@ export class AiReplyService {
           sources: info.sources,
           ...(info.offer ? { offer: info.offer } : {}),
           ...(settings.showAiBadge ? { badge: true } : {}),
+          ...extra,
         },
         now,
       });
@@ -997,6 +1554,7 @@ export class AiReplyService {
           retrievedChunkIds: retrieved.map((c) => c.chunkId),
           citedChunkIds: cited.map((c) => c.chunkId),
           error: turn.error,
+          voice: turn.voice ?? false,
         },
       });
       return inserted;
@@ -1038,6 +1596,8 @@ interface TurnRecord {
   completionTokens: number;
   latencyMs: number;
   error: string | null;
+  /** Said on a call. Recorded, and kept out of the chat reply allowance. */
+  voice?: boolean;
 }
 
 /**
@@ -1050,11 +1610,24 @@ export function handoverSummary(
   history: Array<{ role: 'visitor' | 'assistant'; text: string }>,
   question: string,
 ): string {
-  const asked = history.filter((turn) => turn.role === 'visitor').map((turn) => turn.text.trim()).filter(Boolean);
-  const answered = history.filter((turn) => turn.role === 'assistant').map((turn) => turn.text.trim()).filter(Boolean);
-  const clip = (text: string, max = 160): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+  const asked = history
+    .filter((turn) => turn.role === 'visitor')
+    .map((turn) => turn.text.trim())
+    .filter(Boolean);
+  const answered = history
+    .filter((turn) => turn.role === 'assistant')
+    .map((turn) => turn.text.trim())
+    .filter(Boolean);
+  const clip = (text: string, max = 160): string =>
+    text.length > max ? `${text.slice(0, max - 1)}…` : text;
   const lines = [`Handover from ${assistantName}.`];
-  if (asked.length > 0) lines.push(`Asked so far: ${asked.slice(-3).map((q) => `"${clip(q)}"`).join(' · ')}`);
+  if (asked.length > 0)
+    lines.push(
+      `Asked so far: ${asked
+        .slice(-3)
+        .map((q) => `"${clip(q)}"`)
+        .join(' · ')}`,
+    );
   if (answered.length > 0) lines.push(`Last answer given: "${clip(answered.at(-1)!, 220)}"`);
   lines.push(`Now: "${clip(question)}" - the visitor asked for a person.`);
   return lines.join('\n');
@@ -1072,7 +1645,10 @@ function dedupeSources(chunks: RetrievedChunk[]): Array<{ title: string; url: st
 }
 
 /** The hosts a reply may link to: the website itself and every domain the widget is allowed on. */
-export function allowedHosts(property: { websiteUrl: string; domains: Array<{ pattern: string }> }): string[] {
+export function allowedHosts(property: {
+  websiteUrl: string;
+  domains: Array<{ pattern: string }>;
+}): string[] {
   const hosts = new Set<string>();
   try {
     hosts.add(new URL(property.websiteUrl).hostname.toLowerCase());
@@ -1084,4 +1660,18 @@ export function allowedHosts(property: { websiteUrl: string; domains: Array<{ pa
     if (host) hosts.add(host);
   }
   return [...hosts];
+}
+
+/**
+ * A reply as it should be said rather than read: links become "our website", list markers and
+ * markdown go, whitespace collapses. The speech service does the same again for its own sake;
+ * this keeps the transcript honest about what was actually said.
+ */
+export function spokenText(text: string): string {
+  return text
+    .replace(/https?:\/\/\S+/gi, 'our website')
+    .replace(/[*_`#>]+/g, '')
+    .replace(/^\s*[-•\d]+[.)]?\s+/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

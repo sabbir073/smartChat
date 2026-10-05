@@ -27,9 +27,7 @@ export interface AiDispatchFacts {
   };
 }
 
-export type AiDispatchDecision =
-  | { reply: true }
-  | { reply: false; reason: AiSkipReason };
+export type AiDispatchDecision = { reply: true } | { reply: false; reason: AiSkipReason };
 
 export type AiSkipReason =
   | 'mode_team'
@@ -39,7 +37,9 @@ export type AiSkipReason =
   | 'assigned'
   | 'paused'
   | 'agents_online'
-  | 'reply_limit';
+  | 'reply_limit'
+  /** The visitor is on a call the AI is handling; the voice turn answers, not a chat reply. */
+  | 'on_call';
 
 export function decideAiReply(facts: AiDispatchFacts): AiDispatchDecision {
   const { settings, conversation } = facts;
@@ -156,12 +156,19 @@ export class AiDispatchService {
       ]);
       if (!conversation) return null;
 
-      const decision = settings.mode === 'team' ? { reply: false as const, reason: 'mode_team' as const } : decideAiReply({ settings, planIncludesAi, agentsOnline, conversation });
+      const decision =
+        settings.mode === 'team'
+          ? { reply: false as const, reason: 'mode_team' as const }
+          : decideAiReply({ settings, planIncludesAi, agentsOnline, conversation });
       if (!decision.reply) {
         if (shouldSuggestReplies({ settings, planIncludesAi, conversation })) {
           await this.options.queue.enqueue(
             AiJob.SUGGEST,
-            { accountId: input.accountId, conversationId: input.conversationId, messageId: input.messageId },
+            {
+              accountId: input.accountId,
+              conversationId: input.conversationId,
+              messageId: input.messageId,
+            },
             { attempts: 1, jobId: `ai-suggest-${input.conversationId}` },
           );
         }
@@ -184,7 +191,10 @@ export class AiDispatchService {
       );
       return decision;
     } catch (error) {
-      this.options.onError?.(error, { conversationId: input.conversationId, messageId: input.messageId });
+      this.options.onError?.(error, {
+        conversationId: input.conversationId,
+        messageId: input.messageId,
+      });
       return null;
     }
   }

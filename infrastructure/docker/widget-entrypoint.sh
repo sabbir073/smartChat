@@ -63,6 +63,17 @@ case "$API" in
 esac
 
 connect_src="'self' ${API} ${api_ws} ${REALTIME} ${realtime_ws}"
+# The media server, for voice calls: the panel opens a WebSocket to it for signalling. WebRTC
+# media itself is not governed by this policy. Absent when calling is not deployed.
+LIVEKIT="${LIVEKIT_PUBLIC_URL:-}"
+LIVEKIT="${LIVEKIT%/}"
+if [ -n "$LIVEKIT" ]; then
+  livekit_host="${LIVEKIT#*://}"
+  case "$LIVEKIT" in
+    wss://*) connect_src="${connect_src} ${LIVEKIT} https://${livekit_host}" ;;
+    *)       connect_src="${connect_src} ${LIVEKIT} http://${livekit_host}" ;;
+  esac
+fi
 # The API is an image source as well as a data one: it serves the team's profile pictures, which
 # the chat header shows. Without it the header renders a broken image on every customer site.
 img_src="'self' data: blob: ${API}"
@@ -71,7 +82,8 @@ if [ -n "$STORAGE" ]; then
   img_src="${img_src} ${STORAGE}"
 fi
 
-PANEL_CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src ${img_src}; font-src 'self' data:; connect-src ${connect_src}; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
+# media-src blob: is the remote audio of a call, which the browser hands over as a blob URL.
+PANEL_CSP="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src ${img_src}; font-src 'self' data:; connect-src ${connect_src}; media-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'"
 
 # A literal '|' cannot appear in a URL host, so it is a safe sed delimiter here.
 sed -i "s|__SMARTCHAT_PANEL_CSP__|${PANEL_CSP}|g" /etc/nginx/conf.d/default.conf

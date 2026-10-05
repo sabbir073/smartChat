@@ -9,6 +9,11 @@ export interface RuntimeConfig {
   apiUrl: string;
   realtimeUrl: string;
   widgetUrl: string;
+  /**
+   * The media server browsers connect to for a call, or null when calling is not configured. The
+   * join grant carries the URL as well; this copy is for the page to know calling exists at all.
+   */
+  livekitUrl: string | null;
 }
 
 export const RUNTIME_CONFIG_GLOBAL = '__SMARTCHAT_CONFIG__';
@@ -19,12 +24,22 @@ declare global {
   }
 }
 
+/**
+ * Where the dashboard connects for a call. `LIVEKIT_PUBLIC_URL` is the name the rest of the
+ * platform uses (docs/VOICE.md); the `NEXT_PUBLIC_` spelling is accepted for a deployment that
+ * configured the web image on its own. Read at request time, like everything else here.
+ */
+export function livekitPublicUrl(): string | undefined {
+  return process.env['LIVEKIT_PUBLIC_URL'] || process.env['NEXT_PUBLIC_LIVEKIT_URL'] || undefined;
+}
+
 /** Server-side: read from the process environment. */
 export function readRuntimeConfig(): RuntimeConfig {
   return {
     apiUrl: process.env['API_URL'] ?? 'http://localhost:3001',
     realtimeUrl: process.env['REALTIME_URL'] ?? 'http://localhost:3002',
     widgetUrl: process.env['WIDGET_URL'] ?? 'http://localhost:3003',
+    livekitUrl: livekitPublicUrl() ?? null,
   };
 }
 
@@ -48,5 +63,6 @@ export function runtimeConfig(): RuntimeConfig {
     apiUrl: 'http://localhost:3001',
     realtimeUrl: 'http://localhost:3002',
     widgetUrl: 'http://localhost:3003',
+    livekitUrl: null,
   };
 }

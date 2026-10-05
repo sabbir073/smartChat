@@ -12,7 +12,13 @@ import { MessageList } from './components/MessageList.js';
 import { Composer } from './components/Composer.js';
 import { ChatEnded, EndChatConfirm } from './components/ChatEnded.js';
 import { AgentArrivedBanner, OfflineSent } from './components/OfflineSent.js';
+import { CallBar } from './components/CallBar.js';
 import { viewAfterInboundMessage, type View } from './lib/view.js';
+import { CallController } from './lib/call-controller.js';
+import { createLiveKitRoom, requestMicrophone } from './lib/call-room.js';
+import { callOf, languageHint, needsDetailsBeforeCalling } from './lib/call-state.js';
+import { createRingback } from './lib/ringback.js';
+import { useCall } from './lib/use-call.js';
 
 interface Params {
   publicId: string;
@@ -96,7 +102,9 @@ export function App() {
    */
   const [online, setOnline] = useState(false);
   /** The person at the top of the window - the assignee, or the owner - as the server tells it. */
-  const [presenter, setPresenter] = useState<{ name: string; avatarUrl: string | null } | null>(null);
+  const [presenter, setPresenter] = useState<{ name: string; avatarUrl: string | null } | null>(
+    null,
+  );
   /** Pre-chat answers, held until the first message so they arrive with it in one write. */
   const [preChat, setPreChat] = useState<Record<string, string> | null>(null);
   const [offlineError, setOfflineError] = useState<string | null>(null);
@@ -125,6 +133,55 @@ export function App() {
   const client = useRef<ChatClient | null>(null);
   const typingTimer = useRef<number | null>(null);
   const isOpen = useRef(false);
+
+  /**
+   * Voice calls.
+   *
+   * One controller for the panel's lifetime, built once: it owns the media room and the ringback,
+   * neither of which should be recreated by a re-render. The token it signs requests with is read
+   * at call time, because the session arrives after the controller exists.
+   */
+  const token = useRef<string | null>(null);
+  const call = useMemo(() => {
+    const bearer = () => {
+      const current = token.current ?? (params ? readToken(params.publicId) : null);
+      if (!current)
+        throw new WidgetApiError('UNAUTHENTICATED', 'The chat session is not ready yet', 0);
+      return current;
+    };
+    // `async`, so a missing token rejects like any other failure instead of throwing out of
+    // the call site.
+    return new CallController({
+      api: {
+        start: async (input) => widgetApi.startCall(bearer(), input),
+        current: async () => widgetApi.currentCall(bearer()),
+        get: async (id) => widgetApi.call(bearer(), id),
+        joined: async (id) => widgetApi.callJoined(bearer(), id),
+        end: async (id) => widgetApi.endCall(bearer(), id),
+      },
+      createRoom: createLiveKitRoom,
+      requestMicrophone,
+      ringback: createRingback(),
+      language: languageHint(navigator.language),
+    });
+  }, [params]);
+  const callSnapshot = useCall(call);
+  /** The pre-chat form is up for a call rather than a message; its button says so. */
+  const [callAfterDetails, setCallAfterDetails] = useState(false);
+
+  useEffect(() => () => call.dispose(), [call]);
+
+  /**
+   * Keep the chat on the conversation the call is in.
+   *
+   * A call opens the visitor's conversation on the server when there was none, and the socket
+   * only hears about a conversation it asked for - so the panel asks, and the transcript the
+   * call writes shows up here as it is spoken.
+   */
+  useEffect(() => {
+    const current = callOf(callSnapshot.phase);
+    if (current) client.current?.adoptConversation(current.conversationId);
+  }, [callSnapshot.phase]);
 
   /**
    * Merge a message into the list.
@@ -180,8 +237,13 @@ export function App() {
             // A trigger can greet somebody who is still on a form. Show them what was sent.
             setView((current) => viewAfterInboundMessage(current, message.senderType));
             // A reply that just happened: the host page chimes, and tells them if they are away.
-            if (live && message.type !== 'system' && message.type !== 'note') {
-              bridge?.alert(message.senderName ?? businessName.current, message.type === 'text' ? message.body : 'Sent you a file');
+            // Not for a line spoken on a call: the visitor heard it, and a chime per sentence
+            // over a conversation they are having out loud is noise.
+            if (live && message.type !== 'system' && message.type !== 'note' && !message.voice) {
+              bridge?.alert(
+                message.senderName ?? businessName.current,
+                message.type === 'text' ? message.body : 'Sent you a file',
+              );
             }
             // The badge only counts what the visitor has not seen.
             if (!isOpen.current) {
@@ -216,12 +278,13 @@ export function App() {
             setEndedBy(null);
           }
         },
+        onCall: (dto) => call.onServerUpdate(dto),
       });
 
       client.current = chat;
       void chat.connect();
     },
-    [bridge, upsertMessage],
+    [bridge, call, upsertMessage],
   );
 
   const bootstrap = useCallback(
@@ -240,6 +303,7 @@ export function App() {
         });
 
         writeToken(params.publicId, result.token);
+        token.current = result.token;
         setSession(result);
         setConfig(result.widget.config);
         applyTheme(result.widget.config);
@@ -262,6 +326,13 @@ export function App() {
         }
 
         connectSocket(result.token);
+        /**
+         * A reload in the middle of a call must not lose the call.
+         *
+         * Asked only where the website takes calls: for every other site this would be one more
+         * request per panel load for an answer that is always "none".
+         */
+        if (result.voice.enabled) void call.resume();
       } catch (error) {
         if (error instanceof WidgetApiError && error.code === 'INVALID_TOKEN') {
           clearToken(params.publicId);
@@ -279,7 +350,7 @@ export function App() {
         setView('unavailable');
       }
     },
-    [params, connectSocket],
+    [params, connectSocket, call],
   );
 
   // --- bridge ---------------------------------------------------------------
@@ -372,11 +443,12 @@ export function App() {
 
   const resolved = params;
   // With a person on the chat, their name is the subtitle: the visitor is talking to somebody.
-  const subtitle = presenter && !closed && messages.some((m) => m.senderType === 'agent')
-    ? `${presenter.name} · ${online ? 'online' : 'away'}`
-    : online
-      ? config.content.subtitleOnline
-      : config.content.subtitleOffline;
+  const subtitle =
+    presenter && !closed && messages.some((m) => m.senderType === 'agent')
+      ? `${presenter.name} · ${online ? 'online' : 'away'}`
+      : online
+        ? config.content.subtitleOnline
+        : config.content.subtitleOffline;
 
   /**
    * Keep the answers, do not send them yet.
@@ -414,6 +486,44 @@ export function App() {
     setDetailsFor(null);
     setPreChat(values);
     if (body) sendMessage(body, values);
+  }
+
+  /**
+   * The visitor pressed Call.
+   *
+   * The same gate as the first message: where the customer asks for details before a
+   * conversation opens, they are asked for before a call opens one. The form that appears is the
+   * pre-chat form with its button relabelled, and its answers travel with the call.
+   */
+  function handleCallPressed() {
+    const needsDetails = needsDetailsBeforeCalling({
+      preChatEnabled: config.behaviour.preChatEnabled,
+      hasPreChat: preChat !== null,
+      knowsVisitor: Boolean(session?.visitor.name || session?.visitor.email),
+      hasVisitorMessages: messages.some((m) => m.senderType === 'visitor'),
+      preview: resolved.preview,
+    });
+    if (needsDetails) {
+      setDetailsFor(null);
+      setTicketFor(null);
+      setCallAfterDetails(true);
+      return;
+    }
+    startCall(preChat ?? undefined);
+  }
+
+  /** The form was filled in for a call. The answers are kept: a later message must not ask again. */
+  function handleDetailsThenCall(values: Record<string, string>) {
+    setPreChat(values);
+    startCall(values);
+  }
+
+  function startCall(details: Record<string, string> | undefined) {
+    setCallAfterDetails(false);
+    if (view === 'prechat') setView('chat');
+    // A call is the visitor reaching out, as much as a first message is.
+    bridge?.engaged();
+    void call.startCall(details);
   }
 
   /**
@@ -471,7 +581,9 @@ export function App() {
     }
   }
 
-  const lastVisitorQuestion = [...messages].reverse().find((m) => m.senderType === 'visitor' && m.type === 'text')?.body ?? '';
+  const lastVisitorQuestion =
+    [...messages].reverse().find((m) => m.senderType === 'visitor' && m.type === 'text')?.body ??
+    '';
 
   /**
    * Fetch a download URL for one file.
@@ -488,7 +600,14 @@ export function App() {
       setMessages((current) =>
         current.map((m) =>
           m.id === messageId && m.ai
-            ? { ...m, ai: { ...m.ai, ...(value ? { rating: value } : {}), ...(value ? {} : { rating: undefined }) } }
+            ? {
+                ...m,
+                ai: {
+                  ...m.ai,
+                  ...(value ? { rating: value } : {}),
+                  ...(value ? {} : { rating: undefined }),
+                },
+              }
             : m,
         ),
       );
@@ -579,7 +698,13 @@ export function App() {
      */
     const knowsVisitor = Boolean(session?.visitor.name || session?.visitor.email);
     const firstWords = !messages.some((m) => m.senderType === 'visitor');
-    if (config.behaviour.preChatEnabled && !preChat && !knowsVisitor && firstWords && !resolved.preview) {
+    if (
+      config.behaviour.preChatEnabled &&
+      !preChat &&
+      !knowsVisitor &&
+      firstWords &&
+      !resolved.preview
+    ) {
       setDetailsFor(body);
       return;
     }
@@ -614,9 +739,10 @@ export function App() {
 
     // Details travel on `start`, which the server also uses to continue the greeting's
     // conversation - the visitor's first words arrive with their name attached.
-    const promise = chat.conversationId && !details
-      ? chat.send(clientMessageId, body)
-      : chat.start(clientMessageId, body, details);
+    const promise =
+      chat.conversationId && !details
+        ? chat.send(clientMessageId, body)
+        : chat.start(clientMessageId, body, details);
 
     promise
       .then((message) => {
@@ -692,6 +818,18 @@ export function App() {
   };
   /** Only offer to end something that exists and is still live. */
   const canEndChat = view === 'chat' && !closed && !resolved.preview && messages.length > 0;
+  /**
+   * The Call button: where the website takes calls, on the screens a conversation can start
+   * from, and never over a call that is already on. The server's flag decides whether calling
+   * exists at all; the panel only decides when the button would make sense.
+   */
+  const canCall =
+    (session?.voice.enabled ?? false) &&
+    !resolved.preview &&
+    (view === 'chat' || view === 'prechat') &&
+    !closed &&
+    !confirmingEnd &&
+    (callSnapshot.phase.kind === 'idle' || callSnapshot.phase.kind === 'over');
 
   return (
     <div className="panel">
@@ -707,8 +845,19 @@ export function App() {
           setEndError(null);
           setConfirmingEnd(true);
         }}
+        canCall={canCall}
+        onCall={handleCallPressed}
         onMinimise={() => bridge?.requestClose()}
       />
+
+      {callSnapshot.phase.kind !== 'idle' && (
+        <CallBar
+          snapshot={callSnapshot}
+          onMute={(muted) => void call.setMuted(muted)}
+          onHangUp={() => void call.hangUp()}
+          onUnblockAudio={() => void call.unblockAudio()}
+        />
+      )}
 
       {view === 'chat' && connection === 'reconnecting' && (
         <div className="banner" role="status">
@@ -737,12 +886,15 @@ export function App() {
       {view === 'prechat' && (
         <div className="body">
           <div className="bubble bubble-agent">{config.content.welcomeMessage}</div>
+          {/* One form whichever button it carries, so pressing Call halfway through filling it
+              in relabels the button rather than emptying the fields. */}
           <PreChatForm
             intro={config.forms.preChatIntro}
             fields={config.forms.preChatFields}
-            submitLabel="Start chat"
+            submitLabel={callAfterDetails ? 'Start call' : 'Start chat'}
             busy={submitting}
-            onSubmit={handlePreChat}
+            onSubmit={callAfterDetails ? handleDetailsThenCall : handlePreChat}
+            {...(callAfterDetails ? { onCancel: () => setCallAfterDetails(false) } : {})}
           />
         </div>
       )}
@@ -791,7 +943,8 @@ export function App() {
                       setTicketError(null);
                       setTicketFor(client.current?.conversationId ?? null);
                     },
-                    onDismiss: () => setOfferDismissedFor(messages[messages.length - 1]?.id ?? null),
+                    onDismiss: () =>
+                      setOfferDismissedFor(messages[messages.length - 1]?.id ?? null),
                   }
                 : undefined
             }
@@ -828,6 +981,17 @@ export function App() {
                 busy={submitting}
                 onSubmit={handleDetailsThenSend}
                 onCancel={() => setDetailsFor(null)}
+              />
+            </div>
+          ) : callAfterDetails ? (
+            <div className="ticket-form">
+              <PreChatForm
+                intro={config.forms.preChatIntro}
+                fields={config.forms.preChatFields}
+                submitLabel="Start call"
+                busy={false}
+                onSubmit={handleDetailsThenCall}
+                onCancel={() => setCallAfterDetails(false)}
               />
             </div>
           ) : closed ? (

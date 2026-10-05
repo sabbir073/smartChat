@@ -249,7 +249,11 @@ interface SmartChatGlobal {
       if (config.behaviour.soundEnabled) playChime();
       if (!d.hidden) return;
       startFlash(title);
-      if (config.behaviour.browserNotifications && 'Notification' in w && Notification.permission === 'granted') {
+      if (
+        config.behaviour.browserNotifications &&
+        'Notification' in w &&
+        Notification.permission === 'granted'
+      ) {
         try {
           const notification = new Notification(title, { body, tag: `smartchat-${publicId}` });
           notification.onclick = () => {
@@ -390,7 +394,9 @@ interface SmartChatGlobal {
       iframe.setAttribute('aria-label', iframe.title);
       // Only what the panel actually needs. No allow-top-navigation, no allow-popups.
       iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-forms');
-      iframe.setAttribute('allow', 'clipboard-write');
+      // The microphone is for voice calls. Delegating it here does not grant anything: the
+      // browser still asks the visitor, inside the panel, the first time a call starts.
+      iframe.setAttribute('allow', 'clipboard-write; microphone');
       iframe.src =
         `${widgetOrigin}/panel/?p=${encodeURIComponent(publicId!)}&n=${encodeURIComponent(nonce)}` +
         (embedTicket ? `&e=${encodeURIComponent(embedTicket)}` : '');
@@ -466,7 +472,12 @@ interface SmartChatGlobal {
           // the panel is listening and is lost. Replaying it here is what tells the panel it is
           // visible - without it the panel counts unread messages the visitor is looking at and
           // never sends a read receipt.
-          if (open) post({ type: HOST_TO_PANEL.OPEN, nonce, ...(openedProactively ? { proactive: true } : {}) });
+          if (open)
+            post({
+              type: HOST_TO_PANEL.OPEN,
+              nonce,
+              ...(openedProactively ? { proactive: true } : {}),
+            });
           return;
         case PANEL_TO_HOST.CLOSE:
           setOpen(false);
@@ -476,7 +487,10 @@ interface SmartChatGlobal {
           paintBadge();
           return;
         case PANEL_TO_HOST.ALERT:
-          alert(String(message.title || config?.content.businessName || 'New message'), String(message.body || ''));
+          alert(
+            String(message.title || config?.content.businessName || 'New message'),
+            String(message.body || ''),
+          );
           return;
         case PANEL_TO_HOST.PERMISSION:
           askPermission();

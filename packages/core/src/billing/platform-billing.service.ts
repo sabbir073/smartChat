@@ -62,7 +62,20 @@ export interface AccountBillingView {
     stripeSubscriptionId: string | null;
     note: string | null;
   };
-  plan: Pick<Plan, 'id' | 'key' | 'name' | 'maxProperties' | 'maxMembers' | 'aiAgent' | 'integrations' | 'removeBranding' | 'aiOwnKey'>;
+  plan: Pick<
+    Plan,
+    | 'id'
+    | 'key'
+    | 'name'
+    | 'maxProperties'
+    | 'maxMembers'
+    | 'aiAgent'
+    | 'integrations'
+    | 'removeBranding'
+    | 'aiOwnKey'
+    | 'voice'
+    | 'voiceMinutesPerMonth'
+  >;
   usage: { properties: number; members: number };
   locked: { locked: boolean; reason: string | null };
   invoices: InvoiceView[];
@@ -157,7 +170,13 @@ export class PlatformBillingService {
         },
       });
     });
-    await this.record(principal.adminId, 'billing.plan.updated', null, { planKey: plan.key, changed: Object.keys(input) }, ip);
+    await this.record(
+      principal.adminId,
+      'billing.plan.updated',
+      null,
+      { planKey: plan.key, changed: Object.keys(input) },
+      ip,
+    );
 
     // Existing subscribers see the new limits at their next request. Prices for them change on
     // the Stripe side only at their next checkout or plan change; a live Stripe subscription
@@ -177,12 +196,20 @@ export class PlatformBillingService {
     requirePlatformPermission(principal);
     const gateway = await this.options.gateway();
     if (!gateway) throw new AppError(ErrorCode.BILLING_NOT_CONFIGURED);
-    const plans = await this.options.db.plan.findMany({ where: { isActive: true, isContactSales: false } });
+    const plans = await this.options.db.plan.findMany({
+      where: { isActive: true, isContactSales: false },
+    });
     const outcomes: PlanSaveOutcome[] = [];
     for (const plan of plans) outcomes.push(await this.syncAfterSave(plan, gateway));
-    await this.record(principal.adminId, 'billing.plans.synced', null, {
-      results: outcomes.map((o) => ({ key: o.plan.key, status: o.stripe.status })),
-    }, ip);
+    await this.record(
+      principal.adminId,
+      'billing.plans.synced',
+      null,
+      {
+        results: outcomes.map((o) => ({ key: o.plan.key, status: o.stripe.status })),
+      },
+      ip,
+    );
     return outcomes;
   }
 
@@ -202,7 +229,10 @@ export class PlatformBillingService {
         publishableKey,
         secretKeyConfigured: secretKey !== null,
         webhookSecretConfigured: webhookSecret,
-        testMode: secretKey === null ? null : secretKey.startsWith('sk_test_') || secretKey.startsWith('rk_test_'),
+        testMode:
+          secretKey === null
+            ? null
+            : secretKey.startsWith('sk_test_') || secretKey.startsWith('rk_test_'),
       },
       graceDays,
       contactEmail,
@@ -220,23 +250,43 @@ export class PlatformBillingService {
     const changed: string[] = [];
 
     if (input.stripePublishableKey !== undefined) {
-      await this.options.settings.set(PlatformSettingKey.STRIPE_PUBLISHABLE_KEY, input.stripePublishableKey, admin);
+      await this.options.settings.set(
+        PlatformSettingKey.STRIPE_PUBLISHABLE_KEY,
+        input.stripePublishableKey,
+        admin,
+      );
       changed.push('stripePublishableKey');
     }
     if (input.stripeSecretKey !== undefined) {
-      await this.options.settings.set(PlatformSettingKey.STRIPE_SECRET_KEY, input.stripeSecretKey, admin);
+      await this.options.settings.set(
+        PlatformSettingKey.STRIPE_SECRET_KEY,
+        input.stripeSecretKey,
+        admin,
+      );
       changed.push('stripeSecretKey');
     }
     if (input.stripeWebhookSecret !== undefined) {
-      await this.options.settings.set(PlatformSettingKey.STRIPE_WEBHOOK_SECRET, input.stripeWebhookSecret, admin);
+      await this.options.settings.set(
+        PlatformSettingKey.STRIPE_WEBHOOK_SECRET,
+        input.stripeWebhookSecret,
+        admin,
+      );
       changed.push('stripeWebhookSecret');
     }
     if (input.graceDays !== undefined) {
-      await this.options.settings.set(PlatformSettingKey.BILLING_GRACE_DAYS, String(input.graceDays), admin);
+      await this.options.settings.set(
+        PlatformSettingKey.BILLING_GRACE_DAYS,
+        String(input.graceDays),
+        admin,
+      );
       changed.push('graceDays');
     }
     if (input.contactEmail !== undefined) {
-      await this.options.settings.set(PlatformSettingKey.BILLING_CONTACT_EMAIL, input.contactEmail, admin);
+      await this.options.settings.set(
+        PlatformSettingKey.BILLING_CONTACT_EMAIL,
+        input.contactEmail,
+        admin,
+      );
       changed.push('contactEmail');
     }
 
@@ -262,20 +312,33 @@ export class PlatformBillingService {
   }
 
   /** Does the stored secret actually work? Cheap, and the thing to press after pasting a key. */
-  async testStripe(principal: PlatformPrincipal): Promise<{ ok: true; livemode: boolean; accountName: string | null }> {
+  async testStripe(
+    principal: PlatformPrincipal,
+  ): Promise<{ ok: true; livemode: boolean; accountName: string | null }> {
     requirePlatformPermission(principal);
     const gateway = await this.options.gateway();
-    if (!gateway) throw new AppError(ErrorCode.BILLING_NOT_CONFIGURED, 'Enter a publishable key and a secret key first.');
+    if (!gateway)
+      throw new AppError(
+        ErrorCode.BILLING_NOT_CONFIGURED,
+        'Enter a publishable key and a secret key first.',
+      );
     return gateway.testConnection();
   }
 
   // --- one account ----------------------------------------------------------------
 
-  async accountBilling(principal: PlatformPrincipal, accountId: string): Promise<AccountBillingView> {
+  async accountBilling(
+    principal: PlatformPrincipal,
+    accountId: string,
+  ): Promise<AccountBillingView> {
     requirePlatformPermission(principal);
     const [subscription, invoices] = await Promise.all([
       this.options.db.subscription.findUnique({ where: { accountId }, include: { plan: true } }),
-      this.options.db.invoice.findMany({ where: { accountId }, orderBy: { createdAt: 'desc' }, take: 50 }),
+      this.options.db.invoice.findMany({
+        where: { accountId },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      }),
     ]);
     if (!subscription) throw new AppError(ErrorCode.ACCOUNT_NOT_FOUND);
     // Fresh, not cached: the operator is looking at this account on purpose.
@@ -304,6 +367,8 @@ export class PlatformBillingService {
         integrations: subscription.plan.integrations,
         removeBranding: subscription.plan.removeBranding,
         aiOwnKey: subscription.plan.aiOwnKey,
+        voice: subscription.plan.voice,
+        voiceMinutesPerMonth: subscription.plan.voiceMinutesPerMonth,
       },
       usage: entitlements.usage,
       locked: { locked: entitlements.lock.locked, reason: entitlements.lock.reason },
@@ -355,7 +420,13 @@ export class PlatformBillingService {
       },
     });
     this.options.entitlements.invalidate(accountId);
-    await this.record(principal.adminId, 'billing.account.plan_set', accountId, { planKey: plan.key, note: input.note }, ip);
+    await this.record(
+      principal.adminId,
+      'billing.account.plan_set',
+      accountId,
+      { planKey: plan.key, note: input.note },
+      ip,
+    );
     return this.accountBilling(principal, accountId);
   }
 
@@ -401,7 +472,10 @@ export class PlatformBillingService {
     annualPriceCents: number;
   }): void {
     if (plan.isDefault && plan.isContactSales) {
-      throw new AppError(ErrorCode.VALIDATION_FAILED, 'The default plan cannot be a contact-us plan');
+      throw new AppError(
+        ErrorCode.VALIDATION_FAILED,
+        'The default plan cannot be a contact-us plan',
+      );
     }
     if (plan.isDefault && !plan.isActive) {
       throw new AppError(ErrorCode.VALIDATION_FAILED, 'The default plan must be active');
@@ -409,7 +483,10 @@ export class PlatformBillingService {
     if (plan.isDefault && (plan.monthlyPriceCents > 0 || plan.annualPriceCents > 0)) {
       // A new account has no card on file (the operator's choice: no card for the free plan), so
       // the plan it lands on has to cost nothing.
-      throw new AppError(ErrorCode.VALIDATION_FAILED, 'The default plan must be free: new accounts land on it without a card');
+      throw new AppError(
+        ErrorCode.VALIDATION_FAILED,
+        'The default plan must be free: new accounts land on it without a card',
+      );
     }
   }
 
@@ -433,11 +510,22 @@ export class PlatformBillingService {
    */
   private async syncAfterSave(plan: Plan, gateway?: StripeGateway): Promise<PlanSaveOutcome> {
     const subscribers = await this.options.db.subscription.count({ where: { planId: plan.id } });
-    const sellable = plan.isActive && !plan.isContactSales && (plan.monthlyPriceCents > 0 || plan.annualPriceCents > 0);
-    if (!sellable) return { plan: this.adminView(plan, subscribers), stripe: { status: 'skipped', error: null } };
+    const sellable =
+      plan.isActive &&
+      !plan.isContactSales &&
+      (plan.monthlyPriceCents > 0 || plan.annualPriceCents > 0);
+    if (!sellable)
+      return {
+        plan: this.adminView(plan, subscribers),
+        stripe: { status: 'skipped', error: null },
+      };
 
     const stripe = gateway ?? (await this.options.gateway());
-    if (!stripe) return { plan: this.adminView(plan, subscribers), stripe: { status: 'skipped', error: null } };
+    if (!stripe)
+      return {
+        plan: this.adminView(plan, subscribers),
+        stripe: { status: 'skipped', error: null },
+      };
 
     try {
       const synced = await stripe.syncPlan(plan);
@@ -449,10 +537,16 @@ export class PlatformBillingService {
           stripeAnnualPriceId: synced.annualPriceId,
         },
       });
-      return { plan: this.adminView(updated, subscribers), stripe: { status: 'synced', error: null } };
+      return {
+        plan: this.adminView(updated, subscribers),
+        stripe: { status: 'synced', error: null },
+      };
     } catch (error) {
       const message = error instanceof AppError ? error.message : 'Stripe did not accept the plan';
-      return { plan: this.adminView(plan, subscribers), stripe: { status: 'failed', error: message } };
+      return {
+        plan: this.adminView(plan, subscribers),
+        stripe: { status: 'failed', error: message },
+      };
     }
   }
 

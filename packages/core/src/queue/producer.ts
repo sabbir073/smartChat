@@ -33,6 +33,10 @@ const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'ai.followup': QueueName.AI,
   'ai.suggest': QueueName.AI,
   'ai.recrawl_due': QueueName.AI,
+  'voice.ring_timeout': QueueName.VOICE,
+  'voice.transfer_timeout': QueueName.VOICE,
+  'voice.ai_join': QueueName.VOICE_AI,
+  'voice.sweep': QueueName.VOICE,
 };
 
 /**

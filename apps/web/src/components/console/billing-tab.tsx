@@ -35,9 +35,14 @@ export interface PlanAdmin {
   maxProperties: number | null;
   maxMembers: number | null;
   aiAgent: boolean;
+  /** AI replies per calendar month per account; null is unlimited. Meaningless when `aiAgent` is off. */
+  aiRepliesPerMonth: number | null;
   integrations: boolean;
   removeBranding: boolean;
   aiOwnKey: boolean;
+  /** Voice calls from the widget, with the month's allowance of call minutes; null is unlimited. */
+  voice: boolean;
+  voiceMinutesPerMonth: number | null;
   isContactSales: boolean;
   isPublic: boolean;
   isDefault: boolean;
@@ -193,7 +198,12 @@ export function BillingTab({ onError }: { onError: (message: string | null) => v
                     : `${formatMoney(plan.monthlyPriceCents, plan.currency)}/month · ${formatMoney(plan.annualPriceCents, plan.currency)}/year`}
                   {' · '}
                   {plan.maxProperties ?? '∞'} websites · {plan.maxMembers ?? '∞'} members
-                  {plan.aiAgent ? ' · AI agent' : ''}
+                  {plan.aiAgent
+                    ? ` · AI agent${plan.aiRepliesPerMonth === null ? '' : ` (${plan.aiRepliesPerMonth} replies/mo)`}`
+                    : ''}
+                  {plan.voice
+                    ? ` · voice${plan.voiceMinutesPerMonth === null ? '' : ` (${plan.voiceMinutesPerMonth} min/mo)`}`
+                    : ''}
                   {plan.integrations ? ' · integrations' : ''}
                   {plan.removeBranding ? ' · no branding' : ''}
                   {' · '}
@@ -490,9 +500,14 @@ function PlanEditor({
     maxProperties: plan ? (plan.maxProperties === null ? '' : String(plan.maxProperties)) : '1',
     maxMembers: plan ? (plan.maxMembers === null ? '' : String(plan.maxMembers)) : '1',
     aiAgent: plan?.aiAgent ?? false,
+    aiRepliesPerMonth:
+      plan?.aiRepliesPerMonth === null || plan === null ? '' : String(plan.aiRepliesPerMonth),
     integrations: plan?.integrations ?? false,
     removeBranding: plan?.removeBranding ?? false,
     aiOwnKey: plan?.aiOwnKey ?? false,
+    voice: plan?.voice ?? false,
+    voiceMinutesPerMonth:
+      plan?.voiceMinutesPerMonth === null || plan === null ? '' : String(plan.voiceMinutesPerMonth),
     isContactSales: plan?.isContactSales ?? false,
     isPublic: plan?.isPublic ?? true,
     isDefault: plan?.isDefault ?? false,
@@ -523,9 +538,12 @@ function PlanEditor({
       maxProperties: toLimit(form.maxProperties),
       maxMembers: toLimit(form.maxMembers),
       aiAgent: form.aiAgent,
+      aiRepliesPerMonth: toLimit(form.aiRepliesPerMonth),
       integrations: form.integrations,
       removeBranding: form.removeBranding,
       aiOwnKey: form.aiOwnKey,
+      voice: form.voice,
+      voiceMinutesPerMonth: toLimit(form.voiceMinutesPerMonth),
       isContactSales: form.isContactSales,
       isPublic: form.isPublic,
       isDefault: form.isDefault,
@@ -632,6 +650,23 @@ function PlanEditor({
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {check('AI agent', 'aiAgent')}
+          {text('AI replies a month', 'aiRepliesPerMonth', {
+            type: 'number',
+            min: 1,
+            placeholder: 'unlimited',
+            disabled: !form.aiAgent,
+          })}
+          {check(
+            'Voice calls',
+            'voice',
+            'The Call button in the widget; the team rings in the dashboard.',
+          )}
+          {text('Call minutes a month', 'voiceMinutesPerMonth', {
+            type: 'number',
+            min: 1,
+            placeholder: 'unlimited',
+            disabled: !form.voice,
+          })}
           {check('API keys & webhooks', 'integrations')}
           {check('Remove widget branding', 'removeBranding')}
           {check('Own AI provider key', 'aiOwnKey')}

@@ -90,7 +90,10 @@ export const aiEnvSchema = z.object({
     .string()
     .default('')
     .transform((value) => value.trim())
-    .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
+    .refine(
+      (value) => value === '' || /^https?:\/\//.test(value),
+      'must be an http(s) URL or empty',
+    ),
   AI_CHAT_MODEL: z.string().min(1).default('qwen3:1.7b'),
   AI_EMBED_MODEL: z.string().min(1).default('embeddinggemma'),
   /** Must match the `vector(n)` column in knowledge_chunks. Changing it is a migration and a re-index. */
@@ -101,7 +104,10 @@ export const aiEnvSchema = z.object({
     .string()
     .default('')
     .transform((value) => value.trim())
-    .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
+    .refine(
+      (value) => value === '' || /^https?:\/\//.test(value),
+      'must be an http(s) URL or empty',
+    ),
   AI_READER_TOKEN: z.string().default(''),
   /** Test only: how many milliseconds a "minute" of the assistant's timers is. Leave unset in production. */
   AI_TIMER_MINUTE_MS: z.coerce.number().int().min(1000).max(60_000).default(60_000),
@@ -119,7 +125,50 @@ export const aiEnvSchema = z.object({
     .string()
     .default('')
     .transform((value) => value.trim())
-    .refine((value) => value === '' || /^https?:\/\//.test(value), 'must be an http(s) URL or empty'),
+    .refine(
+      (value) => value === '' || /^https?:\/\//.test(value),
+      'must be an http(s) URL or empty',
+    ),
+});
+
+/**
+ * Voice calls. Everything is optional and the whole feature is off until `VOICE_ENABLED` is
+ * true and the media server is named - a deploy without a LiveKit does not fail, it just has no
+ * Call button. When it is on, the key and secret are what mint room tokens, so they are real
+ * secrets; the public URL is what browsers connect to; the API URL is the same server reached
+ * inside the network.
+ */
+export const voiceEnvSchema = z.object({
+  VOICE_ENABLED: bool.default(false),
+  /** Browsers connect here: wss://lk.example.com. */
+  LIVEKIT_PUBLIC_URL: z
+    .string()
+    .default('')
+    .transform((value) => value.trim())
+    .refine((value) => value === '' || /^wss?:\/\//.test(value), 'must be a ws(s) URL or empty'),
+  /** The API and the voice agent reach the server here: http://livekit:7880. */
+  LIVEKIT_API_URL: z
+    .string()
+    .default('')
+    .transform((value) => value.trim())
+    .refine(
+      (value) => value === '' || /^(https?|wss?):\/\//.test(value),
+      'must be an http(s) or ws(s) URL or empty',
+    ),
+  LIVEKIT_API_KEY: z.string().default(''),
+  LIVEKIT_API_SECRET: z.string().default(''),
+  /** The speech service (listening and speaking): http://speech:3010. */
+  SPEECH_URL: z
+    .string()
+    .default('')
+    .transform((value) => value.trim())
+    .refine(
+      (value) => value === '' || /^https?:\/\//.test(value),
+      'must be an http(s) URL or empty',
+    ),
+  SPEECH_TOKEN: z.string().default(''),
+  /** How many calls the AI may be on at once, server-wide. One per four spare cores is about right on a CPU box. */
+  VOICE_AI_MAX_CALLS: z.coerce.number().int().min(0).max(64).default(1),
 });
 
 export const storageEnvSchema = z.object({
@@ -195,3 +244,4 @@ export type MailEnv = z.infer<typeof mailEnvSchema>;
 export type HttpEnv = z.infer<typeof httpEnvSchema>;
 export type UrlsEnv = z.infer<typeof urlsEnvSchema>;
 export type AiEnv = z.infer<typeof aiEnvSchema>;
+export type VoiceEnv = z.infer<typeof voiceEnvSchema>;

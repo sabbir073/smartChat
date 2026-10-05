@@ -14,6 +14,7 @@ import { reportRoutes } from './report.routes.js';
 import { teamRoutes } from './team.routes.js';
 import { ticketRoutes } from './ticket.routes.js';
 import { uploadRoutes } from './upload.routes.js';
+import { voiceRoutes, voiceWebhookRoutes } from './voice.routes.js';
 import { widgetRoutes } from './widget.routes.js';
 
 /**
@@ -40,6 +41,9 @@ export async function registerRoutes(app: FastifyInstance, container: Container)
       await v1.register(async (scoped) => reportRoutes(scoped, container));
       await v1.register(async (scoped) => integrationRoutes(scoped, container));
       await v1.register(async (scoped) => billingRoutes(scoped, container));
+      await v1.register(async (scoped) => voiceRoutes(scoped, container));
+      // The media server's webhook: raw body, signed, no session. Its own scope like Stripe's.
+      await v1.register(async (scoped) => voiceWebhookRoutes(scoped, container));
       // Stripe's webhook: raw body, no session. Its own scope so the raw-body parser it installs
       // cannot leak into any route that expects parsed JSON.
       await v1.register(async (scoped) => stripeWebhookRoutes(scoped, container));

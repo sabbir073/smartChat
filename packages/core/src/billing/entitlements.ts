@@ -30,6 +30,8 @@ export interface Entitlements {
     | 'integrations'
     | 'removeBranding'
     | 'aiOwnKey'
+    | 'voice'
+    | 'voiceMinutesPerMonth'
     | 'isContactSales'
   >;
   subscription: Pick<
@@ -47,7 +49,7 @@ export interface Entitlements {
   lock: LockVerdict;
 }
 
-export type PlanFeature = 'aiAgent' | 'integrations' | 'removeBranding' | 'aiOwnKey';
+export type PlanFeature = 'aiAgent' | 'integrations' | 'removeBranding' | 'aiOwnKey' | 'voice';
 
 export interface EntitlementServiceOptions {
   db: Database;
@@ -73,7 +75,9 @@ export class EntitlementService {
     const now = this.clock.now();
     const cached = this.cache.get(accountId);
     const base =
-      cached && now.getTime() - cached.at < this.ttlMs ? cached.value : await this.load(accountId, now);
+      cached && now.getTime() - cached.at < this.ttlMs
+        ? cached.value
+        : await this.load(accountId, now);
     const usage = await this.usage(accountId);
     return this.assemble(base, usage, now);
   }
@@ -205,9 +209,43 @@ export class EntitlementService {
     if (!plan.aiAgent) return { allowed: false, used: 0, limit: 0 };
     if (plan.aiRepliesPerMonth === null) return { allowed: true, used: 0, limit: null };
     const used = await this.options.db.aiTurn.count({
-      where: { accountId, createdAt: { gte: startOfMonth(this.clock.now()) } },
+      where: { accountId, voice: false, createdAt: { gte: startOfMonth(this.clock.now()) } },
     });
     return { allowed: used < plan.aiRepliesPerMonth, used, limit: plan.aiRepliesPerMonth };
+  }
+
+  /**
+   * May one more call be taken this month?
+   *
+   * Minutes are counted from calls that were answered - by a person or by the AI - rounded up
+   * per call, the way any phone bill does it. A call that rings out costs nothing. The count is
+   * live: a cap reached stops the next call from starting, and the widget says so instead of
+   * ringing a team that cannot answer.
+   */
+  async voiceMinutesAllowance(
+    accountId: string,
+  ): Promise<{ allowed: boolean; used: number; limit: number | null }> {
+    const { plan } = await this.forAccount(accountId);
+    if (!plan.voice) return { allowed: false, used: 0, limit: 0 };
+    const rows = await this.options.db.call.findMany({
+      where: {
+        accountId,
+        startedAt: { gte: startOfMonth(this.clock.now()) },
+        answeredAt: { not: null },
+      },
+      select: { durationSeconds: true, status: true, answeredAt: true },
+    });
+    const now = this.clock.timestamp();
+    const used = rows.reduce((sum, row) => {
+      // A call still in progress has no duration yet; what it has used so far counts.
+      const seconds =
+        row.status === 'ended' || !row.answeredAt
+          ? row.durationSeconds
+          : Math.max(row.durationSeconds, Math.floor((now - row.answeredAt.getTime()) / 1000));
+      return sum + Math.ceil(seconds / 60);
+    }, 0);
+    if (plan.voiceMinutesPerMonth === null) return { allowed: true, used, limit: null };
+    return { allowed: used < plan.voiceMinutesPerMonth, used, limit: plan.voiceMinutesPerMonth };
   }
 
   /** The numbers a billing page shows next to the limits. */
@@ -242,5 +280,7 @@ function featureMessage(feature: PlanFeature, planName: string): string {
       return `Removing the widget branding is not included in the ${planName} plan.`;
     case 'aiOwnKey':
       return `Using your own AI provider key is not included in the ${planName} plan.`;
+    case 'voice':
+      return `Voice calls are not included in the ${planName} plan.`;
   }
 }

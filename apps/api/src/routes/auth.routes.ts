@@ -109,12 +109,16 @@ export async function authRoutes(app: FastifyInstance, container: Container): Pr
      */
     let permissions: string[] = [];
     let role: string | null = null;
+    // The membership id, not the user id: it is what a call's "answered by" and a message's
+    // sender carry, so the dashboard can tell "mine" from "a colleague's" without guessing.
+    let memberId: string | null = null;
     if (activeAccountId) {
       try {
         const membership = await container.accounts.requireMembership(user.id, activeAccountId);
         const context = buildTenantContext({ membership, requestId: request.requestId });
         permissions = [...context.permissions];
         role = context.role ?? null;
+        memberId = context.memberId ?? null;
       } catch {
         // A membership that cannot be resolved simply grants nothing.
       }
@@ -124,6 +128,7 @@ export async function authRoutes(app: FastifyInstance, container: Container): Pr
       user: toUserDto(user),
       accounts,
       activeAccountId,
+      memberId,
       permissions,
       role,
       csrfToken: requireSession(request).csrfSecret,
@@ -142,19 +147,27 @@ export async function authRoutes(app: FastifyInstance, container: Container): Pr
    * Profile pictures: sign, upload to the store, confirm. Confirm reads the bytes back and keeps
    * only a real image; the picture then answers at a public address the widget can show.
    */
-  app.post('/auth/profile/avatar/sign', { preHandler: app.authenticate }, async (request, reply) => {
-    const user = requireUser(request);
-    await app.rateLimit(request, 'mutation', `user:${user.id}`);
-    const input = parseBody(signAvatarSchema, request.body);
-    return ok(reply, await container.avatars.sign(user.id, input));
-  });
+  app.post(
+    '/auth/profile/avatar/sign',
+    { preHandler: app.authenticate },
+    async (request, reply) => {
+      const user = requireUser(request);
+      await app.rateLimit(request, 'mutation', `user:${user.id}`);
+      const input = parseBody(signAvatarSchema, request.body);
+      return ok(reply, await container.avatars.sign(user.id, input));
+    },
+  );
 
-  app.post('/auth/profile/avatar/confirm', { preHandler: app.authenticate }, async (request, reply) => {
-    const user = requireUser(request);
-    const input = parseBody(confirmAvatarSchema, request.body);
-    const updated = await container.avatars.confirm(user.id, input.avatarId);
-    return ok(reply, { user: toUserDto(updated) });
-  });
+  app.post(
+    '/auth/profile/avatar/confirm',
+    { preHandler: app.authenticate },
+    async (request, reply) => {
+      const user = requireUser(request);
+      const input = parseBody(confirmAvatarSchema, request.body);
+      const updated = await container.avatars.confirm(user.id, input.avatarId);
+      return ok(reply, { user: toUserDto(updated) });
+    },
+  );
 
   app.delete('/auth/profile/avatar', { preHandler: app.authenticate }, async (request, reply) => {
     const user = requireUser(request);
@@ -167,7 +180,10 @@ export async function authRoutes(app: FastifyInstance, container: Container): Pr
    * id, and an old id stops answering the moment a new picture is set.
    */
   app.get('/avatars/:userId/:avatarId', async (request, reply) => {
-    const params = parseParams(z.object({ userId: z.string().uuid(), avatarId: z.string().uuid() }), request.params);
+    const params = parseParams(
+      z.object({ userId: z.string().uuid(), avatarId: z.string().uuid() }),
+      request.params,
+    );
     const picture = await container.avatars.serve(params.userId, params.avatarId);
     if (!picture) {
       return reply.code(404).header('cache-control', 'public, max-age=60').send();

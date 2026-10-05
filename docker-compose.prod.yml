@@ -162,6 +162,45 @@ services:
   widget:
     <<: *hardening
 
+  # ---------------------------------------------------------------------------
+  # Voice calls. The media server publishes its media ports itself (see the base file); the
+  # TURN-over-TLS leg comes in through the edge on 443 and is handed over on the private
+  # network. The speech service gets four cores and the memory its models take; the agent is a
+  # small Node process. Together with the AI container this is the CPU budget of the box, which
+  # is why VOICE_AI_MAX_CALLS defaults to one.
+  # ---------------------------------------------------------------------------
+  livekit:
+    <<: *hardening
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1'
+
+  speech:
+    <<: *hardening
+    environment:
+      SPEECH_THREADS: ${SPEECH_THREADS:-4}
+    deploy:
+      resources:
+        limits:
+          memory: 3500m
+          cpus: '4'
+
+  voice:
+    <<: *hardening
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '2'
+
   # The acceptance harness - a fake customer website with the widget installed. It is
   # how the end-to-end suites exercise a real installation, and it has no business
   # running on a production server. A profile nothing activates here keeps it out of
@@ -197,6 +236,11 @@ services:
       # Templated, so the hostnames come from the environment rather than from a
       # file somebody has to remember to edit. nginx substitutes them at start.
       - ./infrastructure/nginx/edge.conf:/etc/nginx/templates/edge.conf.template:ro
+      # The main configuration is ours rather than the image's, for one reason: a `stream`
+      # block. Port 443 is answered by it, and it hands TLS connections to the HTTP servers
+      # below or - by the name the client asked for - to the media server's TURN listener.
+      - ./infrastructure/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infrastructure/nginx/stream.conf:/etc/nginx/templates/stream.conf.template:ro
       # TLS material lives OUTSIDE the repository. certbot writes it as root, and while it
       # sat in the working tree two things were true: `docker compose build` failed on every
       # deployed host, because BuildKit walks the context and cannot read certs/accounts
@@ -238,5 +282,6 @@ services:
     entrypoint: >
       sh -c "certbot certonly --webroot -w /var/www/certbot
       --non-interactive --agree-tos --email ${CERTBOT_EMAIL:?CERTBOT_EMAIL is required}
-      -d ${APP_HOST} -d www.${APP_HOST} -d ${API_HOST} -d ${WS_HOST} -d ${CDN_HOST}"
+      -d ${APP_HOST} -d www.${APP_HOST} -d ${API_HOST} -d ${WS_HOST} -d ${CDN_HOST}
+      ${CERT_EXTRA_ARGS:-}"
     networks: [smartchat]

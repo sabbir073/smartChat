@@ -66,6 +66,10 @@ export const createPlanSchema = z.object({
   removeBranding: z.boolean().default(false),
   /** The account may use its own OpenAI / DeepSeek / Anthropic key. */
   aiOwnKey: z.boolean().default(false),
+  /** Voice calls from the widget. */
+  voice: z.boolean().default(false),
+  /** Call minutes per calendar month per account; null is unlimited. Ignored when `voice` is off. */
+  voiceMinutesPerMonth: limitSchema.default(null),
   isContactSales: z.boolean().default(false),
   isPublic: z.boolean().default(true),
   isDefault: z.boolean().default(false),
@@ -89,11 +93,17 @@ export const updateBillingSettingsSchema = z
     stripePublishableKey: z
       .string()
       .trim()
-      .regex(/^pk_(test|live)_[A-Za-z0-9]+$/, 'A Stripe publishable key starts with pk_test_ or pk_live_')
+      .regex(
+        /^pk_(test|live)_[A-Za-z0-9]+$/,
+        'A Stripe publishable key starts with pk_test_ or pk_live_',
+      )
       .nullable()
       .optional(),
     stripeSecretKey: secretInput
-      .regex(/^(sk|rk)_(test|live)_[A-Za-z0-9]+$/, 'A Stripe secret key starts with sk_test_ or sk_live_')
+      .regex(
+        /^(sk|rk)_(test|live)_[A-Za-z0-9]+$/,
+        'A Stripe secret key starts with sk_test_ or sk_live_',
+      )
       .nullable()
       .optional(),
     stripeWebhookSecret: secretInput

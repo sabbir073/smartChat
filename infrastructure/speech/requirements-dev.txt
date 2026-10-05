@@ -1,0 +1,4 @@
+# Test-only dependencies (pytest runs the unit tests without models; set SPEECH_MODELS_DIR for the rest).
+-r requirements.txt
+pytest==9.1.1
+httpx==0.28.1

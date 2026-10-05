@@ -6,6 +6,7 @@ import {
   AiReplyService,
   ConversationService,
   AiSettingsService,
+  CallService,
   CrawlService,
   EntitlementService,
   FeedService,
@@ -15,19 +16,22 @@ import {
   KnowledgeSourceService,
   GeoService,
   KnowledgeService,
+  LiveKitRooms,
   LogMailProvider,
   PlatformSettingsService,
+  PrismaCallStore,
   QueueName,
   QueueProducer,
   RedisEventPublisher,
   SmtpMailProvider,
   StorageService,
+  VoiceSettingsService,
   createAiGateway,
   createRedisClient,
   type MailProvider,
   type SendEmailPayload,
 } from '@smartchat/core';
-import { AnalyticsJob, EmailJob, MaintenanceJob, WebhookJob } from '@smartchat/core';
+import { AnalyticsJob, EmailJob, MaintenanceJob, VoiceJob, WebhookJob } from '@smartchat/core';
 import { createPrismaClient } from '@smartchat/database';
 import { createLogger, withLogContext } from '@smartchat/logger';
 import { loadWorkerConfig } from './config.js';
@@ -36,6 +40,7 @@ import { processAnalyticsJob } from './processors/analytics.js';
 import { processEmailJob } from './processors/email.js';
 import { processWebhookJob } from './processors/webhook.js';
 import { processMaintenanceJob } from './processors/maintenance.js';
+import { processVoiceJob } from './processors/voice.js';
 
 const config = loadWorkerConfig();
 
@@ -143,7 +148,10 @@ async function main(): Promise<void> {
       fallbackBaseUrl: config.AI_FALLBACK_BASE_URL || undefined,
     },
     settings,
-    { log: (event, detail) => logger.warn(detail, event), accountRoute: (accountId) => accountAi.routeFor(accountId) },
+    {
+      log: (event, detail) => logger.warn(detail, event),
+      accountRoute: (accountId) => accountAi.routeFor(accountId),
+    },
   );
   const knowledge = new KnowledgeService({ db, gateway: aiGateway, appUrl: config.APP_URL });
   // A publishing client of its own: the BullMQ connection is reserved for blocking reads.
@@ -163,7 +171,10 @@ async function main(): Promise<void> {
     log: (event, detail) => logger.info(detail, event),
   });
   if (config.AI_TIMER_MINUTE_MS !== 60_000) {
-    logger.warn({ minuteMs: config.AI_TIMER_MINUTE_MS }, 'AI_TIMER_MINUTE_MS is set: the assistant\'s timers run fast (tests only)');
+    logger.warn(
+      { minuteMs: config.AI_TIMER_MINUTE_MS },
+      "AI_TIMER_MINUTE_MS is set: the assistant's timers run fast (tests only)",
+    );
   }
   const aiReplies = new AiReplyService({
     db,
@@ -183,10 +194,16 @@ async function main(): Promise<void> {
   });
   const reader =
     config.AI_READER_URL && config.AI_READER_TOKEN
-      ? new ReaderClient({ url: config.AI_READER_URL, token: config.AI_READER_TOKEN, log: (event, detail) => logger.warn(detail, event) })
+      ? new ReaderClient({
+          url: config.AI_READER_URL,
+          token: config.AI_READER_TOKEN,
+          log: (event, detail) => logger.warn(detail, event),
+        })
       : null;
   if (config.AI_READER_URL && !config.AI_READER_TOKEN) {
-    logger.warn('AI_READER_URL is set but AI_READER_TOKEN is empty; websites will be read without the browser');
+    logger.warn(
+      'AI_READER_URL is set but AI_READER_TOKEN is empty; websites will be read without the browser',
+    );
   }
   const crawler = new CrawlService({
     db,
@@ -225,12 +242,48 @@ async function main(): Promise<void> {
     logger.info('no local ai configured - replies use the fallback provider only');
   }
 
+  /**
+   * The call timers. The same call service as the API's, built the same way, so a ring timeout
+   * here and an answer there agree on what the call is. Null when calling is off.
+   */
+  const calls =
+    config.VOICE_ENABLED && config.LIVEKIT_API_URL && config.LIVEKIT_PUBLIC_URL
+      ? new CallService({
+          store: new PrismaCallStore(db),
+          media: new LiveKitRooms({
+            apiUrl: config.LIVEKIT_API_URL,
+            publicUrl: config.LIVEKIT_PUBLIC_URL,
+            apiKey: config.LIVEKIT_API_KEY,
+            apiSecret: config.LIVEKIT_API_SECRET,
+          }),
+          settings: new VoiceSettingsService({ db, entitlements }),
+          entitlements,
+          events,
+          queue: scheduler,
+          redis: connection,
+          conversations: new ConversationService({ db, events }),
+          aiMaxCalls: config.VOICE_AI_MAX_CALLS,
+          log: (event, detail) => logger.info(detail, event),
+        })
+      : null;
+
   const workers: Worker[] = [
     new Worker(
       QueueName.AI,
       (job: Job) =>
-        withLogContext({ jobId: job.id ?? undefined, requestId: (job.data as { requestId?: string }).requestId }, () =>
-          processAiJob(job, logger, { replies: aiReplies, knowledge, settings: aiSettings, crawler, files: aiFiles, sources: aiSources, lifecycle, queue: scheduler }),
+        withLogContext(
+          { jobId: job.id ?? undefined, requestId: (job.data as { requestId?: string }).requestId },
+          () =>
+            processAiJob(job, logger, {
+              replies: aiReplies,
+              knowledge,
+              settings: aiSettings,
+              crawler,
+              files: aiFiles,
+              sources: aiSources,
+              lifecycle,
+              queue: scheduler,
+            }),
         ),
       // As many as the local model serves at once, plus a little so overflow reaches the
       // fallback rather than queueing here first. Indexing shares the queue and is rare.
@@ -269,6 +322,17 @@ async function main(): Promise<void> {
     ),
 
     new Worker(
+      QueueName.VOICE,
+      (job: Job) =>
+        withLogContext({ jobId: job.id ?? undefined }, () =>
+          processVoiceJob(job, logger, { calls }),
+        ),
+      // Timers are cheap and must not queue behind each other: a ring timeout that waits for
+      // another ring timeout is a visitor listening to silence.
+      { connection, concurrency: 8 },
+    ),
+
+    new Worker(
       QueueName.MAINTENANCE,
       (job: Job) =>
         withLogContext({ jobId: job.id ?? undefined }, () =>
@@ -283,7 +347,9 @@ async function main(): Promise<void> {
             // Through the email queue, like everything else: the maintenance worker should not
             // be the process that finds out SMTP is slow.
             deliver: (message) =>
-              scheduler.enqueue(EmailJob.SEND, { message, requestId: 'billing' }).then(() => undefined),
+              scheduler
+                .enqueue(EmailJob.SEND, { message, requestId: 'billing' })
+                .then(() => undefined),
           }),
         ),
       { connection, concurrency: 1 },
@@ -329,6 +395,8 @@ async function main(): Promise<void> {
   // The safety net under the webhook queue: every minute, ask the database what is due. See
   // processors/webhook.ts for why this exists and not merely for tidiness.
   await scheduler.schedule(WebhookJob.SWEEP, {}, '* * * * *');
+  // The net under the call timers: every minute, end calls whose timer or webhook never came.
+  if (calls) await scheduler.schedule(VoiceJob.SWEEP, {}, '* * * * *');
   /**
    * Subscriptions, hourly.
    *

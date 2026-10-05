@@ -35,6 +35,8 @@ export type PlanCard = Pick<
   | 'integrations'
   | 'removeBranding'
   | 'aiOwnKey'
+  | 'voice'
+  | 'voiceMinutesPerMonth'
   | 'isContactSales'
   | 'sortOrder'
 > & {
@@ -160,9 +162,13 @@ export class BillingService {
     });
     if (!plan || plan.isContactSales) throw new AppError(ErrorCode.PLAN_NOT_FOUND);
 
-    const priceId = input.interval === 'year' ? plan.stripeAnnualPriceId : plan.stripeMonthlyPriceId;
+    const priceId =
+      input.interval === 'year' ? plan.stripeAnnualPriceId : plan.stripeMonthlyPriceId;
     if (!priceId) {
-      throw new AppError(ErrorCode.PLAN_NOT_FOUND, `${plan.name} is not available ${input.interval === 'year' ? 'annually' : 'monthly'}.`);
+      throw new AppError(
+        ErrorCode.PLAN_NOT_FOUND,
+        `${plan.name} is not available ${input.interval === 'year' ? 'annually' : 'monthly'}.`,
+      );
     }
 
     const account = await this.options.db.account.findUniqueOrThrow({
@@ -279,7 +285,8 @@ export class BillingService {
     });
 
     const to =
-      (await this.options.settings.get('billing.contact_email')) ?? this.options.fallbackContactEmail;
+      (await this.options.settings.get('billing.contact_email')) ??
+      this.options.fallbackContactEmail;
     await this.options.deliver(
       billingEnquiryTemplate(this.options.brand, {
         to,
@@ -322,6 +329,8 @@ export function pickPlan(plan: Plan): Omit<PlanCard, 'purchasable'> {
     integrations: plan.integrations,
     removeBranding: plan.removeBranding,
     aiOwnKey: plan.aiOwnKey,
+    voice: plan.voice,
+    voiceMinutesPerMonth: plan.voiceMinutesPerMonth,
     isContactSales: plan.isContactSales,
     sortOrder: plan.sortOrder,
   };

@@ -1,5 +1,5 @@
 import { io, type Socket } from 'socket.io-client';
-import { ServerEvent, VisitorClientEvent } from '@smartchat/types';
+import { ServerEvent, VisitorClientEvent, type CallDto } from '@smartchat/types';
 import type { MessageDto } from './types.js';
 import { API_URL } from './runtime.js';
 
@@ -24,6 +24,11 @@ export interface ChatClientHandlers {
   onAvailability(available: boolean): void;
   /** Who the window shows: the person with this conversation, or the owner. */
   onPresenter(presenter: Presenter | null): void;
+  /**
+   * The visitor's call changed. The whole call travels every time, so the panel renders from
+   * the latest one it has and never has to reconstruct a state from a sequence of events.
+   */
+  onCall(call: CallDto): void;
 }
 
 export interface Presenter {
@@ -137,10 +142,18 @@ export class ChatClient {
     socket.on(ServerEvent.CONVERSATION_CLOSED, (payload: { conversationId: string }) =>
       this.handlers.onConversation({ ...payload, status: 'closed' }),
     );
-    socket.on(ServerEvent.CONVERSATION_PRESENTER, (payload: { conversationId: string; presenter: Presenter | null }) => {
-      if (!this.conversationId || payload?.conversationId === this.conversationId) {
-        this.handlers.onPresenter(payload?.presenter ?? null);
-      }
+    socket.on(
+      ServerEvent.CONVERSATION_PRESENTER,
+      (payload: { conversationId: string; presenter: Presenter | null }) => {
+        if (!this.conversationId || payload?.conversationId === this.conversationId) {
+          this.handlers.onPresenter(payload?.presenter ?? null);
+        }
+      },
+    );
+    // Addressed to this visitor's own room by the server, so there is nothing to subscribe to.
+    socket.on(ServerEvent.CALL_UPDATED, (payload: { call: CallDto }) => {
+      if (!payload?.call?.id) return;
+      this.handlers.onCall(payload.call);
     });
   }
 
@@ -329,6 +342,21 @@ export class ChatClient {
   /** Forget the conversation so the next message starts a new one rather than resuming this. */
   forgetConversation(): void {
     this.conversationId = null;
+  }
+
+  /**
+   * Take up a conversation that was opened over HTTP rather than over this socket.
+   *
+   * A call opens the visitor's conversation on the server when there was none, and the server
+   * only adds a socket to a conversation's room when the socket itself asked for that
+   * conversation. So the panel asks: a sync from the start joins the room and replays what the
+   * call has already written there - the "call started" line, and the first words of an AI call.
+   */
+  adoptConversation(conversationId: string): void {
+    if (this.conversationId === conversationId) return;
+    this.conversationId = conversationId;
+    this.lastSeq = 0;
+    if (this.socket?.connected) void this.resync();
   }
 
   markRead(): void {
