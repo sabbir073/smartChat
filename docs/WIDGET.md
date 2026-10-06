@@ -146,7 +146,12 @@ The Call button appears when the website has calling on and the plan includes it
 in the bootstrap). Before the first call the same pre-chat form the chat shows is shown, with the
 same required fields; the answers travel with the call. The panel iframe is created with
 `allow="microphone"` by the loader, which is what lets a cross-origin iframe ask for the
-microphone at all; the permission prompt names our widget origin, not the customer's site.
+microphone at all; the permission prompt names our widget origin, not the customer's site. A
+customer site that sends its own `Permissions-Policy` denying the microphone to frames (for
+example `microphone=()`) overrides that attribute; the browser then refuses without asking, and
+the bar says the microphone is unavailable. The fix is on their side: list the widget origin,
+as in `microphone=(self "https://cdn.getchat.site")`, or send no microphone entry at all. The dashboard host sends
+`microphone=(self)` for the agent side, set once at the edge (`infrastructure/nginx/edge.conf`).
 
 The media library (`livekit-client`) is loaded only when Call is pressed, as its own chunk under
 the panel's path, so the panel's first load is unchanged. During a call the chat keeps working:
