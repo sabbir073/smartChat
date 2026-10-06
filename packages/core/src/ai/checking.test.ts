@@ -87,4 +87,28 @@ describe('looksLikeLookup', () => {
   it('still recognises a real question', () => {
     expect(looksLikeLookup('How much does the Growth plan cost per month?')).toBe(true);
   });
+
+  it('looks past a greeting or a filler in front of the question', () => {
+    // What callers actually say first; the old rule heard "Hi" and promised nothing.
+    expect(looksLikeLookup('Hi. What services does Smart Lab Global offer?')).toBe(true);
+    expect(looksLikeLookup('Hello, how much does a website cost?')).toBe(true);
+    expect(looksLikeLookup('Okay, so what are your opening hours?')).toBe(true);
+    expect(looksLikeLookup('Assalamu alaikum, where is your office?')).toBe(true);
+    expect(looksLikeLookup('Is it ok to pay by card?')).toBe(true);
+  });
+
+  it('counts a short Bengali question, which takes fewer words than English', () => {
+    expect(looksLikeLookup('আপনাদের অফিস কোথায়?')).toBe(true);
+    expect(looksLikeLookup('আপনারা কখন খোলা থাকেন')).toBe(true);
+    expect(looksLikeLookup('হ্যালো, স্মার্ট ল্যাব গ্লোবাল কী কী সেবা দেয়?')).toBe(true);
+  });
+
+  it('still says nothing for greetings, thanks and small talk, in either language', () => {
+    expect(looksLikeLookup('Hi, how are you?')).toBe(false);
+    expect(looksLikeLookup('Okay')).toBe(false);
+    expect(looksLikeLookup('Okay, thank you very much, goodbye')).toBe(false);
+    expect(looksLikeLookup('হ্যালো')).toBe(false);
+    expect(looksLikeLookup('ধন্যবাদ, আমার আর কিছু জানার নেই। বিদায়।')).toBe(false);
+    expect(looksLikeLookup('আচ্ছা ঠিক আছে')).toBe(false);
+  });
 });

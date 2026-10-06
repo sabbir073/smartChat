@@ -154,17 +154,34 @@ export function checkingDelay(input: {
     : Math.max(floor, input.usualReplyMs + SLOWER_THAN_USUAL_MS);
 }
 
+/**
+ * A greeting in front of the message: "Hi.", "Hello, ", "Assalamu alaikum, ". On a call almost
+ * everyone opens this way, and what follows it is the real message.
+ */
+const OPENING_GREETING =
+  /^\s*(?:(?:hi|hello|hey|hiya|good\s+(?:morning|afternoon|evening)|salam|assalamu?\s*(?:o\s*)?alaikum|ok|okay|so|well|um|uh|হ্যালো|হাই|আসসালামু\s*আলাইকুম|সালাম|নমস্কার|আচ্ছা|তো)(?=[^\p{L}\p{M}]|$)[\s,.!?।-]*)+/iu;
+/**
+ * Thanks, goodbyes and small talk: not something to look up, however many words they take. No
+ * "ok" here: "is it ok to pay by card?" is a question.
+ */
+const CLOSING_OR_SMALL_TALK =
+  /(?:^|[^\p{L}\p{M}])(?:hi|hello|hey|thanks|thank\s+you|thank|cheers|bye|goodbye|good\s?night|welcome|how\s+are\s+you|ধন্যবাদ|বিদায়|আল্লাহ\s*হাফেজ|কেমন\s*আছেন)(?=[^\p{L}\p{M}]|$)/iu;
+/**
+ * Words that make even a short message a question. Bengali says in two words what English says in
+ * five ("আপনাদের অফিস কোথায়?" is "where is your office?"), so length alone undercounts it.
+ */
+const QUESTION_WORD =
+  /(?:^|[^\p{L}\p{M}])(?:what|where|when|how|why|which|who|price|cost|কী|কি|কোথায়|কখন|কত|কেন|কিভাবে|কীভাবে|কোন|কারা|কে)(?=[^\p{L}\p{M}]|$)/iu;
+
 export function looksLikeLookup(question: string): boolean {
-  const words = question.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
-  if (words.length < LOOKUP_MIN_WORDS) return false;
-  // "Great, thanks, that's all I needed - bye!" is long enough to count and still not a lookup.
-  if (
-    words.length <= 12 &&
-    /\b(hi|hello|hey|thanks|thank you|thank|cheers|ok|okay|bye|goodbye|good ?night|welcome)\b/i.test(
-      question,
-    )
-  )
+  // "Hi. What services do you offer?" is a question with a greeting in front of it.
+  const body = question.replace(OPENING_GREETING, '');
+  const words = body.split(/\s+/).filter((w) => /[\p{L}\p{N}]/u.test(w));
+  if (words.length < 2) return false;
+  if (words.length < LOOKUP_MIN_WORDS && !QUESTION_WORD.test(body) && !/[?？]/.test(body))
     return false;
+  // "Great, thanks, that's all I needed - bye!" is long enough to count and still not a lookup.
+  if (words.length <= 12 && CLOSING_OR_SMALL_TALK.test(body)) return false;
   return true;
 }
 
