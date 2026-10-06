@@ -27,7 +27,9 @@ Calling is included from the Growth plan, with a monthly allowance of call minut
    conversation is reused or a new one opened (with the pre-chat answers). A room is created; the
    visitor gets a key (`join`) in the response; `call:updated` goes to the website's agents and to
    the visitor; a `voice.ring_timeout` job is set for the website's ring time. The conversation
-   gets a `call.started` system message.
+   gets a `call.started` system message. Starting a call is limited to 10 an hour per visitor and
+   60 an hour per IP address - looser per address because carrier NAT puts whole neighbourhoods
+   behind one, and an office behind another.
 2. Agents see the ringing card. `POST /calls/:id/answer` claims the call with one Redis `SET NX`
    per ring round; the winner gets a key; everyone else gets 409 and the card says "taken".
 3. The call is `connecting` until both the visitor and the answerer are in the room (the media

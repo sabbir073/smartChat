@@ -274,9 +274,10 @@ export async function widgetRoutes(app: FastifyInstance, container: Container): 
    */
   app.post('/widget/calls', async (request, reply) => {
     const token = bearer(request);
-    await app.rateLimit(request, 'callStart');
+    await app.rateLimit(request, 'callStartIp');
     const input = parseBody(startCallSchema, request.body);
     const identity = await container.visitors.authenticate(token);
+    await app.rateLimit(request, 'callStart', `visitor:${identity.visitorId}`);
     const calls = requireCalls(container);
     const result = await calls.start(
       {
