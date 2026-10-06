@@ -104,6 +104,9 @@ services:
     # The models take ~5 GB resident (chat + embeddings + context); the rest is headroom for the
     # prompt cache. Eight of the twelve cores: a reply then takes ~4 s, and Postgres, Redis and the
     # Node services keep four for themselves under load.
+    # Half the default CPU weight: when the box is busy, a model reply may wait a few milliseconds
+    # longer, but the media server forwarding a live call must not (see livekit below).
+    cpu_shares: 512
     deploy:
       resources:
         limits:
@@ -171,16 +174,26 @@ services:
   # ---------------------------------------------------------------------------
   livekit:
     <<: *hardening
+    # Live audio is the one thing on this box that cannot wait. Two cores of headroom (a call
+    # uses a few percent of one, but forwarding comes in bursts), the Go runtime told so (left
+    # alone it starts a thread per host core, and a burst across twelve threads under a small
+    # quota is throttled for the rest of the period - audible as jitter), and four times the
+    # default CPU weight, so a busy model never delays a packet.
+    environment:
+      GOMAXPROCS: '2'
+    cpu_shares: 4096
     deploy:
       resources:
         limits:
           memory: 1g
-          cpus: '1'
+          cpus: '2'
 
   speech:
     <<: *hardening
     environment:
       SPEECH_THREADS: ${SPEECH_THREADS:-4}
+    # A caller is listening while it works: twice the default weight, ahead of the model.
+    cpu_shares: 2048
     deploy:
       resources:
         limits:
@@ -192,6 +205,8 @@ services:
     environment:
       NODE_ENV: production
       LOG_LEVEL: ${LOG_LEVEL:-info}
+    # Sends the AI's voice in real time: twice the default weight, like the speech service.
+    cpu_shares: 2048
     read_only: true
     tmpfs:
       - /tmp

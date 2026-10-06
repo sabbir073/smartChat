@@ -53,11 +53,37 @@ export async function requestMicrophone(): Promise<boolean> {
 }
 
 /** The capture options every call uses: a voice call wants a clean, level voice. */
-const CAPTURE = { echoCancellation: true, noiseSuppression: true, autoGainControl: true };
+const CAPTURE = {
+  echoCancellation: true,
+  noiseSuppression: true,
+  autoGainControl: true,
+  channelCount: 1,
+};
+
+/**
+ * How the voice is sent: tuned for a phone call, not for music.
+ *
+ * 32 kbps mono Opus is clear for speech and leaves room on a weak mobile uplink, where the
+ * library's 48 kbps default plus redundancy is the first thing to start losing packets. Discontinuous
+ * transmission is off: it saves a few kilobits in pauses at the cost of clipped first syllables
+ * and a jitter buffer that has to relearn the line after every silence. Redundant audio stays on,
+ * so a lost packet is replaced by its copy in the next one instead of a gap. The same values are
+ * used by the dashboard (apps/web/src/lib/call-room.ts).
+ */
+const PUBLISH = {
+  audioPreset: { maxBitrate: 32_000, priority: 'high' as const },
+  dtx: false,
+  red: true,
+};
 
 export const createLiveKitRoom: CallRoomFactory = async (handlers) => {
   const lk = await import('livekit-client');
-  const room = new lk.Room({ adaptiveStream: false, dynacast: false });
+  const room = new lk.Room({
+    adaptiveStream: false,
+    dynacast: false,
+    audioCaptureDefaults: CAPTURE,
+    publishDefaults: PUBLISH,
+  });
   /** Set before a deliberate disconnect, so the event it raises is not read as a loss. */
   let closing = false;
 

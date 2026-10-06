@@ -51,7 +51,20 @@ export async function connectCallRoom(
     // Voice only: nothing to adapt or simulcast, and the defaults for those cost a little CPU.
     adaptiveStream: false,
     dynacast: false,
-    audioCaptureDefaults: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audioCaptureDefaults: {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+      channelCount: 1,
+    },
+    // Tuned for a phone call, as in the widget (apps/widget/src/panel/lib/call-room.ts): 32 kbps
+    // mono Opus, no discontinuous transmission (clipped first syllables, a jitter buffer that
+    // relearns the line after every pause), redundant audio on so a lost packet has a copy.
+    publishDefaults: {
+      audioPreset: { maxBitrate: 32_000, priority: 'high' },
+      dtx: false,
+      red: true,
+    },
   });
 
   const container = document.createElement('div');
