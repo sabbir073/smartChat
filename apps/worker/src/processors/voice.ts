@@ -30,6 +30,11 @@ export async function processVoiceJob(
       await deps.calls.transferTimeout(payload.accountId, payload.callId, payload.ringSeq);
       return;
     }
+    case VoiceJob.AI_RETRY: {
+      const payload = job.data as VoiceRingTimeoutPayload;
+      await deps.calls.aiRetry(payload.accountId, payload.callId, payload.ringSeq);
+      return;
+    }
     case VoiceJob.SWEEP: {
       const touched = await deps.calls.sweep();
       if (touched > 0) logger.info({ touched }, 'voice sweep ended stuck calls');

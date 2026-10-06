@@ -1,5 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppError, ErrorCode, Permission, ServerEvent, type TenantContext } from '@smartchat/types';
+import {
+  AppError,
+  ErrorCode,
+  Permission,
+  ServerEvent,
+  type CallDto,
+  type TenantContext,
+} from '@smartchat/types';
 import type { EntitlementService } from '../billing/entitlements.js';
 import { VoiceJob } from '../queue/jobs.js';
 import type { QueueProducer } from '../queue/producer.js';
@@ -12,7 +19,12 @@ import type {
 import type { RedisClient } from '../redis/client.js';
 import type { VisitorIdentity } from '../services/conversation.service.js';
 import type { Clock } from '../time.js';
-import { CallService, TRANSFER_RING_SECONDS } from './call.service.js';
+import {
+  AI_QUEUE_MAX_SECONDS,
+  AI_QUEUE_POLL_SECONDS,
+  CallService,
+  TRANSFER_RING_SECONDS,
+} from './call.service.js';
 import type { CallLegRow, CallRow, CallStore, MemberSummary } from './call.store.js';
 import { identity as who, type MediaRooms } from './media.js';
 import type { VoiceSettings, VoiceSettingsService } from './settings.service.js';
@@ -68,6 +80,7 @@ class MemoryStore implements CallStore {
       endReason: null,
       durationSeconds: 0,
       aiSeconds: 0,
+      aiQueuedAt: null,
       createdAt: data.now,
       updatedAt: data.now,
     };
@@ -109,6 +122,18 @@ class MemoryStore implements CallStore {
   }
   async staleCalls(): Promise<CallRow[]> {
     return [];
+  }
+  async aiCallsInProgress(): Promise<number> {
+    return [...this.calls.values()].filter((c) => c.handledByAi && c.status !== 'ended').length;
+  }
+  async queuedForAiBefore(since: Date | null, exceptCallId: string): Promise<number> {
+    return [...this.calls.values()].filter(
+      (c) =>
+        c.status === 'ringing' &&
+        c.aiQueuedAt !== null &&
+        (since === null || c.aiQueuedAt.getTime() < since.getTime()) &&
+        c.id !== exceptCallId,
+    ).length;
   }
   async createLeg(data: {
     accountId: string;
@@ -243,6 +268,7 @@ function fakeRedis() {
         return 'OK';
       }),
       get: vi.fn(async (key: string) => keys.get(key) ?? null),
+      del: vi.fn(async (key: string) => (keys.delete(key) ? 1 : 0)),
       sadd: vi.fn(async (key: string, member: string) => {
         const set = sets.get(key) ?? new Set<string>();
         set.add(member);
@@ -474,11 +500,100 @@ describe('starting a call', () => {
     expect(w.media.deleted).toHaveLength(1);
   });
 
-  it('does not hand a call to an AI that is already on as many calls as it may take', async () => {
+  it('holds the caller for an AI that is already on as many calls as it may take', async () => {
+    // What used to happen here was "nobody is available", while the AI was merely busy.
+    const w = world({ online: [], aiMaxCalls: 1, aiBusy: 1 });
+    const { call, join } = await w.service.start(visitor, {});
+    expect(call.status).toBe('ringing');
+    expect(call.queuedAt).not.toBeNull();
+    expect(join).not.toBeNull();
+    expect(w.queue.jobs.map((job) => job.job)).toEqual([VoiceJob.AI_RETRY]);
+    expect(w.queue.jobs[0]?.delay).toBe(AI_QUEUE_POLL_SECONDS * 1000);
+    expect(w.store.events.map((event) => event.type)).toEqual(['started', 'ai_queued']);
+    const toVisitor = callEvents(w, ServerEvent.CALL_UPDATED).filter((event) => event.toVisitor);
+    expect((toVisitor.at(-1)?.payload as { call: CallDto }).call.queuedAt).toBe(call.queuedAt);
+  });
+});
+
+describe('holding for the AI', () => {
+  const second: VisitorIdentity = { ...visitor, visitorId: 'vis-2', sessionId: 'sess-2' };
+
+  it('the AI takes the waiting caller as soon as it frees up', async () => {
     const w = world({ online: [], aiMaxCalls: 1, aiBusy: 1 });
     const { call } = await w.service.start(visitor, {});
-    expect(call.status).toBe('ended');
-    expect(call.endReason).toBe('no_answer');
+    await w.service.aiRetry(ACCOUNT, call.id, 0);
+    expect(w.store.calls.get(call.id)?.status).toBe('ringing');
+    expect(w.queue.jobs.filter((job) => job.job === VoiceJob.AI_RETRY)).toHaveLength(2);
+
+    w.redis.keys.delete('voice:ai_calls');
+    await w.service.aiRetry(ACCOUNT, call.id, 0);
+    const row = w.store.calls.get(call.id)!;
+    expect(row).toMatchObject({ status: 'connecting', handledByAi: true, aiQueuedAt: null });
+    expect(w.queue.jobs.at(-1)).toMatchObject({ job: VoiceJob.AI_JOIN });
+    expect((await w.service.dto(row)).queuedAt).toBeNull();
+  });
+
+  it('takes waiting callers oldest first, and a new call does not jump the line', async () => {
+    const w = world({ online: [], aiMaxCalls: 1, aiBusy: 1 });
+    const first = (await w.service.start(visitor, {})).call;
+    w.clock.advance(1_000);
+    const later = (await w.service.start(second, {})).call;
+    expect(later.queuedAt).not.toBeNull();
+
+    w.redis.keys.delete('voice:ai_calls');
+    // The later caller asks first and is told to wait: someone has been waiting longer.
+    await w.service.aiRetry(ACCOUNT, later.id, 0);
+    expect(w.store.calls.get(later.id)?.status).toBe('ringing');
+    await w.service.aiRetry(ACCOUNT, first.id, 0);
+    expect(w.store.calls.get(first.id)?.handledByAi).toBe(true);
+    // The AI's one place is now taken by the first caller; the second keeps holding.
+    await w.service.aiRetry(ACCOUNT, later.id, 0);
+    expect(w.store.calls.get(later.id)?.status).toBe('ringing');
+  });
+
+  it('ends a caller kept waiting too long as busy, not as "nobody is available"', async () => {
+    const w = world({ online: [], aiMaxCalls: 1, aiBusy: 1 });
+    const { call } = await w.service.start(visitor, {});
+    w.clock.advance(AI_QUEUE_MAX_SECONDS * 1000);
+    await w.service.aiRetry(ACCOUNT, call.id, 0);
+    expect(w.store.calls.get(call.id)).toMatchObject({ status: 'ended', endReason: 'busy' });
+    expect(w.store.messages.at(-1)?.event.kind).toBe('call.missed');
+  });
+
+  it('lets a person answer a caller who is holding, and the waiting stops', async () => {
+    const w = world({ aiMaxCalls: 1, aiBusy: 1 });
+    const { call } = await w.service.start(visitor, {});
+    await w.service.ringTimeout(ACCOUNT, call.id, 0);
+    expect(w.store.calls.get(call.id)?.aiQueuedAt).not.toBeNull();
+    // The ring timer firing again (late, or twice) changes nothing for a caller already holding.
+    const eventsBefore = w.store.events.length;
+    await w.service.ringTimeout(ACCOUNT, call.id, 0);
+    expect(w.store.events).toHaveLength(eventsBefore);
+
+    const answered = await w.service.answer(member('m1'), call.id);
+    expect(answered.call).toMatchObject({ status: 'connecting', queuedAt: null });
+    expect(w.store.calls.get(call.id)?.aiQueuedAt).toBeNull();
+    await w.service.aiRetry(ACCOUNT, call.id, 0);
+    expect(w.store.calls.get(call.id)?.answeredByMemberId).toBe('m1');
+    expect(w.queue.jobs.map((job) => job.job)).not.toContain(VoiceJob.AI_JOIN);
+  });
+
+  it('does not hold the caller when the AI may not answer at all', async () => {
+    const w = world({ online: [], aiMaxCalls: 1, aiBusy: 1, settings: { aiAnswers: false } });
+    const { call } = await w.service.start(visitor, {});
+    expect(call).toMatchObject({ status: 'ended', endReason: 'no_answer' });
+  });
+
+  it('keeps a transfer to the AI from overtaking callers who are holding', async () => {
+    const w = world({ online: [], aiMaxCalls: 1, aiBusy: 1 });
+    await w.service.start(second, {});
+    w.redis.keys.delete('voice:ai_calls');
+    w.store.online = [{ id: 'm1', name: 'Sabbir' }];
+    const { call } = await w.service.start(visitor, {});
+    await w.service.answer(member('m1'), call.id);
+    await expect(w.service.transfer(member('m1'), call.id, { to: 'ai' })).rejects.toMatchObject({
+      code: ErrorCode.TEMPORARILY_UNAVAILABLE,
+    });
   });
 });
 

@@ -34,6 +34,7 @@ function call(overrides: Partial<CallDto> = {}): CallDto {
     answeredByName: null,
     handledByAi: false,
     pending: null,
+    queuedAt: null,
     visitor: { name: 'Rahim', email: 'rahim@example.com' },
     language: 'bn',
     startedAt: '2026-10-05T10:00:00.000Z',

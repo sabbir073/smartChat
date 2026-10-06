@@ -36,8 +36,10 @@ import type { VoiceSettingsService } from './settings.service.js';
  *  - The first person to press Answer gets the call; the claim is one Redis key set once, so two
  *    people answering in the same instant cannot both win. Everyone else sees "taken".
  *  - If nobody answers before the website's ring time, the AI picks up - provided the owner has
- *    allowed it, the AI is set up for the website, and the machine is not already on as many AI
- *    calls as it can carry. Otherwise the call is missed, and the conversation says so.
+ *    allowed it and the AI is set up for the website; otherwise the call is missed, and the
+ *    conversation says so. When the AI is already on as many calls as the machine can carry, the
+ *    caller holds instead ("all lines are busy"): the team can still answer, and the AI takes
+ *    waiting calls oldest first as it frees up. A caller kept waiting too long ends as busy.
  *  - A transfer rings exactly one colleague, or the AI. Until they answer, the person who has the
  *    call keeps it; if they do not answer, the call goes back to that person with a notice. When
  *    they do, the one who transferred is removed from the room and the visitor hears nobody drop.
@@ -79,6 +81,17 @@ export const TRANSFER_RING_SECONDS = 20;
 export const ROOM_EMPTY_TIMEOUT_SECONDS = 120;
 /** A token's life. Long enough to click Answer and connect; far too short to keep. */
 const GRANT_TTL_SECONDS = 180;
+/** How often a call waiting for the AI asks again whether it is free. */
+export const AI_QUEUE_POLL_SECONDS = 3;
+/** The longest a caller is kept waiting for the AI after the ring, before the call ends as busy. */
+export const AI_QUEUE_MAX_SECONDS = 120;
+/**
+ * One decision at a time about handing a call to the AI, server-wide: two calls whose ring ran
+ * out in the same instant must not both take the last free place. Held for milliseconds; the
+ * expiry only matters if a process dies holding it.
+ */
+const AI_DISPATCH_LOCK = 'voice:ai:dispatch';
+const AI_DISPATCH_LOCK_MS = 5_000;
 
 export class CallService {
   private readonly clock: Clock;
@@ -196,11 +209,9 @@ export class CallService {
       return { call: await this.dto(call), join };
     }
 
-    // Nobody to ring. The AI takes it at once, or the call is missed on the spot.
-    const taken = await this.tryAi(call, settings.aiAnswers);
-    if (taken) return { call: await this.dto(taken), join };
-    const ended = await this.end(call, 'no_answer', { by: 'system' });
-    return { call: await this.dto(ended), join: null };
+    // Nobody to ring. The AI takes it at once, or it waits for the AI, or it is missed on the spot.
+    const next = await this.handToAi(call, settings.aiAnswers, 'no_answer');
+    return { call: await this.dto(next), join: next.status === 'ended' ? null : join };
   }
 
   /** The visitor hangs up: while it rings, or mid-call. */
@@ -316,6 +327,8 @@ export class CallService {
       handledByAi: false,
       pendingKind: null,
       pendingMemberId: null,
+      // A person picked up a caller who was holding for the AI: they are not waiting any more.
+      aiQueuedAt: null,
       ringSeq: call.ringSeq + 1,
       ...(call.answeredAt ? {} : { answeredAt: now }),
     });
@@ -413,9 +426,7 @@ export class CallService {
       return this.dto(await this.transferFailed(call, 'declined'));
     }
     const settings = await this.options.settings.forProperty(call.accountId, call.propertyId);
-    const taken = await this.tryAi(call, settings.aiAnswers);
-    if (taken) return this.dto(taken);
-    return this.dto(await this.end(call, 'declined', { by: 'system' }));
+    return this.dto(await this.handToAi(call, settings.aiAnswers, 'declined'));
   }
 
   /** The person on the call hangs up. */
@@ -466,21 +477,26 @@ export class CallService {
           'The AI agent is not included in your plan.',
         );
       }
-      if (!(await this.aiHasCapacity())) {
+      // Callers already holding for the AI go first; the person on this call can keep it.
+      const taken = await this.takeIfRoom(call, {
+        transferFrom: who.member(memberId),
+        before: async () => {
+          await this.options.store.addEvent({
+            accountId: call.accountId,
+            callId: call.id,
+            type: 'transfer_requested',
+            memberId,
+            data: { to: 'ai' },
+            now,
+          });
+        },
+      });
+      if (!taken) {
         throw new AppError(
           ErrorCode.TEMPORARILY_UNAVAILABLE,
           'The AI is on as many calls as it can take right now. Please try again in a moment.',
         );
       }
-      await this.options.store.addEvent({
-        accountId: call.accountId,
-        callId: call.id,
-        type: 'transfer_requested',
-        memberId,
-        data: { to: 'ai' },
-        now,
-      });
-      const taken = await this.dispatchAi(call, { transferFrom: who.member(memberId) });
       return this.dto(taken);
     }
 
@@ -647,6 +663,8 @@ export class CallService {
     const call = await this.options.store.getCall(accountId, callId);
     if (!call || call.status !== 'ringing' || call.ringSeq !== ringSeq || call.pendingKind !== null)
       return;
+    // Already waiting for the AI: its own timer looks after it from here.
+    if (call.aiQueuedAt) return;
     const now = this.clock.now();
     await this.options.store.addEvent({
       accountId: call.accountId,
@@ -660,8 +678,39 @@ export class CallService {
       return;
     }
     const settings = await this.options.settings.forProperty(call.accountId, call.propertyId);
-    const taken = await this.tryAi(call, settings.aiAnswers);
-    if (!taken) await this.end(call, 'no_answer', { by: 'system' });
+    await this.handToAi(call, settings.aiAnswers, 'no_answer');
+  }
+
+  /**
+   * A call waiting for the AI asks again. It is taken when the AI has room and nobody has been
+   * waiting longer; it ends as busy once it has waited the longest a caller is kept; otherwise it
+   * asks again in a few seconds. A person answering meanwhile moves the call on, and this does
+   * nothing.
+   */
+  async aiRetry(accountId: string, callId: string, ringSeq: number): Promise<void> {
+    const call = await this.options.store.getCall(accountId, callId);
+    if (
+      !call ||
+      call.status !== 'ringing' ||
+      call.ringSeq !== ringSeq ||
+      call.pendingKind !== null ||
+      !call.aiQueuedAt
+    )
+      return;
+    const settings = await this.options.settings.forProperty(call.accountId, call.propertyId);
+    if (!(await this.aiMayAnswer(call, settings.aiAnswers))) {
+      // The owner switched the AI off while the caller waited.
+      await this.end(call, 'no_answer', { by: 'system' });
+      return;
+    }
+    if (await this.takeIfRoom(call)) return;
+    const waitedMs = this.clock.now().getTime() - call.aiQueuedAt.getTime();
+    if (waitedMs >= AI_QUEUE_MAX_SECONDS * 1000) {
+      this.options.log?.('voice.ai.queue_gave_up', { callId: call.id, waitedMs });
+      await this.end(call, 'busy', { by: 'system' });
+      return;
+    }
+    await this.scheduleAiRetry(call);
   }
 
   /** The one person a call was transferred to did not answer in time. */
@@ -711,6 +760,7 @@ export class CallService {
       try {
         if (call.status === 'ringing') {
           if (call.pendingKind === 'member') await this.transferFailed(call, 'no_answer');
+          else if (call.aiQueuedAt) await this.aiRetry(call.accountId, call.id, call.ringSeq);
           else await this.ringTimeout(call.accountId, call.id, call.ringSeq);
         } else if (call.status === 'connecting') {
           await this.end(call, 'failed', { by: 'system' });
@@ -728,25 +778,116 @@ export class CallService {
 
   // ---------------------------------------------------------------------------
 
-  /** The AI takes the call if it is allowed to and there is room for it. */
-  private async tryAi(call: CallRow, aiAnswers: boolean): Promise<CallRow | null> {
-    if (!aiAnswers) return null;
+  /**
+   * Nobody took the call. The AI does if it may and has room; the caller holds for the AI if it
+   * may but is busy; otherwise the call ends for `reason`.
+   */
+  private async handToAi(
+    call: CallRow,
+    aiAnswers: boolean,
+    reason: 'no_answer' | 'declined',
+  ): Promise<CallRow> {
+    if (!(await this.aiMayAnswer(call, aiAnswers))) return this.end(call, reason, { by: 'system' });
+    const taken = await this.takeIfRoom(call);
+    if (taken) return taken;
+    this.options.log?.('voice.ai.no_capacity', { callId: call.id });
+    return this.queueForAi(call);
+  }
+
+  /** Whether the AI takes calls on this website at all: allowed by the owner, set up, in the plan. */
+  private async aiMayAnswer(call: CallRow, aiAnswers: boolean): Promise<boolean> {
+    if (!aiAnswers) return false;
     const [assistant, planIncludesAi] = await Promise.all([
       this.options.store.assistant(call.accountId, call.propertyId),
       this.options.entitlements.hasFeature(call.accountId, 'aiAgent'),
     ]);
-    if (!assistant.configured || !planIncludesAi) return null;
-    if (!(await this.aiHasCapacity())) {
-      this.options.log?.('voice.ai.no_capacity', { callId: call.id });
-      return null;
-    }
-    return this.dispatchAi(call, {});
+    return assistant.configured && planIncludesAi;
   }
 
+  /**
+   * Hand the call to the AI when it has a free place and no caller has been waiting for it
+   * longer. Null when it is busy. `before` runs inside the decision, just before the hand-over.
+   */
+  private async takeIfRoom(
+    call: CallRow,
+    options: { transferFrom?: string; before?: () => Promise<void> } = {},
+  ): Promise<CallRow | null> {
+    return this.withDispatchLock(async () => {
+      const ahead = await this.options.store.queuedForAiBefore(call.aiQueuedAt, call.id);
+      if (ahead > 0 || !(await this.aiHasCapacity())) return null;
+      await options.before?.();
+      return this.dispatchAi(
+        call,
+        options.transferFrom ? { transferFrom: options.transferFrom } : {},
+      );
+    });
+  }
+
+  /**
+   * Room for one more AI call. The record counts a call from the moment it is handed over; the
+   * voice agent's own count is the check on the record (a session the record already closed).
+   * The higher of the two decides.
+   */
   private async aiHasCapacity(): Promise<boolean> {
-    const raw = await this.options.redis.get(presenceKey.aiCalls());
-    const busy = raw ? Number.parseInt(raw, 10) || 0 : 0;
-    return busy < this.options.aiMaxCalls;
+    const [raw, committed] = await Promise.all([
+      this.options.redis.get(presenceKey.aiCalls()),
+      this.options.store.aiCallsInProgress(),
+    ]);
+    const running = raw ? Number.parseInt(raw, 10) || 0 : 0;
+    return Math.max(running, committed) < this.options.aiMaxCalls;
+  }
+
+  /** Run `work` holding the hand-over lock; null when the lock stayed taken for half a second. */
+  private async withDispatchLock<T>(work: () => Promise<T | null>): Promise<T | null> {
+    const token = crypto.randomUUID();
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const locked = await this.options.redis.set(
+        AI_DISPATCH_LOCK,
+        token,
+        'PX',
+        AI_DISPATCH_LOCK_MS,
+        'NX',
+      );
+      if (locked === 'OK') {
+        try {
+          return await work();
+        } finally {
+          if ((await this.options.redis.get(AI_DISPATCH_LOCK)) === token)
+            await this.options.redis.del(AI_DISPATCH_LOCK);
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    this.options.log?.('voice.ai.dispatch_lock_busy', {});
+    return null;
+  }
+
+  /**
+   * The AI is busy: the caller holds ("all lines are busy"), the team can still answer, and the
+   * call asks again every few seconds. Waiting already, it keeps its place and its timer.
+   */
+  private async queueForAi(call: CallRow): Promise<CallRow> {
+    if (call.aiQueuedAt) return call;
+    const now = this.clock.now();
+    const updated = await this.options.store.updateCall(call.id, { aiQueuedAt: now });
+    await this.options.store.addEvent({
+      accountId: call.accountId,
+      callId: call.id,
+      type: 'ai_queued',
+      now,
+    });
+    await this.scheduleAiRetry(updated);
+    await this.publish(updated);
+    this.options.log?.('voice.ai.queued', { callId: call.id });
+    return updated;
+  }
+
+  private async scheduleAiRetry(call: CallRow): Promise<void> {
+    await this.options.queue.enqueue(
+      VoiceJob.AI_RETRY,
+      { accountId: call.accountId, callId: call.id, ringSeq: call.ringSeq },
+      { delay: AI_QUEUE_POLL_SECONDS * 1000, attempts: 1 },
+    );
   }
 
   /**
@@ -770,6 +911,7 @@ export class CallService {
       answeredByMemberId: null,
       pendingKind: options.transferFrom ? 'ai' : null,
       pendingMemberId: null,
+      aiQueuedAt: null,
       ringSeq: call.ringSeq + 1,
       ...(call.answeredAt ? {} : { answeredAt: now }),
     });
@@ -1093,6 +1235,7 @@ export class CallService {
           : call.pendingKind === 'member' && call.pendingMemberId
             ? { kind: 'member', memberId: call.pendingMemberId, name: pendingMember?.name ?? null }
             : null,
+      queuedAt: call.status === 'ringing' ? (call.aiQueuedAt?.toISOString() ?? null) : null,
       visitor: { name: visitor?.name ?? null, email: visitor?.email ?? null },
       language: call.language === 'bn' || call.language === 'en' ? call.language : null,
       startedAt: call.startedAt.toISOString(),

@@ -136,6 +136,9 @@ A call is announced the way a conversation is: the whole state, every time it ch
   machine; the socket is how everybody else learns about it.
 - The key to the media room is never broadcast. It is returned to the one party that asked for it,
   in the HTTP response, and it opens one room for one identity for a few minutes.
+- A caller holding for a busy AI is a `ringing` call with `queuedAt` set (VOICE.md, step 4). It is
+  still answerable; the agents' card says the caller is holding, and the widget says the lines are
+  busy. `queuedAt` is null on every other state.
 
 ## 6. Reconnect and resync
 

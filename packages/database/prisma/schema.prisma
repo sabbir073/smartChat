@@ -2412,8 +2412,10 @@ enum CallLegKind {
 
 enum CallEndReason {
   completed
-  /// Nobody answered and the AI could not take it (off, over capacity, or out of minutes).
+  /// Nobody answered and the AI may not take calls here (switched off, not set up, not in the plan).
   no_answer
+  /// Nobody answered and the AI stayed on other calls for as long as the caller was kept waiting.
+  busy
   /// The visitor hung up while it was still ringing.
   cancelled
   /// Every agent who was rung pressed decline.
@@ -2438,6 +2440,8 @@ enum CallEventType {
   transfer_failed
   ai_joined
   ai_left
+  /// The AI was on as many calls as it may take; this one started waiting for it.
+  ai_queued
   ended
   error
 
@@ -2501,6 +2505,10 @@ model Call {
   ringSeq            Int          @default(0) @map("ring_seq")
   /// The language the AI last heard, for the next greeting and the record.
   language           String?
+  /// Since when the call has been waiting for the AI: nobody answered and the AI was on as many
+  /// calls as the machine can carry. The caller holds, the team can still answer, and the AI
+  /// takes waiting calls oldest first as it frees up. Null when the call is not waiting.
+  aiQueuedAt         DateTime?    @map("ai_queued_at") @db.Timestamptz(6)
 
   startedAt       DateTime       @default(now()) @map("started_at") @db.Timestamptz(6)
   answeredAt      DateTime?      @map("answered_at") @db.Timestamptz(6)
@@ -2526,6 +2534,9 @@ model Call {
   // The inbox's ringing and live calls, and the call history per website.
   @@index([accountId, propertyId, status, startedAt(sort: Desc)])
   @@index([accountId, status])
+  // Server-wide, across accounts: how many calls the AI is on, and who is waiting for it.
+  @@index([status, handledByAi])
+  @@index([status, aiQueuedAt])
   @@index([conversationId, startedAt(sort: Desc)])
   // The monthly minutes.
   @@index([accountId, startedAt(sort: Desc)])

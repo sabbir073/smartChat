@@ -48,6 +48,17 @@ export interface CallStore {
   ): Promise<CallRow[]>;
   /** Calls that look stuck: ringing or connecting for too long, or active far past the limit. */
   staleCalls(now: Date): Promise<CallRow[]>;
+  /**
+   * Calls the AI has right now, server-wide: handed to it and not over, whether it is still
+   * joining, talking, or ringing the team on the caller's behalf. The record, not the voice
+   * agent's own count - a call handed over a moment ago counts before the agent has picked it up.
+   */
+  aiCallsInProgress(): Promise<number>;
+  /**
+   * Calls waiting for the AI, server-wide, other than `exceptCallId`: those that started waiting
+   * before `since`, or all of them when `since` is null (a call that is not waiting itself).
+   */
+  queuedForAiBefore(since: Date | null, exceptCallId: string): Promise<number>;
 
   createLeg(data: {
     accountId: string;
@@ -167,6 +178,22 @@ export class PrismaCallStore implements CallStore {
         ],
       },
       take: 200,
+    });
+  }
+
+  aiCallsInProgress(): Promise<number> {
+    return this.db.call.count({
+      where: { status: { in: ['ringing', 'connecting', 'active'] }, handledByAi: true },
+    });
+  }
+
+  queuedForAiBefore(since: Date | null, exceptCallId: string): Promise<number> {
+    return this.db.call.count({
+      where: {
+        status: 'ringing',
+        aiQueuedAt: since ? { lt: since } : { not: null },
+        id: { not: exceptCallId },
+      },
     });
   }
 

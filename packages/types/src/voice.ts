@@ -20,7 +20,10 @@ export type CallLegKind = 'visitor' | 'member' | 'ai';
 
 export type CallEndReason =
   | 'completed'
+  /** Nobody answered and the AI may not take calls on this website. */
   | 'no_answer'
+  /** Nobody answered and the AI stayed busy on other calls for as long as the caller waited. */
+  | 'busy'
   | 'cancelled'
   | 'declined'
   | 'visitor_left'
@@ -45,6 +48,12 @@ export interface CallDto {
   handledByAi: boolean;
   /** During a transfer: who is being rung. */
   pending: { kind: 'member'; memberId: string; name: string | null } | { kind: 'ai' } | null;
+  /**
+   * Since when the call has been waiting for the AI, which was on as many calls as it may take
+   * when nobody answered. The caller holds (the widget says the lines are busy), the team can
+   * still answer, and the AI takes waiting calls oldest first. Null when not waiting.
+   */
+  queuedAt: string | null;
   /** The visitor as the chat head shows them. Claims from the pre-chat form, never authorisation. */
   visitor: { name: string | null; email: string | null };
   language: VoiceLanguage | null;

@@ -21,6 +21,7 @@ function dto(overrides: Partial<CallDto> = {}): CallDto {
     answeredByName: null,
     handledByAi: false,
     pending: null,
+    queuedAt: null,
     visitor: { name: null, email: null },
     language: null,
     startedAt: '2026-10-05T10:00:00.000Z',

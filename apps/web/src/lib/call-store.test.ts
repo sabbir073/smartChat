@@ -34,6 +34,7 @@ function call(overrides: Partial<CallDto> = {}): CallDto {
     answeredByName: null,
     handledByAi: false,
     pending: null,
+    queuedAt: null,
     visitor: { name: 'Rahim', email: 'rahim@example.com' },
     language: 'bn',
     startedAt: '2026-10-05T10:00:00.000Z',
@@ -209,6 +210,17 @@ describe('who a ringing call is shown to', () => {
     expect(incomingTitle(askingForPerson)).toBe('Mira is asking for a person');
     expect(barView(askingForPerson, ME)).toMatchObject({
       label: 'Mira is asking for a person · ringing the team…',
+      answerable: true,
+    });
+  });
+
+  it('keeps a caller who is holding for a busy AI answerable, and says why it still rings', () => {
+    const holding = call({ status: 'ringing', queuedAt: '2026-10-05T10:00:25.000Z' });
+    expect(ringsForMe(holding, ME)).toBe(true);
+    expect(incomingTitle(holding)).toBe('Caller holding · the AI is busy');
+    expect(listBadge(holding)).toBe('Holding');
+    expect(barView(holding, ME)).toMatchObject({
+      label: 'Holding for the AI, which is on other calls · answer to take it',
       answerable: true,
     });
   });

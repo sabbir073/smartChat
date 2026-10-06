@@ -32,9 +32,16 @@ Calling is included from the Growth plan, with a monthly allowance of call minut
    per ring round; the winner gets a key; everyone else gets 409 and the card says "taken".
 3. The call is `connecting` until both the visitor and the answerer are in the room (the media
    webhook, or `POST .../joined` from either client), then `active`.
-4. Ring timeout: the AI takes the call if the website allows it, the AI is configured, the plan
-   has the AI agent, and the AI is under its server-wide cap (`VOICE_AI_MAX_CALLS`). Otherwise the
-   call is missed (`call.missed`).
+4. Ring timeout: the AI takes the call if the website allows it, the AI is configured and the
+   plan has the AI agent; if not, the call is missed (`call.missed`, reason `no_answer`). When the
+   AI is already on as many calls as its server-wide cap (`VOICE_AI_MAX_CALLS`), the caller holds
+   instead: the call stays `ringing` with `queuedAt` set, the widget says "All our lines are busy
+   — please hold", the team can still answer it, and a `voice.ai_retry` job asks again every 3 s.
+   The AI takes holding callers oldest first; a caller still holding after 120 s is ended with
+   reason `busy` ("All our lines are busy — please try again soon"). Each hand-over is decided
+   under one Redis lock, counting the AI's calls from the record (handed over and not ended) as
+   well as the voice agent's own count, so two calls whose ring ran out together cannot both take
+   the last place. A transfer to the AI does not overtake callers who are holding.
 5. Transfer: `POST /calls/:id/transfer {to:'member', memberId}` rings that one person for 20 s;
    the sender keeps the call until they answer; a decline or timeout brings it back with a
    `transfer_failed` event. `{to:'ai'}` makes the AI join first; the sender is removed from the
@@ -96,7 +103,9 @@ restart, and keep the previous image tag at hand (DEPLOYMENT.md, rollback).
 Human-to-human calls cost the media server almost nothing. An AI call costs a few seconds of CPU
 per turn - recognition, the model, synthesis - which is why `VOICE_AI_MAX_CALLS` defaults to one
 on a 12-core machine shared with the chat's own model. A call that arrives when the AI is at its
-cap rings the team as usual and is missed if nobody answers, with the reason in the log. A GPU
+cap rings the team as usual and, if nobody answers, holds for the AI (step 4 above) rather than
+being dropped; the log says `voice.ai.queued`, and `voice.ai.queue_gave_up` when a caller waited
+the full two minutes - the sign that the cap is too low for the traffic. A GPU
 later changes two things and nothing else: the speech service's provider (`SPEECH_PROVIDER=cuda`)
 and the model container, both of which can also move to another machine by changing their URLs.
 

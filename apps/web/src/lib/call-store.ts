@@ -94,7 +94,8 @@ export function liveByConversation(calls: CallMap): Map<string, CallDto> {
 export function listBadge(call: CallDto): string | null {
   switch (call.status) {
     case 'ringing':
-      return call.pending ? 'Transferring' : 'Ringing';
+      if (call.pending) return 'Transferring';
+      return call.queuedAt ? 'Holding' : 'Ringing';
     case 'connecting':
     case 'active':
       if (call.handledByAi) return 'AI on call';
@@ -113,6 +114,8 @@ export function incomingTitle(call: CallDto): string {
     return call.answeredByName
       ? `${call.answeredByName} is asking for a person`
       : 'The AI is asking for a person';
+  // Nobody answered and the AI is on other calls: the caller is still holding, alone.
+  if (call.queuedAt) return 'Caller holding · the AI is busy';
   return 'Incoming call';
 }
 
@@ -165,7 +168,9 @@ export function barView(call: CallDto, me: string | null): BarView {
       return {
         label: call.handledByAi
           ? `${call.answeredByName ?? 'The AI'} is asking for a person · ringing the team…`
-          : 'Ringing the team…',
+          : call.queuedAt
+            ? 'Holding for the AI, which is on other calls · answer to take it'
+            : 'Ringing the team…',
         clock: false,
         mine: false,
         answerable: ringsForMe(call, me),

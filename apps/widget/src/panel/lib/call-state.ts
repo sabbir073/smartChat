@@ -251,6 +251,8 @@ export function endedText(call: CallDto): string {
   switch (call.endReason) {
     case 'no_answer':
       return 'Nobody is available right now — leave a message below';
+    case 'busy':
+      return 'All our lines are busy — please try again soon, or leave a message below';
     case 'cancelled':
       return 'Call cancelled';
     case 'failed':
@@ -278,7 +280,9 @@ export function liveText(phase: Extract<CallPhase, { kind: 'live' }>): string {
   switch (call.status) {
     case 'ringing':
       // Rung on the visitor's behalf by the assistant, who keeps talking meanwhile.
-      return call.answeredAt ? 'Finding someone for you…' : 'Calling…';
+      if (call.answeredAt) return 'Finding someone for you…';
+      // Nobody picked up and the assistant is on other calls: the caller holds for it.
+      return call.queuedAt ? 'All our lines are busy — please hold…' : 'Calling…';
     case 'connecting':
       return 'Connecting…';
     case 'active':

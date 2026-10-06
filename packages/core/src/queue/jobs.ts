@@ -131,6 +131,8 @@ export const VoiceJob = {
   TRANSFER_TIMEOUT: 'voice.transfer_timeout',
   /** The AI should join a call's room and talk. Consumed by the voice agent, not the worker. */
   AI_JOIN: 'voice.ai_join',
+  /** A call waiting for the AI asks again whether it is free (or gives up after the longest wait). */
+  AI_RETRY: 'voice.ai_retry',
   /** Every minute: end calls whose parties vanished without a word (a closed laptop, a crash). */
   SWEEP: 'voice.sweep',
 } as const;
@@ -208,6 +210,7 @@ export type JobPayloadMap = {
   [VoiceJob.RING_TIMEOUT]: VoiceRingTimeoutPayload;
   [VoiceJob.TRANSFER_TIMEOUT]: VoiceRingTimeoutPayload;
   [VoiceJob.AI_JOIN]: VoiceAiJoinPayload;
+  [VoiceJob.AI_RETRY]: VoiceRingTimeoutPayload;
   [VoiceJob.SWEEP]: Record<string, never>;
 };
 

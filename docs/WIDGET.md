@@ -160,8 +160,10 @@ untouched. Lines spoken on an AI call appear in the transcript with a small micr
 call's milestones (started, answered, transferred, ended, missed) are system messages.
 
 A denied microphone, a lost connection, a missed call and an exhausted plan each have one plain
-sentence in the bar. On iOS, audio that the browser refuses to start without a tap gets a
-"Tap to hear" button.
+sentence in the bar. While the caller holds for an AI that is on other calls, the bar says "All
+our lines are busy — please hold…" and the ringback goes on; if the wait runs out, it says the
+lines are busy rather than that nobody is available. On iOS, audio that the browser refuses to
+start without a tap gets a "Tap to hear" button.
 
 ## 6. Domain security
 

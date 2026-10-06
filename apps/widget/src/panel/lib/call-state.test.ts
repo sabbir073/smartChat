@@ -28,6 +28,7 @@ function dto(overrides: Partial<CallDto> = {}): CallDto {
     answeredByName: null,
     handledByAi: false,
     pending: null,
+    queuedAt: null,
     visitor: { name: null, email: null },
     language: null,
     startedAt: '2026-10-05T10:00:00.000Z',
@@ -289,6 +290,11 @@ describe('wording', () => {
   it('says what the bar says in each live state', () => {
     expect(liveText(live(dto()) as Extract<CallPhase, { kind: 'live' }>)).toBe('Calling…');
     expect(
+      liveText(
+        live(dto({ queuedAt: '2026-10-05T10:00:25.000Z' })) as Extract<CallPhase, { kind: 'live' }>,
+      ),
+    ).toBe('All our lines are busy — please hold…');
+    expect(
       liveText(live(dto({ status: 'connecting' })) as Extract<CallPhase, { kind: 'live' }>),
     ).toBe('Connecting…');
     expect(liveText(live(answered()) as Extract<CallPhase, { kind: 'live' }>)).toBe(
@@ -347,6 +353,9 @@ describe('wording', () => {
   it('says why a call ended', () => {
     expect(endedText(dto({ status: 'ended', endReason: 'no_answer' }))).toBe(
       'Nobody is available right now — leave a message below',
+    );
+    expect(endedText(dto({ status: 'ended', endReason: 'busy' }))).toBe(
+      'All our lines are busy — please try again soon, or leave a message below',
     );
     expect(endedText(dto({ status: 'ended', endReason: 'declined' }))).toBe('Missed call');
     expect(endedText(dto({ status: 'ended', endReason: 'cancelled' }))).toBe('Call cancelled');

@@ -36,6 +36,7 @@ const QUEUE_FOR_JOB: Record<JobName, QueueName> = {
   'voice.ring_timeout': QueueName.VOICE,
   'voice.transfer_timeout': QueueName.VOICE,
   'voice.ai_join': QueueName.VOICE_AI,
+  'voice.ai_retry': QueueName.VOICE,
   'voice.sweep': QueueName.VOICE,
 };
 
