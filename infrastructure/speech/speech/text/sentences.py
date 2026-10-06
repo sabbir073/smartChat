@@ -14,12 +14,26 @@ from dataclasses import dataclass
 
 MAX_SENTENCE_CHARS = 300
 MIN_SENTENCE_CHARS = 2
+# The caller hears nothing until the first piece is rendered, and rendering takes roughly half
+# as long as the audio lasts on this CPU - a 200-character sentence kept a caller waiting nine
+# seconds. So the opening piece is short and each following one may be half as long again as
+# the last: every piece renders while the ones before it are still playing.
+FIRST_PIECE_CHARS = 70
+PIECE_GROWTH = 1.5
+# Shorter than this is not worth a piece of its own: the pause costs more than it saves.
+MIN_PIECE_CHARS = 20
 
 # A sentence ends at a danda, full stop, question or exclamation mark (any number of them,
 # optionally followed by a closing quote or bracket) that is followed by whitespace, or at a
 # newline. "1.5" never splits because no whitespace follows its dot.
 _SENTENCE_END_RE = re.compile(r"(?<=[।.?!])[\"'”’)\]]*\s+|\n+")
 _CLAUSE_SPLIT_RE = re.compile(r"(?<=[,;:،])\s+")
+# Where a long opening sentence with no comma can still be broken without sounding broken:
+# before a conjunction or a preposition that starts a new phrase.
+_PHRASE_BREAK_RE = re.compile(
+    r"\s+(?=(?:and|or|but|for|with|to|in|on|at|from|that|which|because|so|এবং|ও|আর|কিন্তু|তবে|যা|যে|কারণ|জন্য)\s)",
+    re.IGNORECASE,
+)
 _ABBREVIATION_RE = re.compile(r"(?:^|\s)(?:Dr|Mr|Mrs|Ms|Prof|St|No|vs|etc|e\.g|i\.e|approx|Tk|Rs|ডা|মো|মোঃ|জনাব)\.$", re.IGNORECASE)
 _SPEAKABLE_RE = re.compile(r"[^\W_]", re.UNICODE)
 
@@ -36,8 +50,16 @@ class Run:
     text: str
 
 
-def split_sentences(text: str, max_chars: int = MAX_SENTENCE_CHARS) -> list[str]:
-    """Sentences of at least two speakable characters, none longer than `max_chars`."""
+def split_sentences(
+    text: str,
+    max_chars: int = MAX_SENTENCE_CHARS,
+    first_chars: int = FIRST_PIECE_CHARS,
+) -> list[str]:
+    """
+    The pieces a reply is rendered in, in order: sentences of at least two speakable characters,
+    none longer than `max_chars`, with long ones broken at clause boundaries into pieces that
+    start at `first_chars` and grow by half each time (see FIRST_PIECE_CHARS).
+    """
     sentences: list[str] = []
     for raw in _SENTENCE_END_RE.split(text):
         candidate = raw.strip()
@@ -52,8 +74,51 @@ def split_sentences(text: str, max_chars: int = MAX_SENTENCE_CHARS) -> list[str]
     for sentence in sentences:
         if len(sentence) < MIN_SENTENCE_CHARS or not _SPEAKABLE_RE.search(sentence):
             continue
-        out.extend(_cap(sentence, max_chars))
+        rest = sentence
+        while rest:
+            soft = min(max_chars, int(first_chars * PIECE_GROWTH ** len(out)))
+            if len(rest) <= soft:
+                out.append(rest)
+                break
+            # Only the opening piece may break at a phrase rather than a comma, and only when
+            # the alternative is a long silence: everywhere else a comma is the only clean cut.
+            head = _head(rest, soft, phrases=not out and len(rest) > 1.6 * soft)
+            if head is None:
+                out.extend(_cap(rest, max_chars))
+                break
+            out.append(head)
+            rest = rest[len(head) :].strip()
+            if len(rest) < MIN_SENTENCE_CHARS or not _SPEAKABLE_RE.search(rest):
+                break
     return out
+
+
+def _head(sentence: str, limit: int, phrases: bool) -> str | None:
+    """
+    The longest opening of `sentence` that ends at a clause boundary and is at most `limit`
+    characters (and at least MIN_PIECE_CHARS), or None when there is no such boundary. With
+    `phrases`, a break before a conjunction or preposition counts as a boundary too.
+    """
+    best: int | None = None
+    for match in _CLAUSE_SPLIT_RE.finditer(sentence):
+        end = match.start()  # just after the comma, before the space
+        if end > limit:
+            break
+        if end >= MIN_PIECE_CHARS:
+            best = end
+    if best is None and phrases:
+        for match in _PHRASE_BREAK_RE.finditer(sentence):
+            end = match.start()
+            if end > limit:
+                break
+            if end >= MIN_PIECE_CHARS:
+                best = end
+    if best is None:
+        return None
+    # Leave nothing too short behind to be spoken on its own.
+    if len(sentence) - best < MIN_PIECE_CHARS:
+        return None
+    return sentence[:best].strip()
 
 
 def _cap(sentence: str, max_chars: int) -> list[str]:

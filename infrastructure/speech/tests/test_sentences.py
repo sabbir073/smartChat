@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from speech.text.sentences import MAX_SENTENCE_CHARS, Run, script_of, split_script_runs, split_sentences
+from speech.text.sentences import FIRST_PIECE_CHARS, MAX_SENTENCE_CHARS, Run, script_of, split_script_runs, split_sentences
 
 
 def test_splits_on_danda_full_stop_question_exclamation_and_newlines() -> None:
@@ -39,6 +39,50 @@ def test_long_sentence_without_commas_is_cut_at_spaces() -> None:
     assert len(pieces) == 2
     assert all(len(p) <= MAX_SENTENCE_CHARS for p in pieces)
     assert " ".join(pieces) == words
+
+
+def test_a_long_opening_sentence_starts_with_a_short_piece_cut_at_a_comma() -> None:
+    # A real answer from the live service: 212 characters, one sentence, nine seconds of
+    # rendering before the caller heard a word. Now the first piece is a clause.
+    answer = (
+        "Smart Lab Global offers a wide range of services, including custom software development, "
+        "artificial intelligence solutions, cloud solutions, AR and VR experiences, and digital "
+        "marketing to help businesses grow."
+    )
+    pieces = split_sentences(answer)
+    assert pieces[0] == "Smart Lab Global offers a wide range of services,"
+    assert len(pieces[0]) <= FIRST_PIECE_CHARS
+    assert all(len(piece) <= MAX_SENTENCE_CHARS for piece in pieces)
+    assert " ".join(pieces) == answer
+
+
+def test_a_long_opening_without_commas_breaks_before_a_phrase() -> None:
+    text = (
+        "Smart Lab Global offers custom software development and AI solutions for businesses of "
+        "all sizes across Bangladesh and the world. We also build mobile apps."
+    )
+    pieces = split_sentences(text)
+    assert pieces[0] == "Smart Lab Global offers custom software development and AI solutions"
+    assert pieces[1] == "for businesses of all sizes across Bangladesh and the world."
+    assert pieces[2] == "We also build mobile apps."
+
+
+def test_short_sentences_and_bengali_clauses() -> None:
+    assert split_sentences("Sure. Our office is in Dhaka. You can visit us any weekday.") == [
+        "Sure.",
+        "Our office is in Dhaka.",
+        "You can visit us any weekday.",
+    ]
+    bengali = "স্মার্ট ল্যাব গ্লোবাল কাস্টম সফটওয়্যার ডেভেলপমেন্ট, কৃত্রিম বুদ্ধিমত্তা সমাধান, ক্লাউড সমাধান এবং ডিজিটাল মার্কেটিং সেবা দেয়।"
+    pieces = split_sentences(bengali)
+    assert pieces[0] == "স্মার্ট ল্যাব গ্লোবাল কাস্টম সফটওয়্যার ডেভেলপমেন্ট,"
+    assert " ".join(pieces) == bengali
+
+
+def test_no_piece_is_left_too_short_to_stand_alone() -> None:
+    # Breaking at the comma would leave three words to be spoken on their own after a pause.
+    text = "We build websites, mobile apps and custom software for companies of every size, mostly."
+    assert all(len(piece) >= 20 for piece in split_sentences(text))
 
 
 def test_script_of() -> None:
