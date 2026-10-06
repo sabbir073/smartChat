@@ -6,6 +6,7 @@ import {
   ServerEvent,
   room,
   type TenantContext,
+  type VoiceLanguage,
 } from '@smartchat/types';
 import type { EntitlementService } from '../billing/entitlements.js';
 import { toMessageDto, type EventPublisher } from '../realtime/events.js';
@@ -100,7 +101,13 @@ export interface VoiceTurnOutcome {
  * right one in front of the model nearly every time; the history is what was just said.
  */
 const VOICE_BUDGET = { totalTokens: 3_200, passageTokens: 500, historyTokens: 250 };
-const VOICE_MAX_TOKENS = 160;
+/**
+ * The cap on a spoken reply, JSON wrapper included, by language. A cap, not a target: the model
+ * stops when its two sentences are done. Bengali needs about three times the tokens English does
+ * for the same sentence, and at 160 two short Bengali sentences were cut off mid-JSON on the live
+ * server - the caller heard a ticket offer instead of the office address.
+ */
+export const VOICE_MAX_TOKENS: Record<VoiceLanguage, number> = { en: 200, bn: 400 };
 
 const MAX_HISTORY_MESSAGES = 10;
 const MAX_QUESTION_CHARS = 2_000;
@@ -716,7 +723,7 @@ export class AiReplyService {
         {
           messages: prompt.messages,
           schema: REPLY_SCHEMA,
-          maxTokens: VOICE_MAX_TOKENS,
+          maxTokens: VOICE_MAX_TOKENS[input.language],
           temperature: 0.2,
         },
         { accountId: input.accountId },
